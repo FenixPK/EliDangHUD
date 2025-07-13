@@ -147,32 +147,135 @@ namespace EliDangHUD
 			}
 		}
 
-//		public IMyRadioAntenna CheckAndModifyAntennaProperties(IMyCubeGrid grid)
-//		{
-//			// Get all blocks of type IMyRadioAntenna
-//			//var antennas = new List<IMyTerminalBlock>();
-//			//grid.GetBlocksOfType<IMyRadioAntenna>(antennas);
-//			//grid.GetBlocks<IMyRadioAntenna> (antennas);
-//
-//			var antennas = new List<IMyRadioAntenna>();
-//			grid.GetBlocks(antennas, (antennas);
-//
-//			foreach (IMyRadioAntenna antenna in antennas)
-//			{
-//				if (antenna != null && antenna.IsFunctional && antenna.Enabled)
-//				{
-//					// Check if the antenna is broadcasting
-//					if (antenna.IsBroadcasting)
-//					{
-//						return antenna;
-//					}
-//				}
-//			}
-//
-//			return null;
-//		}
+		//		public IMyRadioAntenna CheckAndModifyAntennaProperties(IMyCubeGrid grid)
+		//		{
+		//			// Get all blocks of type IMyRadioAntenna
+		//			//var antennas = new List<IMyTerminalBlock>();
+		//			//grid.GetBlocksOfType<IMyRadioAntenna>(antennas);
+		//			//grid.GetBlocks<IMyRadioAntenna> (antennas);
+		//
+		//			var antennas = new List<IMyRadioAntenna>();
+		//			grid.GetBlocks(antennas, (antennas);
+		//
+		//			foreach (IMyRadioAntenna antenna in antennas)
+		//			{
+		//				if (antenna != null && antenna.IsFunctional && antenna.Enabled)
+		//				{
+		//					// Check if the antenna is broadcasting
+		//					if (antenna.IsBroadcasting)
+		//					{
+		//						return antenna;
+		//					}
+		//				}
+		//			}
+		//
+		//			return null;
+		//		}
 
-		public bool GridHasAntenna(IMyCubeGrid grid)
+		public bool GridHasPassiveAntenna(IMyCubeGrid grid) 
+		{
+            IEnumerable<IMyRadioAntenna> antennas = grid.GetFatBlocks<IMyRadioAntenna>();
+            int count = 0;
+            foreach (var i in antennas)
+            {
+                foreach (IMyRadioAntenna antenna in antennas)
+                {
+                    if (antenna.IsWorking)
+                    {
+						if (!i.CustomData.Contains("[NORADAR]"))
+						{ 
+							count++;
+						}
+                    }
+                }
+            }
+            if (count > 0) // If we have any powered+functional antennas that are not flagged as [NORADAR] then we can receive passive signals. 
+            {
+                return true;
+            }
+            return false;
+        }
+
+		public bool GridHasActiveAntenna(IMyCubeGrid grid) 
+		{
+            IEnumerable<IMyRadioAntenna> antennas = grid.GetFatBlocks<IMyRadioAntenna>();
+            int count = 0;
+            foreach (var i in antennas)
+            {
+                foreach (IMyRadioAntenna antenna in antennas)
+                {
+                    if (antenna.IsWorking && antenna.IsBroadcasting)
+                    {
+                        if (!i.CustomData.Contains("[NORADAR]"))
+                        {
+                            count++;
+                        }
+                    }
+                }
+            }
+            if (count > 0) // If we have any powerd+functional+active/broadcasting antennas that are not flagged as [NORADAR] then we can send active signals. 
+            {
+                return true;
+            }
+            return false;
+        }
+
+		public double GridActiveAntennaRange(IMyCubeGrid grid)
+		{
+            IEnumerable<IMyRadioAntenna> antennas = grid.GetFatBlocks<IMyRadioAntenna>();
+			double maxRange = 0.0;
+            foreach (var i in antennas)
+            {
+                foreach (IMyRadioAntenna antenna in antennas)
+                {
+                    if (antenna.IsWorking && antenna.IsBroadcasting)
+                    {
+                        if (!i.CustomData.Contains("[NORADAR]"))
+                        {
+							maxRange = Math.Max(maxRange, i.Radius);
+                        }
+                    }
+                }
+            }
+            return maxRange;
+        }
+
+		/// <summary>
+		/// Skips antennas tagged as [NORADAR]. Checks a grid for passive radar: any antenna that is functional/powered. Checks a grid for active radar: any antenna that is functional/powered, and broadcasting. Returns max active range if present.
+		/// </summary>
+		/// <param name="grid">The grid to check</param>
+		/// <param name="hasPassive">Does the grid have passive radar capability?</param>
+		/// <param name="hasActive">Does the grid have active radar turned on?</param>
+		/// <param name="maxActiveRange">Active radar range if on.</param>
+        public void EvaluateGridAntennaStatus(IMyCubeGrid grid, out bool hasPassive, out bool hasActive, out double maxActiveRange)
+        {
+            hasPassive = false;
+            hasActive = false;
+            maxActiveRange = 0.0;
+
+            var antennas = grid.GetFatBlocks<IMyRadioAntenna>();
+
+            foreach (var antenna in antennas)
+            {
+                if (!antenna.IsWorking)
+                    continue;
+
+                if (antenna.CustomData.Contains("[NORADAR]"))
+                    continue;
+
+                hasPassive = true;
+
+                if (antenna.IsBroadcasting)
+                {
+                    hasActive = true;
+                    if (antenna.Radius > maxActiveRange)
+                        maxActiveRange = antenna.Radius;
+                }
+            }
+        }
+
+
+        public bool GridHasAntenna(IMyCubeGrid grid)
 		{
 			IEnumerable<IMyRadioAntenna> antennas = grid.GetFatBlocks<IMyRadioAntenna>();
 
@@ -355,8 +458,18 @@ namespace EliDangHUD
 		private double remainingH2_prev = 0;
 		public float H2Ratio = 0;
 
-		//============ H 2 =========================================================
-		private void CalculateHydrogenTime()
+        //============ H 2 =========================================================
+
+        bool IsHydrogenTank(IMyGasTank tank)
+        {
+			// If a block can store something and has a capacity, and it mentions hydrogen, assume it's a hydrogen tank. 
+            return tank.Capacity > 0 &&
+                   (tank.DetailedInfo.Contains("Hydrogen") ||
+                    tank.DefinitionDisplayNameText.Contains("Hydrogen") ||
+                    tank.BlockDefinition.SubtypeName.Contains("Hydrogen"));
+        }
+
+        private void CalculateHydrogenTime()
 		{
 			var grids = new List<IMyCubeGrid>();
 			MyAPIGateway.GridGroups.GetGroup(MyAPIGateway.Session.LocalHumanPlayer.Controller.ControlledEntity.Entity.GetTopMostParent() as IMyCubeGrid, GridLinkTypeEnum.Logical, grids);
@@ -375,8 +488,8 @@ namespace EliDangHUD
 					if (block.FatBlock is IMyGasTank)
 					{
 						IMyGasTank tank = block.FatBlock as IMyGasTank;
-						if(tank.BlockDefinition.SubtypeName.Contains("HydrogenTank") && tank.IsWorking)
-							{
+						if(tank.IsWorking && IsHydrogenTank(tank))
+                        {
 								totalCapacity += tank.Capacity;
 								currentHydrogen += tank.Capacity * tank.FilledRatio;
 							}

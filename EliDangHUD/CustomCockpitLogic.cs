@@ -38,16 +38,20 @@ public class CustomCockpitLogic : MyGameLogicComponent
 		}
 	}
 
-	private static bool IsMainCockPit(IMyTerminalBlock block){
-		var cockpit = block as IMyCockpit;
-		if(GridHasAntenna(block)){
-			return cockpit.IsMainCockpit;
-		}else{
-			return false;
-		}
-	}
 
-	public static bool GridHasAntenna(IMyTerminalBlock block)
+    private static bool IsEligibleCockpit(IMyTerminalBlock block)
+    {
+		IMyCockpit cockpit = block as IMyCockpit;
+		if (cockpit == null || !GridHasAntenna(block))
+		{ 
+			return false; 
+		}
+        return cockpit.CustomName.Contains("[ELI_HUD]");
+    }
+
+    
+
+    public static bool GridHasAntenna(IMyTerminalBlock block)
 	{
 		IEnumerable<IMyRadioAntenna> antennas = block.CubeGrid.GetFatBlocks<IMyRadioAntenna>();
 
@@ -98,7 +102,7 @@ public class CustomCockpitLogic : MyGameLogicComponent
 			var c = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, IMyCockpit>("AntennaScannerE");
 			c.Label = MyStringId.GetOrCompute("Antenna Scanner : Enabled");
 			c.SupportsMultipleBlocks = true;
-			c.Visible = block => IsMainCockPit(block);
+			c.Visible = block => IsEligibleCockpit(block);
 
 			MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(c);
 		}
@@ -106,7 +110,7 @@ public class CustomCockpitLogic : MyGameLogicComponent
 			var c = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, IMyCockpit>("AntennaScannerD");
 			c.Label = MyStringId.GetOrCompute("Antenna Scanner : Disabled");
 			c.SupportsMultipleBlocks = true;
-			c.Visible = block => !IsMainCockPit(block);
+			c.Visible = block => !IsEligibleCockpit(block);
 
 			MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(c);
 		}
@@ -148,7 +152,7 @@ public class CustomCockpitLogic : MyGameLogicComponent
 			c.Title = MyStringId.GetOrCompute("Enable Holo HUD");
 			c.Tooltip = MyStringId.GetOrCompute("Override of entire Holo HUD. Uncheck to remove entirely.");
 			c.SupportsMultipleBlocks = true;
-			c.Visible = block => IsMainCockPit(block);
+			c.Visible = block => IsEligibleCockpit(block);
 			c.Enabled = block => true; // to see how the grayed out ones look
 
 			c.Getter = block => {
@@ -188,7 +192,7 @@ public class CustomCockpitLogic : MyGameLogicComponent
 				sb.AppendFormat("{0} m", currentValue.ToString("F2"));  // Formatting to two decimal places
 			};
 			sliderY.Enabled = block => true;
-			sliderY.Visible = block => IsMainCockPit(block);
+			sliderY.Visible = block => IsEligibleCockpit(block);
 			MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(sliderY);
 		}
 		{
@@ -214,7 +218,7 @@ public class CustomCockpitLogic : MyGameLogicComponent
 				sb.AppendFormat("{0} m", currentValue.ToString("F2"));  // Formatting to two decimal places
 			};
 			sliderZ.Enabled = block => true;
-			sliderZ.Visible = block => IsMainCockPit(block);
+			sliderZ.Visible = block => IsEligibleCockpit(block);
 			MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(sliderZ);
 		}
 		{
@@ -240,7 +244,7 @@ public class CustomCockpitLogic : MyGameLogicComponent
 				sb.AppendFormat("{0} m", currentValue.ToString("F2"));  // Formatting to two decimal places
 			};
 			sliderS.Enabled = block => true;
-			sliderS.Visible = block => IsMainCockPit(block);
+			sliderS.Visible = block => IsEligibleCockpit(block);
 			MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(sliderS);
 		}
 		{
@@ -260,7 +264,7 @@ public class CustomCockpitLogic : MyGameLogicComponent
 			};
 
 			colorControl.Enabled = block => true;
-			colorControl.Visible = block => IsMainCockPit(block);
+			colorControl.Visible = block => IsEligibleCockpit(block);
 			MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(colorControl);
 		}
 		{
@@ -286,13 +290,13 @@ public class CustomCockpitLogic : MyGameLogicComponent
 				sb.AppendFormat("{0} m", currentValue.ToString("F2"));  // Formatting to two decimal places
 			};
 			sliderS.Enabled = block => true;
-			sliderS.Visible = block => IsMainCockPit(block);
+			sliderS.Visible = block => IsEligibleCockpit(block);
 			MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(sliderS);
 		}
 		{
 			var c = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyCockpit>(""); // separators don't store the id
 			c.SupportsMultipleBlocks = true;
-			c.Visible = block => IsMainCockPit(block);
+			c.Visible = block => IsEligibleCockpit(block);
 
 			MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(c);
 		}
@@ -301,7 +305,7 @@ public class CustomCockpitLogic : MyGameLogicComponent
 			c.Title = MyStringId.GetOrCompute("Enable Holograms");
 			c.Tooltip = MyStringId.GetOrCompute("Enable Target and Local Holograms on HUD");
 			c.SupportsMultipleBlocks = true;
-			c.Visible = block => IsMainCockPit(block);
+			c.Visible = block => IsEligibleCockpit(block);
 			c.Enabled = block => true; // to see how the grayed out ones look
 
 			c.Getter = block => {
@@ -323,7 +327,7 @@ public class CustomCockpitLogic : MyGameLogicComponent
 			c.Title = MyStringId.GetOrCompute("Hologram : Your Ship");
 			c.Tooltip = MyStringId.GetOrCompute("Enable Local Hologram on HUD");
 			c.SupportsMultipleBlocks = true;
-			c.Visible = block => IsMainCockPit(block);
+			c.Visible = block => IsEligibleCockpit(block);
 			c.Enabled = block => true; // to see how the grayed out ones look
 
 			c.Getter = block => {
@@ -345,7 +349,7 @@ public class CustomCockpitLogic : MyGameLogicComponent
 			c.Title = MyStringId.GetOrCompute("Holograms : Target");
 			c.Tooltip = MyStringId.GetOrCompute("Enable Target Hologram on HUD");
 			c.SupportsMultipleBlocks = true;
-			c.Visible = block => IsMainCockPit(block);
+			c.Visible = block => IsEligibleCockpit(block);
 			c.Enabled = block => true; // to see how the grayed out ones look
 
 			c.Getter = block => {
@@ -365,7 +369,7 @@ public class CustomCockpitLogic : MyGameLogicComponent
 		{
 			var c = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSeparator, IMyCockpit>(""); // separators don't store the id
 			c.SupportsMultipleBlocks = true;
-			c.Visible = block => IsMainCockPit(block);
+			c.Visible = block => IsEligibleCockpit(block);
 
 			MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(c);
 		}
@@ -374,7 +378,7 @@ public class CustomCockpitLogic : MyGameLogicComponent
 			c.Title = MyStringId.GetOrCompute("Ammo Overlay");
 			c.Tooltip = MyStringId.GetOrCompute("Enable Ammo stockpile overlay on HUD");
 			c.SupportsMultipleBlocks = true;
-			c.Visible = block => IsMainCockPit(block);
+			c.Visible = block => IsEligibleCockpit(block);
 			c.Enabled = block => true; // to see how the grayed out ones look
 
 			c.Getter = block => {
@@ -396,7 +400,7 @@ public class CustomCockpitLogic : MyGameLogicComponent
 			c.Title = MyStringId.GetOrCompute("Resource Gauges");
 			c.Tooltip = MyStringId.GetOrCompute("Enable Energy and H2 gauges around Scanner");
 			c.SupportsMultipleBlocks = true;
-			c.Visible = block => IsMainCockPit(block);
+			c.Visible = block => IsEligibleCockpit(block);
 			c.Enabled = block => true; // to see how the grayed out ones look
 
 			c.Getter = block => {
@@ -418,7 +422,7 @@ public class CustomCockpitLogic : MyGameLogicComponent
 			c.Title = MyStringId.GetOrCompute("Space Credits");
 			c.Tooltip = MyStringId.GetOrCompute("Enable display of Space Credit balance in account");
 			c.SupportsMultipleBlocks = true;
-			c.Visible = block => IsMainCockPit(block);
+			c.Visible = block => IsEligibleCockpit(block);
 			c.Enabled = block => true; // to see how the grayed out ones look
 
 			c.Getter = block => {
@@ -440,7 +444,7 @@ public class CustomCockpitLogic : MyGameLogicComponent
 			c.Title = MyStringId.GetOrCompute("Velocity Lines");
 			c.Tooltip = MyStringId.GetOrCompute("Enable Velocity Lines on HUD");
 			c.SupportsMultipleBlocks = true;
-			c.Visible = block => IsMainCockPit(block);
+			c.Visible = block => IsEligibleCockpit(block);
 			c.Enabled = block => true; // to see how the grayed out ones look
 
 			c.Getter = block => {
@@ -481,7 +485,7 @@ public class CustomCockpitLogic : MyGameLogicComponent
 
 			};
 			c.Enabled = block => true;
-			c.Visible = block => IsMainCockPit(block);
+			c.Visible = block => IsEligibleCockpit(block);
 			MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(c);
 		}
 		{
@@ -489,7 +493,7 @@ public class CustomCockpitLogic : MyGameLogicComponent
 			c.Title = MyStringId.GetOrCompute("Show Non-Ships");
 			c.Tooltip = MyStringId.GetOrCompute("Disable to hide objects like Asteroids");
 			c.SupportsMultipleBlocks = true;
-			c.Visible = block => IsMainCockPit(block);
+			c.Visible = block => IsEligibleCockpit(block);
 			c.Enabled = block => true; // to see how the grayed out ones look
 
 			c.Getter = block => {

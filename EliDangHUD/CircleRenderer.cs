@@ -41,6 +41,46 @@ using BlendTypeEnum = VRageRender.MyBillboard.BlendTypeEnum;
 //
 //																					---CHERUB 04-18-2024
 //---
+/* FenixPK - 2025-07-13
+TODO: Enable squish value again? If users want that verticality squish we could toggle it in settings and allow specific value. Ie. 0.0 is off, 0.0-1.0 range. 
+DONE TODO: Fix grid flare setting.
+DONE TODO: Fix visor setting.
+TODO: Make altitude readout
+DONE TODO: Round space credits when at large values - should show K, M, B.
+TODO: Make max radar range be the max range of the antenna of the current ship. - Covered by active/passive.
+TODO: Make it so if antenna missing or broadcasting turned off only the Holograms and Radar cease to function, but the rest of the hud works as expected. - Covered by active/passive.
+DONE TODO: Fix H2 Display % remaining or time based on current draw like power does, gives me INVALID_NUMBER currently? - Added support for modded tanks by checking if block has capacity and has Hydrogen anywhere in details/subtype etc. 
+TODO: Make player condition hologram better... Could rotate it on a timer to show all sides, and then if taking damage rotate it so it shows the side being impacted?
+TODO: Can we color code power, weapon, antenna, control blocks in the target/player hologram? Then apply a yellow/red color gradient overtop for damage. 
+TODO: Make target hologram show the side facing the player at all times. 
+DONE TODO: Make it keyword tag based [ELI_HUD] instead of main cockpit...
+TODO: Overhaul entire antenna logic so we get active+passive radar and hud still functions regardless of antenna state for things like H2/Energy/Altitude etc. 
+1) Antenna Power ON/OFF (or damaged) controls whether your ship can receive signals, if your ship has at least one functional antenna it can receive passive signals even if broadcast is off. 
+2) Antenna Broadcast = ON/OFF + broadcast range = active mode. If you are broadcast = true, anything in your broadcast range (ship, or voxel if turned on) will be picked up. Use the highest antenna range for ships with more than one broadcasting. 
+If you are broadcast = false than anything that is broadcast = true with a range that includes you will appear (up to the draw distance as a global maximum). This is your passive radar.
+Draw dist = 30km
+Eg 1. 
+Player Antenna on with broadcast = false (passive)
+Entity A at 10km broadcast = false (passive)
+Entity B at 20km broadcast = true range 20km (active).
+Entity B will not appear to player (passive) 
+Entity A will appear to player (active).
+Player will not appear to Entity A (passive) 
+Player will appear to entity B (active). 
+NOTE: Both Player and Entity A are invisible to each other in this mode.
+
+Eg 2. 
+Player Antenna on with broadcast = true range 20km (active)
+Entity A at 10km broadcast = false (passive)
+Entity B at 20km broadcast = true range 20km (active)
+Entity A will appear to player (active)
+Entity B will appear to player (active+passive)
+Player will appear to Entity A (passive)
+Player will appear to entity B (active+passive).
+
+
+*/
+
 using Sandbox.ModAPI.Ingame;
 using VRageRender;
 using System.Diagnostics;
@@ -54,6 +94,7 @@ using Sandbox.Game.Screens.Helpers;
 using VRage.Game.ModAPI.Ingame;
 using VRage.ModAPI;
 using System.Text.RegularExpressions;
+using ParallelTasks;
 
 
 
@@ -69,11 +110,14 @@ namespace EliDangHUD
 		public Vector3D starPos = new Vector3D(0, 0, 0);			// Star Position
 		public  bool starFollowSky = true;							// Does the star position follow the skybox?
 		public bool enableCockpitDust = true;
-		public bool enableGridFlares = true;
-		public bool enableVisor = true;
+		public bool enableGridFlares = true; // Show a flare graphic on ships to make them more visible in the void
+        public bool enableVisor = true;
 		public double radarRange = -1;
-		public int maxPings = 500;
-	}
+		public int maxPings = 500; // Max pings on radar.
+        public int rangeBracketDistance = 2000; // Distance in meters for range bracketing. Used in calculations like when targetting to select the "bracket" the target fits in to zoom the radar.
+        public bool integrityDisplay = true; // Whether to show ship holograms for player and target globally. 
+        public bool useHollowReticle = true; // Use a hollow reticle. Sometimes center dot blocks view of ship targetted, prefer hollow reticle. 
+    }
 
 	// Define a class to hold planet information
 	public class PlanetInfo
@@ -144,23 +188,29 @@ namespace EliDangHUD
 	{
 
 		//-----------CONFIG DATA--------------
-			public static float LINETHICKNESS = 		1.5f;
-			public static Vector4 LINECOLOR = 			new Vector4(1f, 0.5f, 0.0f, 1f);
-			public static Vector3 LINECOLOR_RGB = 		new Vector3(1f, 0.5f, 0.0);
-			public static int LINEDETAIL = 				90;
-			public static Vector3D STARPOS = 			new Vector3D(0, 0, 0);
-			public static bool STARFOLLOWSKY = 			true;
-			public static bool ENABLECOCKPITDUST = 		true;
-			public static bool ENABLEGRIDFLARES = 		true;
-			public static bool ENABLEVISOR =	 		true;
+		public static float LINE_THICKNESS = 1.5f;
+		public static Vector4 LINE_COLOR = new Vector4(1f, 0.5f, 0.0f, 1f);
+		public static Vector3 LINE_COLOR_RGB = new Vector3(1f, 0.5f, 0.0);
+		public static int LINE_DETAIL = 90;
+		public static Vector3D STAR_POS = new Vector3D(0, 0, 0);
+		public static bool STAR_FOLLOW_SKY = true;
+		public static bool ENABLE_COCKPIT_DUST = true;
+		public static bool ENABLE_GRID_FLARES = true; // Show a flare graphic on ships to make them more visible in the void
+        public static bool ENABLE_VISOR = true;
 
-			public string configDataFile = 				"dangConfig.xml";
-			public ConfigData configData = 				null;
+		public string configDataFile = 	"dangConfig.xml";
+		public ConfigData configData = 	null;
 
-			public static float GLOW = 					1f;
+		public static float GLOW = 1f;
 
-			public static double RIPPYRANGE = 			-1;
+		public static double RIPPYRANGE = -1;
 		public static int MAX_PINGS = 500;
+		public static int RANGE_BRACKET_DISTANCE = 2000; // Range brackets in meters. 
+		public static bool ENABLE_HOLOGRAMS_GLOBAL = true; // Global toggle for showing ship holograms. 
+		public static bool USE_HOLLOW_RETICLE = true; // Use a hollow reticle. Sometimes center dot blocks view of ship targetted, prefer hollow reticle. 
+
+		
+
 		//------------------------------------
 
 		private MyStringId MaterialDust1 = 				MyStringId.GetOrCompute("ED_DUST1");
@@ -175,7 +225,8 @@ namespace EliDangHUD
 		private MyStringId MaterialCross = 				MyStringId.GetOrCompute("ED_Targetting");
 		private MyStringId MaterialCrossOutter = 		MyStringId.GetOrCompute("ED_Targetting_Outter");
 		private MyStringId MaterialLockOn = 			MyStringId.GetOrCompute("ED_LockOn");
-		private MyStringId MaterialToolbarBack = 		MyStringId.GetOrCompute("ED_ToolbarBack");
+        private MyStringId MaterialLockOnHollow = MyStringId.GetOrCompute("ED_LockOn_Hollow");
+        private MyStringId MaterialToolbarBack = 		MyStringId.GetOrCompute("ED_ToolbarBack");
 		private MyStringId MaterialCircle = 			MyStringId.GetOrCompute("ED_Circle");
 		private MyStringId MaterialCircleHollow = 		MyStringId.GetOrCompute("ED_CircleHollow");
 		private MyStringId MaterialCircleSeeThrough = 	MyStringId.GetOrCompute("ED_CircleSeeThrough");
@@ -268,8 +319,13 @@ namespace EliDangHUD
 			public Vector3D starPos = new Vector3D(0, 0, 0);			// Star Position
 			public  bool starFollowSky = true;							// Does the star position follow the skybox?
 			public double radarRange = -1;                              // Radar Range (-1 for draw distance)
-			public int maxPings = 500; // Max pings on radar.
-		}
+			public bool enableGridFlares = true;  // Show a flare graphic on ships to make them more visible in the void
+			public bool enableVisor = true; // Show visor effects.
+            public int maxPings = 500; // Max pings on radar.
+			public int rangeBracketDistance = 2000; // Distance in meters for range bracketing. Used in calculations like when targetting to select the "bracket" the target fits in to zoom the radar.
+			public bool enableHologramsGlobal = true; // Whether to show ship holograms for player and target globally. 
+            public bool useHollowReticle = true; // Use a hollow reticle. Sometimes center dot blocks view of ship targetted, prefer hollow reticle. 
+        }
 
 		private const ushort MessageId = 10203;
 		private const ushort RequestMessageId = 30201;
@@ -353,12 +409,17 @@ namespace EliDangHUD
 			
 		private void ApplySettings(ModSettings settings)
 		{
-			CircleRenderer.LINETHICKNESS	= 		settings.lineThickness;
-			CircleRenderer.LINEDETAIL		= 		settings.lineDetail;
-			CircleRenderer.STARPOS			= 		settings.starPos;
-			CircleRenderer.STARFOLLOWSKY	= 		settings.starFollowSky;
+			CircleRenderer.LINE_THICKNESS	= 		settings.lineThickness;
+			CircleRenderer.LINE_DETAIL		= 		settings.lineDetail;
+			CircleRenderer.STAR_POS			= 		settings.starPos;
+			CircleRenderer.STAR_FOLLOW_SKY	= 		settings.starFollowSky;
 			CircleRenderer.RIPPYRANGE 		= 		settings.radarRange;
 			CircleRenderer.MAX_PINGS        =       settings.maxPings;
+			CircleRenderer.RANGE_BRACKET_DISTANCE = settings.rangeBracketDistance;
+			CircleRenderer.ENABLE_HOLOGRAMS_GLOBAL = settings.enableHologramsGlobal;
+			CircleRenderer.USE_HOLLOW_RETICLE = settings.useHollowReticle;
+			CircleRenderer.ENABLE_GRID_FLARES = settings.enableGridFlares;
+			CircleRenderer.ENABLE_VISOR = settings.enableVisor;
 		}
 
 		private ModSettings GatherCurrentSettings()
@@ -366,12 +427,17 @@ namespace EliDangHUD
 			// Gather current settings from your mod's state
 			ModSettings AllTheSettings = new ModSettings();
 
-			AllTheSettings.lineThickness 	= 	CircleRenderer.LINETHICKNESS;
-			AllTheSettings.lineDetail 		= 	CircleRenderer.LINEDETAIL;
-			AllTheSettings.starPos 			= 	CircleRenderer.STARPOS;
-			AllTheSettings.starFollowSky 	= 	CircleRenderer.STARFOLLOWSKY;
+			AllTheSettings.lineThickness 	= 	CircleRenderer.LINE_THICKNESS;
+			AllTheSettings.lineDetail 		= 	CircleRenderer.LINE_DETAIL;
+			AllTheSettings.starPos 			= 	CircleRenderer.STAR_POS;
+			AllTheSettings.starFollowSky 	= 	CircleRenderer.STAR_FOLLOW_SKY;
 			AllTheSettings.radarRange 		= 	CircleRenderer.RIPPYRANGE;
 			AllTheSettings.maxPings = CircleRenderer.MAX_PINGS;
+			AllTheSettings.rangeBracketDistance = CircleRenderer.RANGE_BRACKET_DISTANCE;
+			AllTheSettings.enableHologramsGlobal = CircleRenderer.ENABLE_HOLOGRAMS_GLOBAL;
+			AllTheSettings.useHollowReticle = CircleRenderer.USE_HOLLOW_RETICLE;
+			AllTheSettings.enableGridFlares = CircleRenderer.ENABLE_GRID_FLARES;
+			AllTheSettings.enableVisor = CircleRenderer.ENABLE_VISOR;
 
 			return AllTheSettings;
 		}
@@ -442,7 +508,7 @@ namespace EliDangHUD
 		}
 
 		private void drawPower(){
-			Vector4 color = LINECOLOR;
+			Vector4 color = LINE_COLOR;
 
 			if (powerLoad > 0.667) {
 				float powerLoad_offset = (float)powerLoad - 0.667f;
@@ -513,14 +579,14 @@ namespace EliDangHUD
 			Vector3D left = Vector3D.Cross(radarMatrix.Up, dir);
 			pos = (left * size * 7) + pos;
 
-			drawText (PLS, size, pos, dir, LINECOLOR);
-			drawText ("0000 ", size, pos, dir, LINECOLOR, 0.333f);
+			drawText (PLS, size, pos, dir, LINE_COLOR);
+			drawText ("0000 ", size, pos, dir, LINE_COLOR, 0.333f);
 
 			//----ARC----
 			float arcLength = (float)(gHandler.localGridSpeed/maxSpeed);
 			arcLength = Clamped (arcLength, 0, 1);
 			arcLength *= 70;
-			DrawArc(worldRadarPos-radarMatrix.Up*0.0025, radarRadius*1.27, radarMatrix.Up, 360-30-arcLength, 360-30, LINECOLOR, 0.007f, 0.5f);
+			DrawArc(worldRadarPos-radarMatrix.Up*0.0025, radarRadius*1.27, radarMatrix.Up, 360-30-arcLength, 360-30, LINE_COLOR, 0.007f, 0.5f);
 
 			double sizePow = 0.0045;
 			double powerSeconds = (double)gHandler.H2powerSeconds;
@@ -831,12 +897,12 @@ namespace EliDangHUD
 
 			populateFonts ();
 
-			LINECOLOR_Comp_RPG = secondaryColor (LINECOLOR_RGB)*2 + new Vector3(0.01f,0.01f,0.01f);
+			LINECOLOR_Comp_RPG = secondaryColor (LINE_COLOR_RGB)*2 + new Vector3(0.01f,0.01f,0.01f);
 			LINECOLOR_Comp = new Vector4 (LINECOLOR_Comp_RPG, 1f);
 
 
 
-			if (STARFOLLOWSKY) {
+			if (STAR_FOLLOW_SKY) {
 				//Thank you Rotate With Skybox Mod
 				if (MyAPIGateway.Utilities.IsDedicated && MyAPIGateway.Session.IsServer)
 					return;
@@ -875,15 +941,19 @@ namespace EliDangHUD
 					if (configgy != null)
 					{
 						MyLog.Default.WriteLineAndConsole("Dang Config Loaded");
-						CircleRenderer.LINETHICKNESS	= 		configgy.lineThickness;
-						CircleRenderer.LINEDETAIL		= 		configgy.lineDetail;
-						CircleRenderer.STARPOS			= 		configgy.starPos;
-						CircleRenderer.STARFOLLOWSKY	= 		configgy.starFollowSky;
-						CircleRenderer.ENABLECOCKPITDUST = 		configgy.enableCockpitDust;
-						CircleRenderer.ENABLEGRIDFLARES = 		configgy.enableGridFlares;
-						CircleRenderer.ENABLEVISOR = 			configgy.enableVisor;
+						CircleRenderer.LINE_THICKNESS	= 		configgy.lineThickness;
+						CircleRenderer.LINE_DETAIL		= 		configgy.lineDetail;
+						CircleRenderer.STAR_POS			= 		configgy.starPos;
+						CircleRenderer.STAR_FOLLOW_SKY	= 		configgy.starFollowSky;
+						CircleRenderer.ENABLE_COCKPIT_DUST = 		configgy.enableCockpitDust;
+						CircleRenderer.ENABLE_GRID_FLARES = 		configgy.enableGridFlares;
+						CircleRenderer.ENABLE_VISOR = 			configgy.enableVisor;
 						CircleRenderer.RIPPYRANGE = 			configgy.radarRange;
 						CircleRenderer.MAX_PINGS = configgy.maxPings;
+						CircleRenderer.RANGE_BRACKET_DISTANCE = configgy.rangeBracketDistance;
+						CircleRenderer.ENABLE_HOLOGRAMS_GLOBAL = configgy.integrityDisplay;
+						CircleRenderer.USE_HOLLOW_RETICLE = configgy.useHollowReticle;
+
 					}
 					else
 					{
@@ -972,8 +1042,8 @@ namespace EliDangHUD
 
 		private bool InitializedAudio = false;
 
-		//------------ A F T E R ------------------
-		public override void UpdateAfterSimulation()
+        //------------ A F T E R ------------------
+        public override void UpdateAfterSimulation()
 		{
 			if(!EnableMASTER){
 				return;
@@ -994,13 +1064,12 @@ namespace EliDangHUD
 			if (cockpit == null) {
 				return;
 			}
+            if (!cockpit.CustomName.Contains("[ELI_HUD]"))
+            {
+                Echo("Include [ELI_HUD] tag in cockpit name to enable Scanner.");
+                return;
+            }
 
-			if (!cockpit.IsMainCockpit) {
-				
-				Echo ("Set to Main Cockpit to enable Scanner.");
-
-				return;
-			}
 
 			if (IsPlayerControlling) {
 				if (!isSeated) {
@@ -1018,87 +1087,78 @@ namespace EliDangHUD
 		//------------ D R A W -----------------
 		public override void Draw()
 		{
-
 			base.Draw();
 
-			if(!EnableMASTER){
-				if (MyAPIGateway.Gui.IsCursorVisible) {
-					CheckCustomData (); //We don't need to keep check the colors unless we have the thing open.
+			if(!EnableMASTER)
+			{
+				if (MyAPIGateway.Gui.IsCursorVisible) 
+				{
+					CheckCustomData(); //We don't need to keep check the colors unless we have the thing open.
 				}
 				return;
 			}
 
 			//Flares ------------------------------------------------------------------------------------------------------
-			DrawShipFlare ();
+			DrawGridFlare();
 			//-------------------------------------------------------------------------------------------------------------
 
-			var playa = MyAPIGateway.Session?.LocalHumanPlayer;
-			if (playa == null)
+			IMyPlayer player = MyAPIGateway.Session?.LocalHumanPlayer;
+			if (player == null)
 			{
 				return;
 			}
-
-			var controlledEntity = playa.Controller?.ControlledEntity;
+			var controlledEntity = player.Controller?.ControlledEntity;
 			if (controlledEntity == null)
 			{
 				return;
 			}
-
 			// Check if the controlled entity is a turret or remote control
 			var turret = controlledEntity.Entity as Sandbox.ModAPI.IMyLargeTurretBase;
-			if (turret != null)
-			{
-				return;
-			}
+            if (turret != null)
+            {
+                return;
+            }
+			var remoteControl = controlledEntity as Sandbox.ModAPI.IMyRemoteControl;
+            if (remoteControl != null && remoteControl.Pilot != null)
+            {
+                return;
+            }
 
-			var remoteControl = controlledEntity.Entity as Sandbox.ModAPI.IMyRemoteControl;
-			if (remoteControl != null && remoteControl.Pilot != null)
-			{
-				return;
-			}
-
-			//visor -------------------------------------------------------------------------------------------------------
-			UpdateVisor();
+            //visor -------------------------------------------------------------------------------------------------------
+            UpdateVisor();
 			//-------------------------------------------------------------------------------------------------------------
 
 			//Is the player in a vehichle? Fade or show the orbit lines!
 			bool IsPlayerControlling = gHandler != null && gHandler.IsPlayerControlling;
-			bool GridHasAntenna = false;
 
-			if (IsPlayerControlling) {
+            if (IsPlayerControlling) {
 				if (gHandler == null || gHandler.localGridEntity == null)
-					return;
+				{ 
+					return; 
+				}
+                Sandbox.ModAPI.IMyCockpit cockpit = gHandler.localGridEntity as Sandbox.ModAPI.IMyCockpit;
+				if (cockpit == null || cockpit.CubeGrid == null || !cockpit.CustomName.Contains("[ELI_HUD]")) 
+				{ 
+					return; 
+				}
+                if (!cockpit.CustomName.Contains("[ELI_HUD]"))
+                {
+                    return;
+                }
 
-				var cockpit = gHandler.localGridEntity as Sandbox.ModAPI.IMyCockpit;
-				if (cockpit == null || cockpit.CubeGrid == null || !cockpit.IsMainCockpit)
-					return;
-
-				VRage.Game.ModAPI.IMyCubeGrid grid = cockpit.CubeGrid;
-
-				GridHasAntenna = gHandler.GridHasAntenna(grid);
-				if (!GridHasAntenna)
-					return;
-
-				powerLoad = gHandler.GetGridPowerUsagePercentage(grid);
-
+                VRage.Game.ModAPI.IMyCubeGrid grid = cockpit.CubeGrid;
+                powerLoad = gHandler.GetGridPowerUsagePercentage(grid);
 
 				glitchAmount_min = MathHelper.Clamp(gHandler.GetGridPowerUsagePercentage(cockpit.CubeGrid), 0.85, 1.0)-0.85;
 				glitchAmount_overload = MathHelper.Lerp (glitchAmount_overload, 0, deltaTime * 2);
 				glitchAmount = MathHelper.Clamp (glitchAmount_overload, glitchAmount_min, 1);
-				if (glitchAmount_overload < 0.01) {
+				if (glitchAmount_overload < 0.01) 
+				{
 					glitchAmount_overload = 0;
 				}
-
-				if (!cockpit.IsMainCockpit) {
-					return;
-				}
-				grid = cockpit.CubeGrid;
-				GridHasAntenna = gHandler.GridHasAntenna (cockpit.CubeGrid);
-			} else {
-				return;
-			}
-
-			if (!GridHasAntenna) {
+			} 
+			else 
+			{
 				return;
 			}
 
@@ -1130,19 +1190,19 @@ namespace EliDangHUD
 
 			if (GlobalDimmer > 0.01f) {
 				//Get Sun direction
-				if (STARFOLLOWSKY) {
+				if (STAR_FOLLOW_SKY) {
 					MyOrientation sunOrientation = getSunOrientation ();
 
 					Quaternion sunRotation = sunOrientation.ToQuaternion ();
 					Vector3D sunForwardDirection = Vector3D.Transform (Vector3D.Forward, sunRotation);
 
-					STARPOS = sunForwardDirection * 100000000;
+					STAR_POS = sunForwardDirection * 100000000;
 				}
 				//Draw orbit lines
 				foreach (var i in planetListDetails) {
 					// Cast the entity to IMyPlanet
 					MyPlanet planet = (MyPlanet)i.Entity;
-					Vector3D parentPos = (i.ParentEntity != null) ? i.ParentEntity.GetPosition () : STARPOS;
+					Vector3D parentPos = (i.ParentEntity != null) ? i.ParentEntity.GetPosition () : STAR_POS;
 
 					DrawPlanetOutline (planet);
 					DrawPlanetOrbit (planet, parentPos);
@@ -1203,45 +1263,44 @@ namespace EliDangHUD
 
 		private void UpdateVisor()
 		{
-			if (MyAPIGateway.Session.CameraController.IsInFirstPersonView) {
+			if (ENABLE_VISOR) 
+			{
+                if (MyAPIGateway.Session.CameraController.IsInFirstPersonView)
+                {
 
-				MatrixD cameraMatrix = MyAPIGateway.Session.Camera.WorldMatrix;
-				Vector3D camUp = cameraMatrix.Up;
-				Vector3D camLeft = cameraMatrix.Left;
-				Vector3D camForward = cameraMatrix.Forward;
-				Vector3D camPos = MyAPIGateway.Session.Camera.Position;
-				camPos += camForward * MyAPIGateway.Session.Camera.NearPlaneDistance * 1.001;
+                    MatrixD cameraMatrix = MyAPIGateway.Session.Camera.WorldMatrix;
+                    Vector3D camUp = cameraMatrix.Up;
+                    Vector3D camLeft = cameraMatrix.Left;
+                    Vector3D camForward = cameraMatrix.Forward;
+                    Vector3D camPos = MyAPIGateway.Session.Camera.Position;
+                    camPos += camForward * MyAPIGateway.Session.Camera.NearPlaneDistance * 1.001;
 
 
-				float fov = (float)GetCameraFOV ();
-				float scale = 50 / fov;
+                    float fov = (float)GetCameraFOV();
+                    float scale = 50 / fov;
 
-				visorDown = IsPlayerHelmetOn ();
+                    visorDown = IsPlayerHelmetOn();
 
-				if (visorDown) {
-					visorLife -= deltaTime * 1.5;
-				} else {
-					visorLife += deltaTime * 1.5;
-				}
+                    if (visorDown)
+                    {
+                        visorLife -= deltaTime * 1.5;
+                    }
+                    else
+                    {
+                        visorLife += deltaTime * 1.5;
+                    }
 
-				visorLife = ClampedD (visorLife, 0, 1);
+                    visorLife = ClampedD(visorLife, 0, 1);
 
-				Vector3D visorVert = (LerpD (-0.75, 0.75, visorLife)) * camUp;
+                    Vector3D visorVert = (LerpD(-0.75, 0.75, visorLife)) * camUp;
 
-//			if (MyAPIGateway.Input.IsNewGameControlPressed (MyControlsSpace.HELMET)) {
-//				if (visorUp) {
-//					visorUp = false;
-//				} else {
-//					visorUp = true;
-//				}
-//			}
-
-				camPos += visorVert;
-				if (visorLife > 0 && visorLife < 1) {
-					MyTransparentGeometry.AddBillboardOriented (MaterialVisor, new Vector4 (1, 1, 1, 1), camPos, camLeft, camUp, scale);
-				}
-
-			}
+                    camPos += visorVert;
+                    if (visorLife > 0 && visorLife < 1)
+                    {
+                        MyTransparentGeometry.AddBillboardOriented(MaterialVisor, new Vector4(1, 1, 1, 1), camPos, camLeft, camUp, scale);
+                    }
+                }
+            }
 		}
 
 		private bool IsPlayerHelmetOn()
@@ -1381,12 +1440,12 @@ namespace EliDangHUD
 			EnableMASTER = ini.Get(mySection, "ScannerEnable").ToBoolean(true);
 
 			// Holograms
-			EnableHolograms = ini.Get(mySection, "ScannerHolo").ToBoolean(true);
-			EnableHolograms_them = ini.Get(mySection, "ScannerHoloThem").ToBoolean(true);
-			EnableHolograms_you = ini.Get(mySection, "ScannerHoloYou").ToBoolean(true);
+			EnableHolograms = !ENABLE_HOLOGRAMS_GLOBAL ? false : ini.Get(mySection, "ScannerHolo").ToBoolean(true); // If disabled at global level don't even check just default to false.
+			EnableHolograms_them = !ENABLE_HOLOGRAMS_GLOBAL ? false : ini.Get(mySection, "ScannerHoloThem").ToBoolean(true); // If disabled at global level don't even check just default to false.
+            EnableHolograms_you = !ENABLE_HOLOGRAMS_GLOBAL ? false : ini.Get(mySection, "ScannerHoloYou").ToBoolean(true); // If disabled at global level don't even check just default to false.
 
-			// Toolbar
-			EnableToolbars = ini.Get(mySection, "ScannerTools").ToBoolean(true);
+            // Toolbar
+            EnableToolbars = ini.Get(mySection, "ScannerTools").ToBoolean(true);
 
 			// Gauges
 			EnableGauges = ini.Get(mySection, "ScannerGauges").ToBoolean(true);
@@ -1409,9 +1468,9 @@ namespace EliDangHUD
 			GLOW = radarBrightness;
 
 			// Color
-			string colorString = ini.Get(mySection, "ScannerColor").ToString(Convert.ToString(LINECOLOR_RGB));
+			string colorString = ini.Get(mySection, "ScannerColor").ToString(Convert.ToString(LINE_COLOR_RGB));
 			Color radarColor = ParseColor(colorString);
-			LINECOLOR = (radarColor).ToVector4() * GLOW;
+			LINE_COLOR = (radarColor).ToVector4() * GLOW;
 
 			// Velocity Toggle
 			ShowVelocityLines = ini.Get(mySection, "ScannerLines").ToBoolean(true);
@@ -1419,8 +1478,8 @@ namespace EliDangHUD
 			// Orbit Line Speed Threshold
 			SpeedThreshold = ini.Get(mySection, "ScannerOrbits").ToSingle(500);
 
-			LINECOLOR_RGB = new Vector3(LINECOLOR.X, LINECOLOR.Y, LINECOLOR.Z);
-			LINECOLOR_Comp_RPG = secondaryColor(LINECOLOR_RGB) * 2 + new Vector3(0.01f, 0.01f, 0.01f);
+			LINE_COLOR_RGB = new Vector3(LINE_COLOR.X, LINE_COLOR.Y, LINE_COLOR.Z);
+			LINECOLOR_Comp_RPG = secondaryColor(LINE_COLOR_RGB) * 2 + new Vector3(0.01f, 0.01f, 0.01f);
 			LINECOLOR_Comp = new Vector4(LINECOLOR_Comp_RPG, 1f);
 
 			// Voxel Toggle
@@ -1490,7 +1549,7 @@ namespace EliDangHUD
 		private Color ParseColor(string colorString)
 		{
 			if (string.IsNullOrEmpty(colorString))
-				return LINECOLOR_RGB*GLOW;  // Default color if no data
+				return LINE_COLOR_RGB*GLOW;  // Default color if no data
 
 			string[] parts = colorString.Split(',');
 			if (parts.Length == 3)
@@ -1503,7 +1562,7 @@ namespace EliDangHUD
 					return new Color(r, g, b);
 				}
 			}
-			return LINECOLOR_RGB*GLOW;  // Default color on parse failure
+			return LINE_COLOR_RGB*GLOW;  // Default color on parse failure
 		}
 		//-----------------------------------------------------------------------------------
 
@@ -1630,31 +1689,40 @@ namespace EliDangHUD
 
 
 		//DRAW LINES=========================================================================
-		void DrawShipFlare(){
-			MatrixD cameraMatrix = MyAPIGateway.Session.Camera.WorldMatrix;
-			Vector3 viewUp = cameraMatrix.Up;
-			Vector3 viewLeft = cameraMatrix.Left;
-			foreach (VRage.ModAPI.IMyEntity entity in radarEntities) {
-				if (entity is VRage.Game.ModAPI.IMyCubeGrid) {
-					double dis2Cam = Vector3D.Distance (MyAPIGateway.Session.Camera.Position, entity.GetPosition ());
-					if (dis2Cam >= 100) {
-						double radius = entity.WorldVolume.Radius;
-						radius = RemapD (radius, 10, 1000, 0.5, 10);
+		/// <summary>
+		/// If grid flares are enabled draws a flare on screen so they show up better in the void. 
+		/// </summary>
+		void DrawGridFlare(){
+			if (ENABLE_GRID_FLARES) 
+			{
+                MatrixD cameraMatrix = MyAPIGateway.Session.Camera.WorldMatrix;
+                Vector3 viewUp = cameraMatrix.Up;
+                Vector3 viewLeft = cameraMatrix.Left;
+                foreach (VRage.ModAPI.IMyEntity entity in radarEntities)
+                {
+                    if (entity is VRage.Game.ModAPI.IMyCubeGrid)
+                    {
+                        double dis2Cam = Vector3D.Distance(MyAPIGateway.Session.Camera.Position, entity.GetPosition());
+                        if (dis2Cam >= 100)
+                        {
+                            double radius = entity.WorldVolume.Radius;
+                            radius = RemapD(radius, 10, 1000, 0.5, 10);
 
-						float scale = (((GetRandomFloat () - 0.5f) * 0.01f) + 0.1f) * (float)dis2Cam;
-						double scaleF = RemapD (dis2Cam, 10000, 20000, 1, 0);
-						scaleF = ClampedD (scaleF, 0, 1);
+                            float scale = (((GetRandomFloat() - 0.5f) * 0.01f) + 0.1f) * (float)dis2Cam;
+                            double scaleF = RemapD(dis2Cam, 10000, 20000, 1, 0);
+                            scaleF = ClampedD(scaleF, 0, 1);
 
-						Vector4 color = new Vector4 (1, 1, 1, 1);
-						color.W += ((GetRandomFloat () - 1f) * 0.1f);
+                            Vector4 color = new Vector4(1, 1, 1, 1);
+                            color.W += ((GetRandomFloat() - 1f) * 0.1f);
 
-						double fadder = RemapD (dis2Cam, 100, 2000, 0, 1);
-						fadder = ClampedD (fadder, 0, 1);
+                            double fadder = RemapD(dis2Cam, 100, 2000, 0, 1);
+                            fadder = ClampedD(fadder, 0, 1);
 
-						MyTransparentGeometry.AddBillboardOriented (MaterialShipFlare, color * 1f * (float)fadder, entity.GetPosition (), viewLeft, viewUp, scale * (float)scaleF * (float)radius, MyBillboard.BlendTypeEnum.AdditiveBottom);
-					}
-				}
-			}
+                            MyTransparentGeometry.AddBillboardOriented(MaterialShipFlare, color * 1f * (float)fadder, entity.GetPosition(), viewLeft, viewUp, scale * (float)scaleF * (float)radius, MyBillboard.BlendTypeEnum.AdditiveBottom);
+                        }
+                    }
+                }
+            }
 		}
 
 
@@ -1710,7 +1778,7 @@ namespace EliDangHUD
 			// Define orbit parameters
 			Vector3D planetPosition = center;   // Position of the center of the circle
 			double orbitRadius = radius;        // Radius of the circle
-			int segments = LINEDETAIL;                 // Number of segments to approximate the circle
+			int segments = LINE_DETAIL;                 // Number of segments to approximate the circle
 			bool dotFlipper = true;
 
 			//Lets adjust the tesselation based on radius instead of an arbitrary value.
@@ -1718,7 +1786,7 @@ namespace EliDangHUD
 			segments = segments * (int)Clamped((float)segmentsInterval, 1, 16);
 
 			float lineLength = 1.01f;           // Length of each line segment
-			float lineThickness = LINETHICKNESS;        // Thickness of the lines
+			float lineThickness = LINE_THICKNESS;        // Thickness of the lines
 
 			//Lets adjust the line thickness based on screen resolution so that it doesn't get to pixelated.
 			lineThickness = ((float)GetScreenHeight()/1080f)*lineThickness;
@@ -1816,7 +1884,7 @@ namespace EliDangHUD
 			Vector3D aimDirection = AimAtCam(planetPosition);
 
 			// Draw a circle representing the outline of the planet
-			DrawCircle(planetPosition, (float)planetRadius, aimDirection, LINECOLOR, true);
+			DrawCircle(planetPosition, (float)planetRadius, aimDirection, LINE_COLOR, true);
 		}
 
 		// Fake an orbit for a planet
@@ -1845,7 +1913,7 @@ namespace EliDangHUD
 			orbitDirection = Vector3D.Transform(Vector3D.Down, rotationMatrix);
 
 			// Draw a circle representing the planet's orbit around its parent
-			DrawCircle(parentPosition, (float)orbitRadius, orbitDirection, LINECOLOR);
+			DrawCircle(parentPosition, (float)orbitRadius, orbitDirection, LINE_COLOR);
 		}
 
 		void DrawVelocityLines()
@@ -1884,7 +1952,7 @@ namespace EliDangHUD
 
 			float segmentLength = 10f;
 
-			float lineThickness = LINETHICKNESS;        // Thickness of the lines
+			float lineThickness = LINE_THICKNESS;        // Thickness of the lines
 
 			//Lets adjust the line thickness based on screen resolution so that it doesn't get to pixelated.
 			lineThickness = ((float)GetScreenHeight()/1080f)*lineThickness;
@@ -1899,7 +1967,7 @@ namespace EliDangHUD
 			float dimmer = Clamped(Remap(distanceToSegment, 0, 10000000f, 1f, 0f), 0f, 1f)*7f;
 
 			if (dimmer > 0.01f) {
-				DrawLineBillboard (Material, LINECOLOR * GLOW * dimmer, start, Vector3D.Normalize (end - start), segmentLength, segmentThickness, blendType);
+				DrawLineBillboard (Material, LINE_COLOR * GLOW * dimmer, start, Vector3D.Normalize (end - start), segmentLength, segmentThickness, blendType);
 			}
 		}
 
@@ -2015,7 +2083,7 @@ namespace EliDangHUD
 			}
 
 			// Draw vertical segments
-			lineThickness = LINETHICKNESS;        // Thickness of the lines
+			lineThickness = LINE_THICKNESS;        // Thickness of the lines
 
 			//Lets adjust the line thickness based on screen resolution so that it doesn't get to pixelated.
 			lineThickness = ((float)GetScreenHeight()/1080f)*lineThickness;
@@ -2032,7 +2100,7 @@ namespace EliDangHUD
 				float dimmer = Clamped(1-segmentThickness, 0f, 1f)*5f;
 				dimmer *= SpeedDimmer*0.5f;
 
-				lineThickness = LINETHICKNESS;        // Thickness of the lines
+				lineThickness = LINE_THICKNESS;        // Thickness of the lines
 				//Lets adjust the line thickness based on screen resolution so that it doesn't get to pixelated.
 				lineThickness = ((float)GetScreenHeight()/1080f)*lineThickness;
 				// Calculate camera distance from whole segment.
@@ -2043,11 +2111,11 @@ namespace EliDangHUD
 				if (dimmer > 0.01f) {
 					zeroBase = (leftBase + segmentPosition - direction * totalLineLength / 2);
 					zeroBase = (segmentLength * 0.5 * -segmentUp) + zeroBase;
-					DrawLineBillboard (Material, LINECOLOR*GLOW * dimmer, zeroBase, segmentUp, segmentLength, segmentThickness);
+					DrawLineBillboard (Material, LINE_COLOR*GLOW * dimmer, zeroBase, segmentUp, segmentLength, segmentThickness);
 
 					zeroBase = (rightBase + segmentPosition - direction * totalLineLength / 2);
 					zeroBase = (segmentLength * 0.5 * -segmentUp) + zeroBase;
-					DrawLineBillboard (Material, LINECOLOR*GLOW * dimmer, zeroBase, segmentUp, segmentLength, segmentThickness);
+					DrawLineBillboard (Material, LINE_COLOR*GLOW * dimmer, zeroBase, segmentUp, segmentLength, segmentThickness);
 				}
 			}
 		}
@@ -2398,85 +2466,7 @@ namespace EliDangHUD
         //Radar==============================================================================
         //===================================================================================
 
-		// Experiments with zooming radar based on entity proximity...
-
-        //double[] RadarRangeBrackets = new double[] { 1000, 2000, 4000, 8000, 20000 };
-        //double MaxRadarRange = 20000;
-        //double RadarZoomInThreshold = 2000;  // If anything is within this distance, prefer to zoom in
-
-        //double ComputeRadarRange(List<RadarPing> pings, Vector3D playerPos)
-        //{
-        //    double closest = double.MaxValue;
-        //    double farthest = 0;
-
-        //    foreach (var ping in pings)
-        //    {
-        //        if (ping?.Entity == null) continue;
-
-        //        double distSqr = Vector3D.DistanceSquared(ping.Entity.GetPosition(), playerPos);
-        //        if (distSqr > MaxRadarRange * MaxRadarRange) continue;
-
-        //        double dist = Math.Sqrt(distSqr);
-        //        if (dist < closest) closest = dist;
-        //        if (dist > farthest) farthest = dist;
-        //    }
-
-        //    // No valid pings in range
-        //    if (farthest == 0) return MaxRadarRange;
-
-        //    // If a nearby target exists, prioritize a closer bracket
-        //    if (closest < RadarZoomInThreshold)
-        //    {
-        //        foreach (double bracket in RadarRangeBrackets)
-        //        {
-        //            if (closest <= bracket)
-        //                return bracket;
-        //        }
-        //    }
-
-        //    // Otherwise, use the farthest target as range reference
-        //    foreach (double bracket in RadarRangeBrackets)
-        //    {
-        //        if (farthest <= bracket)
-        //            return bracket;
-        //    }
-
-        //    return MaxRadarRange;
-        //}
-
-        //double[] RadarRangeBrackets = new double[] { 1000, 2000, 4000, 8000, 10000, 20000 };
-        //double MaxRadarRange = 20000;
-
-        //double ComputeRadarRange(List<RadarPing> pings, Vector3D playerPos)
-        //{
-        //    double maxDistance = 0;
-
-        //    foreach (var ping in pings)
-        //    {
-        //        if (ping.Entity == null) continue;
-
-        //        double distSqr = Vector3D.DistanceSquared(ping.Entity.GetPosition(), playerPos);
-        //        if (distSqr > MaxRadarRange * MaxRadarRange) continue;
-
-        //        double actualDist = Math.Sqrt(distSqr);
-        //        if (actualDist > maxDistance) maxDistance = actualDist;
-        //    }
-
-        //    // Default to max range if no entities found
-        //    double chosenRange = MaxRadarRange;
-
-        //    // Snap to the smallest bracket that fits maxDistance
-        //    foreach (double r in RadarRangeBrackets)
-        //    {
-        //        if (maxDistance <= r)
-        //        {
-        //            chosenRange = r;
-        //            break;
-        //        }
-        //    }
-
-        //    return chosenRange;
-        //}
+		
 
 
         private double lastRadarUpdate = 0;
@@ -2497,8 +2487,6 @@ namespace EliDangHUD
             Vector3D shipPos = gHandler.localGridEntity.GetPosition();
             radarMatrix = gHandler.localGridEntity.WorldMatrix;
 
-            int BracketSize = 2000;
-
             if (underAttack) {
 				radarRange_Goal = radarRange * 0.25;
 				squishValue_Goal = 0.0;
@@ -2510,12 +2498,12 @@ namespace EliDangHUD
                 // Add buffer to encourage zooming out slightly beyond the target
                 double bufferedDistance = distToTarget + 500;
 
-                // Snap to next 2000m bracket
-                int bracketedRange = ((int)(bufferedDistance / BracketSize) + 1) * BracketSize;
+                // Snap to next bracket
+                int bracketedRange = ((int)(bufferedDistance / RANGE_BRACKET_DISTANCE) + 1) * RANGE_BRACKET_DISTANCE;
 
                 // Clamp to the user-defined max radar range
                 radarRange_Goal = Math.Min(bracketedRange, radarRange);
-                squishValue_Goal = 0.5;
+                squishValue_Goal = 0.0;
             }
             else {
 				radarRange_Goal = radarRange;
@@ -2618,7 +2606,7 @@ namespace EliDangHUD
 
 			//====Draw Rings====
 			//DrawCircle(radarPos, radarRadius, radarUp, false, 0.75f, 0.001f); //Border Ring
-			DrawQuad(radarPos, radarUp, (double)radarRadius*0.03f, MaterialCircle, LINECOLOR*5f); //Center
+			DrawQuad(radarPos, radarUp, (double)radarRadius*0.03f, MaterialCircle, LINE_COLOR*5f); //Center
 			//DrawCircle(radarPos-(radarUp*0.006), radarRadius*1.035, radarUp, false, 0.25f, 0.0025f); //outer decorative ring
 
 			worldRadarPos = radarPos;
@@ -2640,8 +2628,8 @@ namespace EliDangHUD
                 
 
             float radarFov = Clamped(GetCameraFOV ()/2, 0, 90)/90;
-			DrawLineBillboard (Material, LINECOLOR*GLOW*0.4f, radarPos, Vector3D.Lerp(radarMatrix.Forward,radarMatrix.Left,radarFov), radarRadius*1.45f, 0.0005f); //Perspective Lines
-			DrawLineBillboard (Material, LINECOLOR*GLOW*0.4f, radarPos, Vector3D.Lerp(radarMatrix.Forward,radarMatrix.Right,radarFov), radarRadius*1.45f, 0.0005f);
+			DrawLineBillboard (Material, LINE_COLOR*GLOW*0.4f, radarPos, Vector3D.Lerp(radarMatrix.Forward,radarMatrix.Left,radarFov), radarRadius*1.45f, 0.0005f); //Perspective Lines
+			DrawLineBillboard (Material, LINE_COLOR*GLOW*0.4f, radarPos, Vector3D.Lerp(radarMatrix.Forward,radarMatrix.Right,radarFov), radarRadius*1.45f, 0.0005f);
 
 			
 
@@ -2651,14 +2639,14 @@ namespace EliDangHUD
 				if (radarPulseTime == i) {
 					radarPulse = 2;
 				}
-				DrawCircle(radarPos-(radarUp*0.003), (radarRadius*0.95)-(radarRadius*0.95)*(Math.Pow((float)i/10, 4)), radarUp, LINECOLOR, false, 0.25f*radarPulse, 0.00035f);
+				DrawCircle(radarPos-(radarUp*0.003), (radarRadius*0.95)-(radarRadius*0.95)*(Math.Pow((float)i/10, 4)), radarUp, LINE_COLOR, false, 0.25f*radarPulse, 0.00035f);
 			}
            
 
             //DrawQuad(radarPos, radarUp, (double)radarRadius*1.18, MaterialBorder, LINECOLOR); //Border
-            DrawQuadRigid(radarPos, radarUp, (double)radarRadius*1.18, MaterialBorder, LINECOLOR, true); //Border
+            DrawQuadRigid(radarPos, radarUp, (double)radarRadius*1.18, MaterialBorder, LINE_COLOR, true); //Border
 			if(EnableGauges){
-				DrawQuadRigid(radarPos-(radarUp*0.005), -radarUp, (double)radarRadius*1.5, MaterialCompass, LINECOLOR, true); //Compass
+				DrawQuadRigid(radarPos-(radarUp*0.005), -radarUp, (double)radarRadius*1.5, MaterialCompass, LINE_COLOR, true); //Compass
 			}
 			DrawQuad(radarPos-(radarUp*0.010), radarUp, (double)radarRadius*2.25, MaterialCircleSeeThrough, new Vector4(0, 0, 0, 0.75f)); //Dim Backing
 			//DrawQuad(radarPos-(radarUp*0.011), radarUp, (double)radarRadius*3, MaterialCircleSeeThrough, new Vector4(0, 0, 0, 1f)); //Dim Backing
@@ -2674,7 +2662,7 @@ namespace EliDangHUD
 			Vector3 viewBackward = cameraMatrix.Backward;
 			Vector3D viewBackwardD = cameraMatrix.Backward;
 
-			DrawQuad (radarPos + (radarUp*0.025), viewBackward, 0.25, MaterialCircleSeeThroughAdd, LINECOLOR*0.075f, true);
+			DrawQuad (radarPos + (radarUp*0.025), viewBackward, 0.25, MaterialCircleSeeThroughAdd, LINE_COLOR*0.075f, true);
 
             //===============HOLOGRAMS=================
             if (EnableHolograms)
@@ -2689,10 +2677,10 @@ namespace EliDangHUD
                     lockInTime_Right = ClampedD(lockInTime_Right, 0, 1);
                     lockInTime_Right = Math.Pow(lockInTime_Right, 0.1);
 
-                    DrawQuad(hgPos_Right + (radarUp * HG_Offset.Y * 0.5), viewBackward, 0.15, MaterialCircleSeeThroughAdd, LINECOLOR * 0.125f, true);
+                    DrawQuad(hgPos_Right + (radarUp * HG_Offset.Y * 0.5), viewBackward, 0.15, MaterialCircleSeeThroughAdd, LINE_COLOR * 0.125f, true);
 
-                    DrawCircle(hgPos_Right, 0.04 * lockInTime_Right, radarUp, LINECOLOR, false, 0.5f, 0.00075f);
-                    DrawCircle(hgPos_Right - (radarUp * 0.015), 0.045, radarUp, LINECOLOR, false, 0.25f, 0.00125f);
+                    DrawCircle(hgPos_Right, 0.04 * lockInTime_Right, radarUp, LINE_COLOR, false, 0.5f, 0.00075f);
+                    DrawCircle(hgPos_Right - (radarUp * 0.015), 0.045, radarUp, LINE_COLOR, false, 0.25f, 0.00125f);
 
                     DrawQuad(hgPos_Right + (radarUp * HG_Offset.Y), viewBackward, 0.1, MaterialCircleSeeThrough, new Vector4(0, 0, 0, 0.75f)); //Dim Backing
                 }
@@ -2704,8 +2692,8 @@ namespace EliDangHUD
                     lockInTime_Left = ClampedD(lockInTime_Left, 0, 1);
                     lockInTime_Left = Math.Pow(lockInTime_Left, 0.1);
 
-                    DrawCircle(hgPos_Left, 0.04 * lockInTime_Left, radarUp, LINECOLOR, false, 0.5f, 0.00075f);
-                    DrawCircle(hgPos_Left - (radarUp * 0.015), 0.045, radarUp, LINECOLOR, false, 0.25f, 0.00125f);
+                    DrawCircle(hgPos_Left, 0.04 * lockInTime_Left, radarUp, LINE_COLOR, false, 0.5f, 0.00075f);
+                    DrawCircle(hgPos_Left - (radarUp * 0.015), 0.045, radarUp, LINE_COLOR, false, 0.25f, 0.00125f);
 
                     if (isTargetLocked)
                     {
@@ -2714,7 +2702,7 @@ namespace EliDangHUD
                     }
                     else
                     {
-                        DrawQuad(hgPos_Left + (radarUp * HG_Offset.Y * 0.5), viewBackward, 0.15, MaterialCircleSeeThroughAdd, LINECOLOR * 0.125f, true);
+                        DrawQuad(hgPos_Left + (radarUp * HG_Offset.Y * 0.5), viewBackward, 0.15, MaterialCircleSeeThroughAdd, LINE_COLOR * 0.125f, true);
                     }
                 }
             }
@@ -2867,7 +2855,7 @@ namespace EliDangHUD
 						break;
 					case RelationshipStatus.Vox:
 						drawMat = MaterialCircle;
-						color_Current = LINECOLOR;
+						color_Current = LINE_COLOR;
 						if (!ShowVoxels) {
 							skipThis = true;
 						}
@@ -2924,12 +2912,10 @@ namespace EliDangHUD
                             float outlineSize = blipSize * 1.6f; // Slightly larger than the blip
                             Vector4 color = new Vector4(Color.Yellow, 1);
 
-                            Vector3D selectedPos = radarEntityPos + (lineDir * vertDistance);
-
                             MyTransparentGeometry.AddBillboardOriented(
                                 MaterialTarget,     // Clean square outline
                                 color,
-                                selectedPos,
+                                radarEntityPos2,
                                 viewLeft,           // Align with radar plane
                                 viewUp,
                                 outlineSize         // Slightly larger than radar blip
@@ -2939,11 +2925,13 @@ namespace EliDangHUD
                     }
 
 				}
+
+				// Draw the current range bracket on screen. 
                 Vector3D textPos = radarPos + radarUp * -0.1 + radarLeft * 0.3; // tweak offsets as needed
                 Vector3D textDir = -radarMatrix.Backward; // text faces the player/camera
-                string rangeText = $"Range: {radarRange:0}m";
+                string rangeText = $"Scan Range: {Math.Round((radarRange/1000), 1):0}KM";
 
-                drawText(rangeText, 0.0075, textPos, textDir, LINECOLOR);
+                drawText(rangeText, 0.0045, textPos, textDir, LINE_COLOR);
             }
 
 			
@@ -2953,7 +2941,7 @@ namespace EliDangHUD
             double crossSize = 0.30;
 
 			Vector3D crossOffset = radarMatrix.Left*radarRadius*1.65 + radarMatrix.Up*radarRadius*crossSize + radarMatrix.Forward*radarRadius*0.35;
-			Vector4 crossColor = LINECOLOR;
+			Vector4 crossColor = LINE_COLOR;
 
 			if (currentTarget != null) {
 				double dis2Cam1 = Vector3D.Distance (MyAPIGateway.Session.Camera.Position, currentTarget.GetPosition ());
@@ -2968,8 +2956,8 @@ namespace EliDangHUD
 
 					Vector3D targetDir = Vector3D.Normalize (currentTarget.WorldVolume.Center - MyAPIGateway.Session.Camera.Position) * 0.5;
 					double dis2Cam = Vector3D.Distance (MyAPIGateway.Session.Camera.Position, MyAPIGateway.Session.Camera.Position + targetDir);
-					DrawQuadRigid (MyAPIGateway.Session.Camera.Position + targetDir, cameraMatrix.Forward, dis2Cam * 0.125 * targettingLerp, MaterialLockOn, LINECOLOR*(float)targettingLerp, false);
-					drawText (currentTarget.DisplayName, dis2Cam * 0.01, MyAPIGateway.Session.Camera.Position + targetDir + (cameraMatrix.Up * dis2Cam * 0.02) + (cameraMatrix.Right * dis2Cam * 0.10 * targettingLerp), cameraMatrix.Forward, LINECOLOR);
+					DrawQuadRigid (MyAPIGateway.Session.Camera.Position + targetDir, cameraMatrix.Forward, dis2Cam * 0.125 * targettingLerp, USE_HOLLOW_RETICLE ? MaterialLockOnHollow : MaterialLockOn, LINE_COLOR*(float)targettingLerp, false);
+					drawText (currentTarget.DisplayName, dis2Cam * 0.01, MyAPIGateway.Session.Camera.Position + targetDir + (cameraMatrix.Up * dis2Cam * 0.02) + (cameraMatrix.Right * dis2Cam * 0.10 * targettingLerp), cameraMatrix.Forward, LINE_COLOR);
 
 					string disUnits = "m";
 					double dis2CamDisplay = dis2Cam1;
@@ -2977,7 +2965,7 @@ namespace EliDangHUD
 						disUnits = "km";
 						dis2CamDisplay = dis2CamDisplay / 1000;
 					}
-					drawText (Convert.ToString (Math.Round (dis2CamDisplay)) + " " + disUnits, dis2Cam * 0.01, MyAPIGateway.Session.Camera.Position + targetDir + (cameraMatrix.Up * dis2Cam * -0.02) + (cameraMatrix.Right * dis2Cam * 0.11 * targettingLerp), cameraMatrix.Forward, LINECOLOR);
+					drawText (Convert.ToString (Math.Round (dis2CamDisplay)) + " " + disUnits, dis2Cam * 0.01, MyAPIGateway.Session.Camera.Position + targetDir + (cameraMatrix.Up * dis2Cam * -0.02) + (cameraMatrix.Right * dis2Cam * 0.11 * targettingLerp), cameraMatrix.Forward, LINE_COLOR);
 
 					double dotProduct = Vector3D.Dot (radarMatrix.Forward, targetDir);
 
@@ -3031,7 +3019,7 @@ namespace EliDangHUD
 			}
 
 			DrawQuadRigid(radarPos+crossOffset, radarMatrix.Backward, crossSize*alignLerp * 0.125, MaterialCross, crossColor, false); //Target
-			DrawQuadRigid(radarPos+crossOffset, radarMatrix.Backward, crossSize * 0.125, MaterialCrossOutter, LINECOLOR, false); //Target
+			DrawQuadRigid(radarPos+crossOffset, radarMatrix.Backward, crossSize * 0.125, MaterialCrossOutter, LINE_COLOR, false); //Target
 			DrawQuad(radarPos+crossOffset, radarMatrix.Backward, crossSize * 0.25, MaterialCircleSeeThrough, new Vector4(0, 0, 0, 0.75f)); //Dim Backing
 		}
 
@@ -3067,7 +3055,7 @@ namespace EliDangHUD
                 return true;
             });
 
-            int MAX_PINGS = 500;
+
             foreach (var entity in radarEntities)
             {
 				if (radarPings.Count >= MAX_PINGS) 
@@ -3428,7 +3416,7 @@ namespace EliDangHUD
 				ping.Width = 0.00001f;
 				ping.Announced = true;
 			}else if (entity is IMyVoxelBase){
-				ping.Color = LINECOLOR*GLOW; //color_VoxelBase;
+				ping.Color = LINE_COLOR*GLOW; //color_VoxelBase;
 				ping.Status = RelationshipStatus.Vox;
 				IMyVoxelBase voxelEntity = entity as IMyVoxelBase;
 				if (voxelEntity != null) {
@@ -3553,7 +3541,7 @@ namespace EliDangHUD
 			MatrixD rotationMatrix = MatrixD.CreateWorld(center, planeDirection, left);
 
 			// Calculate other parameters required for drawing
-			int segments = LINEDETAIL * Convert.ToInt32(Clamped(Remap((float)radius, 1000, 10000000, 1, 8), 1, 16));
+			int segments = LINE_DETAIL * Convert.ToInt32(Clamped(Remap((float)radius, 1000, 10000000, 1, 8), 1, 16));
 			double angleIncrement = 2 * Math.PI / segments;
 
 			// Prepare to store points of the orbit
@@ -3622,7 +3610,7 @@ namespace EliDangHUD
 				dimmer = dimmerOverride;
 
 			if (dimmer > 0 && segmentThickness > 0)
-				DrawLineBillboard(MaterialSquare, LINECOLOR * dimmer, point1, direction, 0.9f, segmentThickness, BlendTypeEnum.Standard);
+				DrawLineBillboard(MaterialSquare, LINE_COLOR * dimmer, point1, direction, 0.9f, segmentThickness, BlendTypeEnum.Standard);
 		}
 
 
@@ -3947,7 +3935,8 @@ namespace EliDangHUD
 
 			double fontSize = 0.005;
 
-			if (HG_controlledGrid != null && EnableHolograms_you) //God, I really should have made this far more generic so I don't have to manage the same code for the player and the target seperately...
+			
+			if (HG_controlledGrid != null && ENABLE_HOLOGRAMS_GLOBAL && EnableHolograms_you) //God, I really should have made this far more generic so I don't have to manage the same code for the player and the target seperately...
 			{
 				HG_DrawHologram(HG_controlledGrid, YourBlocks);
 
@@ -3984,15 +3973,13 @@ namespace EliDangHUD
 				}
 
 				hgPos_Right = 	worldRadarPos + radarMatrix.Right*radarRadius + 	radarMatrix.Left*HG_Offset.X + 		radarMatrix.Down*0.0075 + (radarMatrix.Forward*fontSize*2);
-				DrawArc(hgPos_Right, 0.065, radarMatrix.Up, 0, 90 * ((float)YourHP/100)*(float)bootUpAlphaY, LINECOLOR, 0.015f, 1f);
+				DrawArc(hgPos_Right, 0.065, radarMatrix.Up, 0, 90 * ((float)YourHP/100)*(float)bootUpAlphaY, LINE_COLOR, 0.015f, 1f);
 
-				//hgPos_Right += (radarMatrix.Left * (YourHPS.Length * fontSize)) + (radarMatrix.Up*fontSize) + (radarMatrix.Forward*fontSize*0.5) + (radarMatrix.Left * fontSize*11);
-				//drawText (YourHPS, fontSize, hgPos_Right, radarMatrix.Forward, LINECOLOR);
-				//drawText ("000 ", fontSize, hgPos_Right, radarMatrix.Forward, LINECOLOR*0.25f);
+				
 
 				string yHPS = Convert.ToString (Math.Ceiling(YourHealth_Cur/100*bootUpAlphaY));
 				hgPos_Right += (radarMatrix.Left * (yHPS.Length * fontSize)) + (radarMatrix.Up*fontSize) + (radarMatrix.Forward*fontSize*0.5) + (radarMatrix.Left * 0.065);
-				drawText (yHPS, fontSize, hgPos_Right, radarMatrix.Forward, LINECOLOR);
+				drawText (yHPS, fontSize, hgPos_Right, radarMatrix.Forward, LINE_COLOR);
 
 				HG_activationTime += deltaTime*0.667;
 
@@ -4006,7 +3993,7 @@ namespace EliDangHUD
 			}
 
 
-			if (isTargetLocked && currentTarget != null && EnableHolograms_them) {
+			if (isTargetLocked && currentTarget != null && ENABLE_HOLOGRAMS_GLOBAL && EnableHolograms_them) {
 				if (!HG_initializedTarget) {
 
 					TheirHealth_Max = 0;
@@ -4056,12 +4043,11 @@ namespace EliDangHUD
 					}
 						
 					hgPos_Left = 	worldRadarPos + radarMatrix.Left*radarRadius + 		radarMatrix.Right*HG_Offset.X + 	radarMatrix.Down*0.0075 + (radarMatrix.Forward*fontSize*2);
-					DrawArc(hgPos_Left, 0.065, radarMatrix.Up, 368 - (88 * (float)TheirHP/100)*(float)bootUpAlphaT, 360, LINECOLOR, 0.015f, 1f);
+					DrawArc(hgPos_Left, 0.065, radarMatrix.Up, 368 - (88 * (float)TheirHP/100)*(float)bootUpAlphaT, 360, LINE_COLOR, 0.015f, 1f);
 
 					string tHPS = Convert.ToString (Math.Ceiling(TheirHealth_Cur/100*bootUpAlphaT));
 					hgPos_Left += (radarMatrix.Left * (tHPS.Length * fontSize)) + (radarMatrix.Up*fontSize) + (radarMatrix.Forward*fontSize*0.5) + (radarMatrix.Right * 0.065);
-					drawText (tHPS, fontSize, hgPos_Left, radarMatrix.Forward, LINECOLOR);
-					//drawText ("000 ", fontSize, hgPos_Left, radarMatrix.Forward, LINECOLOR*0.25f);
+					drawText (tHPS, fontSize, hgPos_Left, radarMatrix.Forward, LINE_COLOR);
 
 					HG_activationTimeTarget += deltaTime*0.667;
 
@@ -4415,6 +4401,7 @@ namespace EliDangHUD
 			return rotationMatrix;
 		}
 
+
 		private void HG_DrawHologram(VRage.Game.ModAPI.IMyCubeGrid grid, List<BlockTracker> blockInfo, bool flippit = false)
 		{
 			if (grid != null) {
@@ -4501,7 +4488,7 @@ namespace EliDangHUD
 
 
 
-			var color = LINECOLOR * 0.5f;
+			var color = LINE_COLOR * 0.5f;
 			if (flippit) {
 				color = LINECOLOR_Comp * 0.5f;
 			}
@@ -4628,7 +4615,20 @@ namespace EliDangHUD
 		private double creditBalance_dif = 0;
 		private bool credit_counting = false;
 
-		public void UpdateCredits()
+        public string FormatCredits(double value)
+        {
+            // Billions, Millions, Thousands, or Exact. 
+            var culture = System.Globalization.CultureInfo.InvariantCulture; // Invariant should use decimal, but no commas. 
+            if (value >= 1000000000)
+				return (value / 1000000000.0).ToString("0.##", culture) + " B";
+			else if (value >= 1000000)
+				return (value / 1000000.0).ToString("0.##", culture) + " M";
+			else if (value >= 100000)
+				return (value / 1000.0).ToString("0.##", culture) + " K";
+			else
+				return value.ToString("0", culture); 
+        }
+        public void UpdateCredits()
 		{
 			// Example usage: Get credits for the local player
 			if (MyAPIGateway.Session?.Player != null)
@@ -4641,9 +4641,10 @@ namespace EliDangHUD
 				creditBalance = balance_double;
 				creditBalance_fake = LerpD (creditBalance_fake, creditBalance, deltaTime * 2);
 
-				drawCreditBalance (creditBalance_fake, creditBalance);
+                drawCreditBalance (creditBalance_fake, creditBalance);
 			}
 		}
+
 
 		private string GetPlayerCredits(IMyPlayer player)
 		{
@@ -4678,7 +4679,7 @@ namespace EliDangHUD
 			new_cr = Math.Round (new_cr);
 			double cr_dif = new_cr - cr;
 
-			Vector4 color = LINECOLOR;
+			Vector4 color = LINE_COLOR;
 			double fontSize = 0.005;
 
 			if (cr != new_cr) {
@@ -4686,7 +4687,8 @@ namespace EliDangHUD
 				fontSize = 0.006;
 			}
 
-			string crs = "$"+Convert.ToString (cr);
+			//string crs = "$"+Convert.ToString (cr);
+			string crs = $"${FormatCredits(cr)}";
 			Vector3D pos = worldRadarPos + (radarMatrix.Right*radarRadius*1.2) + (radarMatrix.Backward*radarRadius*0.9);
 			Vector3D dir = Vector3D.Normalize((radarMatrix.Forward*4 + radarMatrix.Right)/5);
 			drawText(crs, fontSize, pos, dir, color);
@@ -4764,7 +4766,7 @@ namespace EliDangHUD
 			Vector3D pos = getToolbarPos ();
 			//two arcs
 
-			DrawCircle (pos, 0.01, radarMatrix.Forward, LINECOLOR, false, 0.25f, 0.001f); // Center Dot
+			DrawCircle (pos, 0.01, radarMatrix.Forward, LINE_COLOR, false, 0.25f, 0.001f); // Center Dot
 
 			ammoInfos = GetAmmoInfos(grid);
 
@@ -4783,7 +4785,7 @@ namespace EliDangHUD
 
 			Vector3D normal = radarMatrix.Forward;
 
-			Vector4 color = LINECOLOR;
+			Vector4 color = LINE_COLOR;
 
 
 			double TB_bootUp = LerpD (12, 4, TB_activationTime);
@@ -4879,7 +4881,7 @@ namespace EliDangHUD
 				pos += (radarMatrix.Left * fontSize * 1.8 * name.Length) - (radarMatrix.Left * fontSize * 1.8);
 			}
 			//DrawCircle (pos, 0.005, radarMatrix.Forward, LINECOLOR_Comp, false, 1f, 0.001f);
-			drawText (name, fontSize, pos, radarMatrix.Forward, LINECOLOR, 1f);
+			drawText (name, fontSize, pos, radarMatrix.Forward, LINE_COLOR, 1f);
 		}
 
 		private Vector3D getToolbarPos()
@@ -4973,7 +4975,7 @@ namespace EliDangHUD
 			if (!flippit) {
 				aPos += (radarMatrix.Left * fontSize * 1.8 * name.Length) - (radarMatrix.Left * fontSize * 1.8);
 			}
-			drawText (Convert.ToString (name), 0.005, aPos + (radarMatrix.Up * 0.005 * 3), radarMatrix.Forward, LINECOLOR, 0.75f);
+			drawText (Convert.ToString (name), 0.005, aPos + (radarMatrix.Up * 0.005 * 3), radarMatrix.Forward, LINE_COLOR, 0.75f);
 		}
 
 		private List<string> GetHotbarItems(Sandbox.ModAPI.IMyCockpit cockpit)
