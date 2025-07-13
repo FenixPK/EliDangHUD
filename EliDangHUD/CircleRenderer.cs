@@ -72,6 +72,7 @@ namespace EliDangHUD
 		public bool enableGridFlares = true;
 		public bool enableVisor = true;
 		public double radarRange = -1;
+		public int maxPings = 500;
 	}
 
 	// Define a class to hold planet information
@@ -159,6 +160,7 @@ namespace EliDangHUD
 			public static float GLOW = 					1f;
 
 			public static double RIPPYRANGE = 			-1;
+		public static int MAX_PINGS = 500;
 		//------------------------------------
 
 		private MyStringId MaterialDust1 = 				MyStringId.GetOrCompute("ED_DUST1");
@@ -265,7 +267,8 @@ namespace EliDangHUD
 			public int lineDetail = 90;									// Number of segments per circle base
 			public Vector3D starPos = new Vector3D(0, 0, 0);			// Star Position
 			public  bool starFollowSky = true;							// Does the star position follow the skybox?
-			public double radarRange = -1;								// Radar Range (-1 for draw distance)
+			public double radarRange = -1;                              // Radar Range (-1 for draw distance)
+			public int maxPings = 500; // Max pings on radar.
 		}
 
 		private const ushort MessageId = 10203;
@@ -355,6 +358,7 @@ namespace EliDangHUD
 			CircleRenderer.STARPOS			= 		settings.starPos;
 			CircleRenderer.STARFOLLOWSKY	= 		settings.starFollowSky;
 			CircleRenderer.RIPPYRANGE 		= 		settings.radarRange;
+			CircleRenderer.MAX_PINGS        =       settings.maxPings;
 		}
 
 		private ModSettings GatherCurrentSettings()
@@ -367,6 +371,7 @@ namespace EliDangHUD
 			AllTheSettings.starPos 			= 	CircleRenderer.STARPOS;
 			AllTheSettings.starFollowSky 	= 	CircleRenderer.STARFOLLOWSKY;
 			AllTheSettings.radarRange 		= 	CircleRenderer.RIPPYRANGE;
+			AllTheSettings.maxPings = CircleRenderer.MAX_PINGS;
 
 			return AllTheSettings;
 		}
@@ -878,6 +883,7 @@ namespace EliDangHUD
 						CircleRenderer.ENABLEGRIDFLARES = 		configgy.enableGridFlares;
 						CircleRenderer.ENABLEVISOR = 			configgy.enableVisor;
 						CircleRenderer.RIPPYRANGE = 			configgy.radarRange;
+						CircleRenderer.MAX_PINGS = configgy.maxPings;
 					}
 					else
 					{
@@ -2391,10 +2397,94 @@ namespace EliDangHUD
         //===================================================================================
         //Radar==============================================================================
         //===================================================================================
+
+		// Experiments with zooming radar based on entity proximity...
+
+        //double[] RadarRangeBrackets = new double[] { 1000, 2000, 4000, 8000, 20000 };
+        //double MaxRadarRange = 20000;
+        //double RadarZoomInThreshold = 2000;  // If anything is within this distance, prefer to zoom in
+
+        //double ComputeRadarRange(List<RadarPing> pings, Vector3D playerPos)
+        //{
+        //    double closest = double.MaxValue;
+        //    double farthest = 0;
+
+        //    foreach (var ping in pings)
+        //    {
+        //        if (ping?.Entity == null) continue;
+
+        //        double distSqr = Vector3D.DistanceSquared(ping.Entity.GetPosition(), playerPos);
+        //        if (distSqr > MaxRadarRange * MaxRadarRange) continue;
+
+        //        double dist = Math.Sqrt(distSqr);
+        //        if (dist < closest) closest = dist;
+        //        if (dist > farthest) farthest = dist;
+        //    }
+
+        //    // No valid pings in range
+        //    if (farthest == 0) return MaxRadarRange;
+
+        //    // If a nearby target exists, prioritize a closer bracket
+        //    if (closest < RadarZoomInThreshold)
+        //    {
+        //        foreach (double bracket in RadarRangeBrackets)
+        //        {
+        //            if (closest <= bracket)
+        //                return bracket;
+        //        }
+        //    }
+
+        //    // Otherwise, use the farthest target as range reference
+        //    foreach (double bracket in RadarRangeBrackets)
+        //    {
+        //        if (farthest <= bracket)
+        //            return bracket;
+        //    }
+
+        //    return MaxRadarRange;
+        //}
+
+        //double[] RadarRangeBrackets = new double[] { 1000, 2000, 4000, 8000, 10000, 20000 };
+        //double MaxRadarRange = 20000;
+
+        //double ComputeRadarRange(List<RadarPing> pings, Vector3D playerPos)
+        //{
+        //    double maxDistance = 0;
+
+        //    foreach (var ping in pings)
+        //    {
+        //        if (ping.Entity == null) continue;
+
+        //        double distSqr = Vector3D.DistanceSquared(ping.Entity.GetPosition(), playerPos);
+        //        if (distSqr > MaxRadarRange * MaxRadarRange) continue;
+
+        //        double actualDist = Math.Sqrt(distSqr);
+        //        if (actualDist > maxDistance) maxDistance = actualDist;
+        //    }
+
+        //    // Default to max range if no entities found
+        //    double chosenRange = MaxRadarRange;
+
+        //    // Snap to the smallest bracket that fits maxDistance
+        //    foreach (double r in RadarRangeBrackets)
+        //    {
+        //        if (maxDistance <= r)
+        //        {
+        //            chosenRange = r;
+        //            break;
+        //        }
+        //    }
+
+        //    return chosenRange;
+        //}
+
+
         private double lastRadarUpdate = 0;
         private void DrawRadar(){
-
-			
+			// DrawRadar modified 2025-07-13 by FenixPK to use Vector3D.DistanceSquared for comparisons.
+			// Using .Distance() directly does a square root to get the exact distance since the values are stored squared already.
+			// If we need to display a distance, then by all means do the square root.
+			// But for things like checking if an entity is within a certain distance etc. we can just use the squares and save CPU cycles. 
 
             //FindEntities ();
             if (RIPPYRANGE == -1) {
@@ -2403,10 +2493,31 @@ namespace EliDangHUD
 				radarRange = RIPPYRANGE;
 			}
 
-			if (underAttack) {
+            // Fetch the ship's position and its world matrix
+            Vector3D shipPos = gHandler.localGridEntity.GetPosition();
+            radarMatrix = gHandler.localGridEntity.WorldMatrix;
+
+            int BracketSize = 2000;
+
+            if (underAttack) {
 				radarRange_Goal = radarRange * 0.25;
 				squishValue_Goal = 0.0;
-			} else {
+			}
+            else if (currentTarget != null && !currentTarget.Closed)
+            {
+                double distToTarget = Vector3D.Distance(currentTarget.GetPosition(), shipPos);
+
+                // Add buffer to encourage zooming out slightly beyond the target
+                double bufferedDistance = distToTarget + 500;
+
+                // Snap to next 2000m bracket
+                int bracketedRange = ((int)(bufferedDistance / BracketSize) + 1) * BracketSize;
+
+                // Clamp to the user-defined max radar range
+                radarRange_Goal = Math.Min(bracketedRange, radarRange);
+                squishValue_Goal = 0.5;
+            }
+            else {
 				radarRange_Goal = radarRange;
 				squishValue_Goal = 0.75;
 			}
@@ -2438,7 +2549,8 @@ namespace EliDangHUD
 			Vector4 color_VoxelBase =		(Color.DimGray).ToVector4();		//IMyVoxelBase
 			//-----------------
 			Vector4 color_Current = color_VoxelBase;
-			float scale_Current = 1;
+			float scale_Current = 1.0f;
+			float min_scale_Current = 0.1f;
 
 			if (stopwatch == null) {
 				stopwatch = new Stopwatch ();
@@ -2449,9 +2561,9 @@ namespace EliDangHUD
 				stopwatch.Start ();
 			}
 
-            // Run every 0.25 seconds
             double now = stopwatch.Elapsed.TotalSeconds;
-            if (now - lastRadarUpdate < 0.25)
+            // Run every 0.25 seconds
+            if (now - lastRadarUpdate < 0.01)
             {
                 return;
             }
@@ -2473,9 +2585,7 @@ namespace EliDangHUD
 				return;
 			}
 
-			// Fetch the ship's position and its world matrix
-			Vector3D shipPos = gHandler.localGridEntity.GetPosition();
-			radarMatrix = gHandler.localGridEntity.WorldMatrix;
+			
 
 
 
@@ -2513,6 +2623,7 @@ namespace EliDangHUD
 
 			worldRadarPos = radarPos;
 
+
             double dis2cameraSqr = Vector3D.DistanceSquared(MyAPIGateway.Session.Camera.Position, worldRadarPos);
             if (dis2cameraSqr > 4) // 2^2 = 4
             {
@@ -2532,6 +2643,8 @@ namespace EliDangHUD
 			DrawLineBillboard (Material, LINECOLOR*GLOW*0.4f, radarPos, Vector3D.Lerp(radarMatrix.Forward,radarMatrix.Left,radarFov), radarRadius*1.45f, 0.0005f); //Perspective Lines
 			DrawLineBillboard (Material, LINECOLOR*GLOW*0.4f, radarPos, Vector3D.Lerp(radarMatrix.Forward,radarMatrix.Right,radarFov), radarRadius*1.45f, 0.0005f);
 
+			
+
 			for (int i = 1; i < 11; i++) {
 				int radarPulseTime = (int)Math.Truncate (10 * radarTimer);
 				float radarPulse = 1;
@@ -2540,16 +2653,17 @@ namespace EliDangHUD
 				}
 				DrawCircle(radarPos-(radarUp*0.003), (radarRadius*0.95)-(radarRadius*0.95)*(Math.Pow((float)i/10, 4)), radarUp, LINECOLOR, false, 0.25f*radarPulse, 0.00035f);
 			}
+           
 
-			//DrawQuad(radarPos, radarUp, (double)radarRadius*1.18, MaterialBorder, LINECOLOR); //Border
-			DrawQuadRigid(radarPos, radarUp, (double)radarRadius*1.18, MaterialBorder, LINECOLOR, true); //Border
+            //DrawQuad(radarPos, radarUp, (double)radarRadius*1.18, MaterialBorder, LINECOLOR); //Border
+            DrawQuadRigid(radarPos, radarUp, (double)radarRadius*1.18, MaterialBorder, LINECOLOR, true); //Border
 			if(EnableGauges){
 				DrawQuadRigid(radarPos-(radarUp*0.005), -radarUp, (double)radarRadius*1.5, MaterialCompass, LINECOLOR, true); //Compass
 			}
 			DrawQuad(radarPos-(radarUp*0.010), radarUp, (double)radarRadius*2.25, MaterialCircleSeeThrough, new Vector4(0, 0, 0, 0.75f)); //Dim Backing
 			//DrawQuad(radarPos-(radarUp*0.011), radarUp, (double)radarRadius*3, MaterialCircleSeeThrough, new Vector4(0, 0, 0, 1f)); //Dim Backing
 			//----End Draw Ring----
-
+			
 
 
 			// Get the camera's up and left vectors
@@ -2562,38 +2676,57 @@ namespace EliDangHUD
 
 			DrawQuad (radarPos + (radarUp*0.025), viewBackward, 0.25, MaterialCircleSeeThroughAdd, LINECOLOR*0.075f, true);
 
-			//===============HOLOGRAMS=================
-			if (EnableHolograms) {
-				Vector3D hgPos = HG_Offset;
-				Vector3D hgPos_Right = radarPos + radarMatrix.Left*-radarRadius + radarMatrix.Left*HG_Offset.X + radarMatrix.Forward*HG_Offset.Z;
-				Vector3D hgPos_Left = radarPos + radarMatrix.Left*-radarRadius*-1 + radarMatrix.Left*HG_Offset.X*-1 + radarMatrix.Forward*HG_Offset.Z;
+            //===============HOLOGRAMS=================
+            if (EnableHolograms)
+            {
+                Vector3D hgPos = HG_Offset;
+                Vector3D hgPos_Right = radarPos + radarMatrix.Left * -radarRadius + radarMatrix.Left * HG_Offset.X + radarMatrix.Forward * HG_Offset.Z;
+                Vector3D hgPos_Left = radarPos + radarMatrix.Left * -radarRadius * -1 + radarMatrix.Left * HG_Offset.X * -1 + radarMatrix.Forward * HG_Offset.Z;
 
-				if (EnableHolograms_them) {
-					double lockInTime_Left = HG_activationTimeTarget;
-					lockInTime_Left = ClampedD (lockInTime_Left, 0, 1);
-					lockInTime_Left = Math.Pow (lockInTime_Left, 0.1);
+                if (EnableHolograms_you)
+                {
+                    double lockInTime_Right = HG_activationTime;
+                    lockInTime_Right = ClampedD(lockInTime_Right, 0, 1);
+                    lockInTime_Right = Math.Pow(lockInTime_Right, 0.1);
 
-					DrawCircle (hgPos_Left, 0.04 * lockInTime_Left, radarUp, LINECOLOR, false, 0.5f, 0.00075f);
-					DrawCircle (hgPos_Left - (radarUp*0.015), 0.045, radarUp, LINECOLOR, false, 0.25f, 0.00125f);
+                    DrawQuad(hgPos_Right + (radarUp * HG_Offset.Y * 0.5), viewBackward, 0.15, MaterialCircleSeeThroughAdd, LINECOLOR * 0.125f, true);
 
-					if (isTargetLocked) {
-						DrawQuad (hgPos_Left + (radarUp * HG_Offset.Y * 0.5), viewBackward, 0.15, MaterialCircleSeeThroughAdd, LINECOLOR_Comp * 0.125f, true);
-						DrawQuad(hgPos_Left + (radarUp*HG_Offset.Y), viewBackward, 0.1, MaterialCircleSeeThrough, new Vector4(0, 0, 0, 0.75f)); //Dim Backing
-					} else {
-						DrawQuad (hgPos_Left + (radarUp * HG_Offset.Y * 0.5), viewBackward, 0.15, MaterialCircleSeeThroughAdd, LINECOLOR * 0.125f, true);
-					}
-				}
-			}
-			//---------------HOLOGRAMS-----------------
+                    DrawCircle(hgPos_Right, 0.04 * lockInTime_Right, radarUp, LINECOLOR, false, 0.5f, 0.00075f);
+                    DrawCircle(hgPos_Right - (radarUp * 0.015), 0.045, radarUp, LINECOLOR, false, 0.25f, 0.00125f);
 
-			updateRadarAnimations (shipPos);
+                    DrawQuad(hgPos_Right + (radarUp * HG_Offset.Y), viewBackward, 0.1, MaterialCircleSeeThrough, new Vector4(0, 0, 0, 0.75f)); //Dim Backing
+                }
 
-			
+
+                if (EnableHolograms_them)
+                {
+                    double lockInTime_Left = HG_activationTimeTarget;
+                    lockInTime_Left = ClampedD(lockInTime_Left, 0, 1);
+                    lockInTime_Left = Math.Pow(lockInTime_Left, 0.1);
+
+                    DrawCircle(hgPos_Left, 0.04 * lockInTime_Left, radarUp, LINECOLOR, false, 0.5f, 0.00075f);
+                    DrawCircle(hgPos_Left - (radarUp * 0.015), 0.045, radarUp, LINECOLOR, false, 0.25f, 0.00125f);
+
+                    if (isTargetLocked)
+                    {
+                        DrawQuad(hgPos_Left + (radarUp * HG_Offset.Y * 0.5), viewBackward, 0.15, MaterialCircleSeeThroughAdd, LINECOLOR_Comp * 0.125f, true);
+                        DrawQuad(hgPos_Left + (radarUp * HG_Offset.Y), viewBackward, 0.1, MaterialCircleSeeThrough, new Vector4(0, 0, 0, 0.75f)); //Dim Backing
+                    }
+                    else
+                    {
+                        DrawQuad(hgPos_Left + (radarUp * HG_Offset.Y * 0.5), viewBackward, 0.15, MaterialCircleSeeThroughAdd, LINECOLOR * 0.125f, true);
+                    }
+                }
+            }
+            //---------------HOLOGRAMS-----------------
+
+            updateRadarAnimations(shipPos);
 
             double fadeDistance = radarRange * 1.01;
             double fadeDistanceSqr = fadeDistance * fadeDistance;
             double radarRangeSqr = radarRange * radarRange;
 
+            //MyLog.Default.WriteLine("TEST DATA PING COUNT: " + radarPings.Count.ToString());
             //foreach (var entityPing in radarPings) {
             for (int i = 0; i < radarPings.Count; i++){
 
@@ -2605,7 +2738,7 @@ namespace EliDangHUD
 				if (radarPings [i].Entity.DisplayName != "Stone" && radarPings [i].Entity.DisplayName != null) {
 					if (radarPings [i].Width == 0f) {
 						//Something went wrong. Reinit this ping.
-						radarPings [i] = newRadarPing (radarPings [i].Entity);
+						//radarPings [i] = newRadarPing (radarPings [i].Entity);
 					}
 				}
 
@@ -2620,8 +2753,11 @@ namespace EliDangHUD
 				{ 
 					continue; 
 				}
-                //
+
+                
 				float fadeDimmer = 1f;
+
+				
 
                 if (entityDistanceSqr <= fadeDistanceSqr)
 				{
@@ -2631,9 +2767,10 @@ namespace EliDangHUD
                     }
 
 					Vector3D scaledPos = ApplyLogarithmicScaling(entityPos, shipPos); // Apply radar scaling
+                    
 
-					// Position on the radar
-					Vector3D radarEntityPos = radarPos + scaledPos;
+                    // Position on the radar
+                    Vector3D radarEntityPos = radarPos + scaledPos;
 
 					Vector3D v = radarEntityPos - radarPos;
 					Vector3D uNorm = Vector3D.Normalize (radarUp);
@@ -2649,9 +2786,10 @@ namespace EliDangHUD
 
 					//---What kind of entity?---
 					double gridWidth = radarPings[i].Width;
-					scale_Current = (float)gridWidth;
+					scale_Current = Math.Max(min_scale_Current, (float)gridWidth); // If gridWidth is something ridiculous like 0.0f then fall back on min scale. 
 
 					color_Current = radarPings[i].Color;
+
 
 					if (entityDistanceSqr < radarRangeSqr*0.985) // This should be fine to take the 98.5% of the square if comparing a square vs square. 
 					{
@@ -2682,10 +2820,12 @@ namespace EliDangHUD
 						}
 					}
 
-					//DETECT FIRING RANGE
-					switch (radarPings[i].Status){
+                    
+
+                    //DETECT FIRING RANGE
+                    switch (radarPings[i].Status){
 					case RelationshipStatus.Hostile:
-						if (entityDistanceSqr < 640000) // 800^2 = 640,000
+						if (entityDistanceSqr < (4000000)) // 2000^2
 							{
 							if (!targetingFlipper) {
 								color_Current = color_GridEnemyAttack;
@@ -2695,6 +2835,8 @@ namespace EliDangHUD
 						break;
 					}
 					//--------------------------
+
+					
 
 					Vector3D pulsePos = radarEntityPos+(lineDir*vertDistance);
 					double pulseDistance = Vector3D.Distance(pulsePos, radarPos);
@@ -2711,7 +2853,9 @@ namespace EliDangHUD
 
 					bool skipThis = false;
 
-					switch (radarPings [i].Status){
+                    
+
+                    switch (radarPings [i].Status){
 					case RelationshipStatus.Friendly:
 						drawMat = MaterialSquare;
 						break;
@@ -2735,16 +2879,38 @@ namespace EliDangHUD
 						drawMat = MaterialCircle;
 						break;
 					}
+                    
 
-
-					if (skipThis) 
+                    if (skipThis) 
 					{
 						// SKIP
 					}
 					else
 					{
-						// Draw each entity as a billboard on the radar
-						DrawLineBillboard(MaterialSquare, color_Current*0.25f*fadeDimmer*pulseTimer, radarEntityPos, lineDir, vertDistance, 0.001f*fadeDimmer);
+						// If there are any problems that would make displaying the entity fail or do something ridiculous that tanks FPS just skip to the next one.
+                        if (double.IsNaN(radarEntityPos.X) || double.IsInfinity(radarEntityPos.X))
+                        {
+							//MyLog.Default.WriteLine("INVALID radarEntityPos: " + radarEntityPos.ToString());
+							continue;
+                        }
+						if (!radarEntityPos.IsValid()) 
+						{
+							//MyLog.Default.WriteLine("INVALID radarEntityPos from isValid: " + radarEntityPos.ToString());
+							continue;
+                        }
+						if (scale_Current <= 0 || double.IsNaN(scale_Current)) 
+						{
+							//MyLog.Default.WriteLine("INVALID scale_current: " + scale_Current.ToString());
+							continue;
+                        }
+						if (!lineDir.IsValid()) 
+						{
+                            //MyLog.Default.WriteLine("INVALID lineDir: " + lineDir.ToString());
+							continue;
+                        }
+
+                        // Draw each entity as a billboard on the radar
+                        DrawLineBillboard(MaterialSquare, color_Current*0.25f*fadeDimmer*pulseTimer, radarEntityPos, lineDir, vertDistance, 0.001f*fadeDimmer);
 						//MyTransparentGeometry.AddBillboardOriented (MaterialCircle, color_Current*upDownDimmer*0.25f*pulseTimer, radarEntityPos+(lineDir*vertDistance), viewForward, viewLeft, 0.0025f*fadeDimmer*scale_Current);
 						DrawQuad(radarEntityPos+(lineDir*vertDistance), radarUp, (double)(0.005*fadeDimmer*scale_Current), MaterialCircle, color_Current*upDownDimmer*0.25f*pulseTimer*0.5f);
 
@@ -2752,15 +2918,39 @@ namespace EliDangHUD
 
                         MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos2, viewLeft, viewUp, 0.0025f * fadeDimmer * scale_Current);
 
-                        
-					}
+                        if (currentTarget != null && entity == currentTarget)
+                        {
+                            float blipSize = 0.0025f * fadeDimmer * scale_Current;
+                            float outlineSize = blipSize * 1.6f; // Slightly larger than the blip
+                            Vector4 color = new Vector4(Color.Yellow, 1);
+
+                            Vector3D selectedPos = radarEntityPos + (lineDir * vertDistance);
+
+                            MyTransparentGeometry.AddBillboardOriented(
+                                MaterialTarget,     // Clean square outline
+                                color,
+                                selectedPos,
+                                viewLeft,           // Align with radar plane
+                                viewUp,
+                                outlineSize         // Slightly larger than radar blip
+                            );
+                        }
+
+                    }
+
 				}
-			}
+                Vector3D textPos = radarPos + radarUp * -0.1 + radarLeft * 0.3; // tweak offsets as needed
+                Vector3D textDir = -radarMatrix.Backward; // text faces the player/camera
+                string rangeText = $"Range: {radarRange:0}m";
+
+                drawText(rangeText, 0.0075, textPos, textDir, LINECOLOR);
+            }
+
+			
 
 
-
-			//Targeting CrossHair
-			double crossSize = 0.30;
+            //Targeting CrossHair
+            double crossSize = 0.30;
 
 			Vector3D crossOffset = radarMatrix.Left*radarRadius*1.65 + radarMatrix.Up*radarRadius*crossSize + radarMatrix.Forward*radarRadius*0.35;
 			Vector4 crossColor = LINECOLOR;
@@ -2819,6 +3009,7 @@ namespace EliDangHUD
 									unitsTime = "hrs";
 								}
 							}
+
 							drawText (Convert.ToString (Math.Round (arivalTime)) + " " + unitsTime, dis2Cam * 0.01, MyAPIGateway.Session.Camera.Position + targetDir + (cameraMatrix.Up * dis2Cam * -0.05) + (cameraMatrix.Right * dis2Cam * 0.11 * targettingLerp), cameraMatrix.Forward, LINECOLOR_Comp);
 						}
 					} else {
@@ -2850,24 +3041,48 @@ namespace EliDangHUD
 		HashSet<VRage.ModAPI.IMyEntity> radarEntities = new HashSet<VRage.ModAPI.IMyEntity>();
 		List<RadarPing> radarPings = new List<RadarPing>();
 
-		private void FindEntities(){
-			MyAPIGateway.Entities.GetEntities(radarEntities, IMyEntity => true);
-			radarPings.Clear ();
-			foreach (var entity in radarEntities) {
-				if (entity is MyPlanet || entity.DisplayName == "Stone"){
-				} else {
-					if(!ShowVoxels && entity is IMyVoxelBase){
+		
+        private void FindEntities()
+        {
+            // Updated find entities 2025-07-13 by FenixPK. I found in my testing of an empty world that 82244 entities existed all with width = 0.
+			// This was causing the scale_current variable to be 0, and causing the radar entity painting loop to be a huge FPS sink. 
+			// The below changes should do two things
+			// 1) ensure that we only get entities that make sense. Not invisible background game objects that exist even in a brand new empty world.
+			// 2) Cap the MAX_PINGS at 500, so the screen doesn't get too cluttered. At a certain point so many pings becomes impossible to read anyway so the the
+			// reality is we can be missing some pings because they aren't there and we saved CPU power,
+			// or we can be missing some pings because there are so many it's become a soup but we wasted a bunch of CPU to do it.
 
-					}else{
-						RadarPing ping = newRadarPing (entity);
-						radarPings.Add (ping);
-					}
-				}
-			}
-			//radarEntities.Clear ();
-		}
+            radarEntities.Clear(); // Always clear first
+            radarPings.Clear();
 
-		private void DrawRadarEntity(VRage.ModAPI.IMyEntity entity){
+            MyAPIGateway.Entities.GetEntities(radarEntities, entity =>
+            {
+                if (entity.MarkedForClose || entity.Closed) return false;
+                if (entity is MyPlanet) return false;
+                if (!ShowVoxels && entity is IMyVoxelBase) return false;
+
+                // Skip invalid display names or types
+                if (entity.DisplayName == null || entity.DisplayName == "Stone") return false;
+
+                return true;
+            });
+
+            int MAX_PINGS = 500;
+            foreach (var entity in radarEntities)
+            {
+				if (radarPings.Count >= MAX_PINGS) 
+				{
+                    break;
+                }
+                RadarPing ping = newRadarPing(entity);
+
+                // Only add if width is valid
+                if (ping.Width > 0.1f && ping.Width < 10000f) // safety bounds
+                    radarPings.Add(ping);
+            }
+        }
+
+        private void DrawRadarEntity(VRage.ModAPI.IMyEntity entity){
 
 		}
 		
@@ -2940,69 +3155,72 @@ namespace EliDangHUD
 			}
 		}
 
-		//==============LOG SCALING==================================================================
-		public MatrixD CreateLogarithmicScaleMatrix(Vector3D entityPosition, Vector3D referencePoint)
-		{
-			double scaleBase = 10; //Base of the logarithm for scaling calculations
+		////==============LOG SCALING==================================================================
+		//public MatrixD CreateLogarithmicScaleMatrix(Vector3D entityPosition, Vector3D referencePoint)
+		//{
+		//	double scaleBase = 10; //Base of the logarithm for scaling calculations
 
-			// Calculate distance from the reference point
-			double distance = Vector3D.Distance(entityPosition, referencePoint);
+		//	// Calculate distance from the reference point
+		//	double distance = Vector3D.Distance(entityPosition, referencePoint);
 
-			// Avoid taking logarithm of zero or negative numbers
-			distance = Math.Max(distance, 0.01); // A small positive value
+		//	// Avoid taking logarithm of zero or negative numbers
+		//	distance = Math.Max(distance, 0.01); // A small positive value
 
-			// Calculate logarithmic scale factor
-			//double scaleFactor = Math.Max(Math.Exp(distance/radarRange)/2, radarScale); 
-			double scaleFactor = Math.Max(Math.Exp(distance/radarRange)/2.8, radarScale); 
-
-
-			// Create a scale matrix
-			//MatrixD scaleMatrix = MatrixD.CreateScale(Math.Pow(1 / scaleFactor, 3));
-			MatrixD scaleMatrix = MatrixD.CreateScale(1 / scaleFactor);
-
-			// Translate entity position to origin, scale, and translate back
-			MatrixD translationMatrixToOrigin = MatrixD.CreateTranslation(-referencePoint);
-			//MatrixD translationMatrixBack = MatrixD.CreateTranslation(referencePoint);
-
-			// Combine the matrices
-			MatrixD transformationMatrix = translationMatrixToOrigin * scaleMatrix; //* translationMatrixBack;
-
-			return transformationMatrix;
-		}
-
-		// public Vector3D ApplyLogarithmicScaling(Vector3D entityPosition, Vector3D referencePoint)
-		// {
-		// 	MatrixD transformationMatrix = CreateLogarithmicScaleMatrix(entityPosition, referencePoint);
-		// 	MatrixD scalingMatrix = MatrixD.CreateScale(radarScale,radarScale,radarScale);
-
-		// 	return Vector3D.Transform(Vector3D.Transform(entityPosition, transformationMatrix),scalingMatrix);
-		// }
-
-		public Vector3D ApplyLogarithmicScaling(Vector3D entityPos, Vector3D referencePos)
-		{
-			Vector3D offset = entityPos - referencePos;
-			double distance = offset.Length();
-
-			// Avoid unnecessary work for very close targets
-			if (distance < 100) return offset * radarScale;
-
-			// Apply logarithmic scaling to distance
-			// This compresses distant items to not overflow the radar
-			double logDistance = Math.Log10(distance + 1); // +1 to prevent log(0)
-
-			// Normalize vector and scale
-			Vector3D direction = offset / distance;
-			Vector3D scaledOffset = direction * logDistance;
-
-			// Scale to radar space
-			return scaledOffset * radarScale * 100; // scale factor tweakable
-		}
-		//------------------------------------------------------------------------------------------
+		//	// Calculate logarithmic scale factor
+		//	//double scaleFactor = Math.Max(Math.Exp(distance/radarRange)/2, radarScale); 
+		//	double scaleFactor = Math.Max(Math.Exp(distance/radarRange)/2.8, radarScale); 
 
 
+		//	// Create a scale matrix
+		//	//MatrixD scaleMatrix = MatrixD.CreateScale(Math.Pow(1 / scaleFactor, 3));
+		//	MatrixD scaleMatrix = MatrixD.CreateScale(1 / scaleFactor);
 
-		//===============IS GRID ATTACKING?==========================================================
-		public bool IsGridTargetingPlayer(VRage.Game.ModAPI.IMyCubeGrid grid)
+		//	// Translate entity position to origin, scale, and translate back
+		//	MatrixD translationMatrixToOrigin = MatrixD.CreateTranslation(-referencePoint);
+		//	//MatrixD translationMatrixBack = MatrixD.CreateTranslation(referencePoint);
+
+		//	// Combine the matrices
+		//	MatrixD transformationMatrix = translationMatrixToOrigin * scaleMatrix; //* translationMatrixBack;
+
+		//	return transformationMatrix;
+		//}
+
+		//public Vector3D ApplyLogarithmicScaling(Vector3D entityPosition, Vector3D referencePoint)
+		//{
+		//	MatrixD transformationMatrix = CreateLogarithmicScaleMatrix(entityPosition, referencePoint);
+		//	MatrixD scalingMatrix = MatrixD.CreateScale(radarScale, radarScale, radarScale);
+
+		//	return Vector3D.Transform(Vector3D.Transform(entityPosition, transformationMatrix), scalingMatrix);
+		//}
+
+        public Vector3D ApplyLogarithmicScaling(Vector3D entityPos, Vector3D referencePos)
+        {
+			// Modified 2025-07-13 by FenixPK - I believe this accomplishes the same end result, but without the Matrices which should in theory be faster/less CPU intensive.
+			// Idea being that radar blips are in logarmithic brackets for where they appear on the radar screen depending on their distance. When far away
+			// and approaching at a constant velocity they will slowly move from the outer brackets, the rate at which they jump to the next "bracket" increasing exponentially as they get closer.
+			// Hence the whole logarithmic part of this... It's a rather cool effect! 
+
+            Vector3D offset = entityPos - referencePos;
+            double distance = offset.Length();
+
+            if (distance < 0.01)
+                return Vector3D.Zero;
+
+            // Logarithmic scaling
+            double scaleFactor = Math.Max(Math.Exp(distance / radarRange) / 2.8, radarScale);
+            double inverseScale = 1.0 / scaleFactor;
+
+            Vector3D direction = offset / distance;
+            Vector3D scaledOffset = direction * distance * inverseScale * radarScale;
+
+            return scaledOffset;
+        }
+        //------------------------------------------------------------------------------------------
+
+
+
+        //===============IS GRID ATTACKING?==========================================================
+        public bool IsGridTargetingPlayer(VRage.Game.ModAPI.IMyCubeGrid grid)
 		{
 			var turrets = new List<Sandbox.ModAPI.IMyLargeTurretBase>();
 
