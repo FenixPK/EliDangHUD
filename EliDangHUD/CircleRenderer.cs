@@ -1151,10 +1151,11 @@ namespace EliDangHUD
 
 			DrawRadar ();
 
-			double dis2camera = Vector3D.Distance (MyAPIGateway.Session.Camera.Position, worldRadarPos);
-			if (dis2camera > 2) {
-				return;
-			}
+            double dis2cameraSqr = Vector3D.DistanceSquared(MyAPIGateway.Session.Camera.Position, worldRadarPos);
+            if (dis2cameraSqr > 4) // 2^2 = 4
+            {
+                return;
+            }
 
 			//if dust ----------------------------------------------------------------------------------
 			if (EnableDust) {
@@ -2387,13 +2388,16 @@ namespace EliDangHUD
 		private double squishValue_Goal = 0.75;
 
 
-		//===================================================================================
-		//Radar==============================================================================
-		//===================================================================================
-		private void DrawRadar(){
+        //===================================================================================
+        //Radar==============================================================================
+        //===================================================================================
+        private double lastRadarUpdate = 0;
+        private void DrawRadar(){
 
-			//FindEntities ();
-			if (RIPPYRANGE == -1) {
+			
+
+            //FindEntities ();
+            if (RIPPYRANGE == -1) {
 				radarRange = (double)MyAPIGateway.Session.SessionSettings.ViewDistance;
 			} else {
 				radarRange = RIPPYRANGE;
@@ -2445,7 +2449,15 @@ namespace EliDangHUD
 				stopwatch.Start ();
 			}
 
-			double radarTimer = stopwatch.Elapsed.TotalSeconds / 3;
+            // Run every 0.25 seconds
+            double now = stopwatch.Elapsed.TotalSeconds;
+            if (now - lastRadarUpdate < 0.25)
+            {
+                return;
+            }
+            lastRadarUpdate = now;
+
+            double radarTimer = stopwatch.Elapsed.TotalSeconds / 3;
 			radarTimer = 1 - (radarTimer - Math.Truncate (radarTimer))*2;
 
 			double attackTimer = stopwatch.Elapsed.TotalSeconds*4;
@@ -2501,12 +2513,22 @@ namespace EliDangHUD
 
 			worldRadarPos = radarPos;
 
-			double dis2camera = Vector3D.Distance (MyAPIGateway.Session.Camera.Position, worldRadarPos);
-			if (dis2camera > 2) {
-				return;
-			}
+            double dis2cameraSqr = Vector3D.DistanceSquared(MyAPIGateway.Session.Camera.Position, worldRadarPos);
+            if (dis2cameraSqr > 4) // 2^2 = 4
+            {
+                return;
+            }
+            if (radarPings == null)
+            {
+                return;
+            }
+			if (radarPings.Count == 0) 
+			{
+                return;
+            }
+                
 
-			float radarFov = Clamped(GetCameraFOV ()/2, 0, 90)/90;
+            float radarFov = Clamped(GetCameraFOV ()/2, 0, 90)/90;
 			DrawLineBillboard (Material, LINECOLOR*GLOW*0.4f, radarPos, Vector3D.Lerp(radarMatrix.Forward,radarMatrix.Left,radarFov), radarRadius*1.45f, 0.0005f); //Perspective Lines
 			DrawLineBillboard (Material, LINECOLOR*GLOW*0.4f, radarPos, Vector3D.Lerp(radarMatrix.Forward,radarMatrix.Right,radarFov), radarRadius*1.45f, 0.0005f);
 
@@ -2546,20 +2568,6 @@ namespace EliDangHUD
 				Vector3D hgPos_Right = radarPos + radarMatrix.Left*-radarRadius + radarMatrix.Left*HG_Offset.X + radarMatrix.Forward*HG_Offset.Z;
 				Vector3D hgPos_Left = radarPos + radarMatrix.Left*-radarRadius*-1 + radarMatrix.Left*HG_Offset.X*-1 + radarMatrix.Forward*HG_Offset.Z;
 
-				if (EnableHolograms_you) {
-					double lockInTime_Right = HG_activationTime;
-					lockInTime_Right = ClampedD (lockInTime_Right, 0, 1);
-					lockInTime_Right = Math.Pow (lockInTime_Right, 0.1);
-
-					DrawQuad (hgPos_Right + (radarUp*HG_Offset.Y * 0.5), viewBackward, 0.15, MaterialCircleSeeThroughAdd, LINECOLOR*0.125f, true);
-
-					DrawCircle (hgPos_Right, 0.04 * lockInTime_Right, radarUp, LINECOLOR, false, 0.5f, 0.00075f);
-					DrawCircle (hgPos_Right - (radarUp*0.015), 0.045, radarUp, LINECOLOR, false, 0.25f, 0.00125f);
-
-					DrawQuad(hgPos_Right + (radarUp*HG_Offset.Y), viewBackward, 0.1, MaterialCircleSeeThrough, new Vector4(0, 0, 0, 0.75f)); //Dim Backing
-				}
-
-
 				if (EnableHolograms_them) {
 					double lockInTime_Left = HG_activationTimeTarget;
 					lockInTime_Left = ClampedD (lockInTime_Left, 0, 1);
@@ -2578,22 +2586,19 @@ namespace EliDangHUD
 			}
 			//---------------HOLOGRAMS-----------------
 
-
+			updateRadarAnimations (shipPos);
 
 			
 
-			updateRadarAnimations (shipPos);
+            double fadeDistance = radarRange * 1.01;
+            double fadeDistanceSqr = fadeDistance * fadeDistance;
+            double radarRangeSqr = radarRange * radarRange;
 
-			if (radarPings == null) {
-				return;
-			}
-
-			//foreach (var entityPing in radarPings) {
-			for (int i = 0; i < radarPings.Count; i++){
+            //foreach (var entityPing in radarPings) {
+            for (int i = 0; i < radarPings.Count; i++){
 
 				if (radarPings [i].Entity == null) {
 					radarPings.Clear();
-					//FindEntities ();
 					return;
 				}
 
@@ -2609,22 +2614,21 @@ namespace EliDangHUD
 				// Calculate the position of the entity relative to the ship, scaled and transformed
 				Vector3D entityPos = entity.GetPosition();
 
-				Vector3D upSquish = Vector3D.Dot (entityPos, radarMatrix.Up) * radarMatrix.Up;
-				//entityPos -= (upSquish*squishValue); //------Squishing the vertical axis on the radar to make it easier to read... but less vertically accurate.
-
 				Vector3D relativePos = entityPos - shipPos; // Position relative to the ship
-				double entityDistance = Vector3D.Distance(entityPos, shipPos);
-
-				double fadeDistance = radarRange*1.01;
+                double entityDistanceSqr = relativePos.LengthSquared();
+                if (entityDistanceSqr > fadeDistanceSqr) 
+				{ 
+					continue; 
+				}
+                //
 				float fadeDimmer = 1f;
 
-				if (entityDistance <= fadeDistance){
-
-					if (entityDistance > radarRange) {
-
-						//entityPos = Vector3D.Normalize (entityPos - shipPos) * radarRange;
-						fadeDimmer = 1-Clamped(1 - (float)((fadeDistance - entityDistance) / (fadeDistance - radarRange)), 0,1);
-					}
+                if (entityDistanceSqr <= fadeDistanceSqr)
+				{
+					if (entityDistanceSqr > radarRangeSqr) 
+					{
+                        fadeDimmer = 1 - Clamped(1 - (float)((fadeDistanceSqr - entityDistanceSqr) / (fadeDistanceSqr - radarRangeSqr)), 0, 1);
+                    }
 
 					Vector3D scaledPos = ApplyLogarithmicScaling(entityPos, shipPos); // Apply radar scaling
 
@@ -2649,22 +2653,31 @@ namespace EliDangHUD
 
 					color_Current = radarPings[i].Color;
 
-					if (entityDistance < radarRange*0.985) {
-						if (!radarPings [i].Announced) {
+					if (entityDistanceSqr < radarRangeSqr*0.985) // This should be fine to take the 98.5% of the square if comparing a square vs square. 
+					{
+						if (!radarPings [i].Announced) 
+						{
 							radarPings [i].Announced = true;
-							if (radarPings [i].Status == RelationshipStatus.Hostile && entityDistance > 500) {
+							if (radarPings [i].Status == RelationshipStatus.Hostile && entityDistanceSqr > 250000) //500^2 = 250,000
+                            { 
 								PlayCustomSound (SP_ENEMY, worldRadarPos);
 								newAlertAnim(entity);
-							}else if (radarPings [i].Status == RelationshipStatus.Friendly && entityDistance > 500) {
+							}
+							else if (radarPings [i].Status == RelationshipStatus.Friendly && entityDistanceSqr > 250000) 
+							{
 								PlayCustomSound (SP_NEUTRAL, worldRadarPos);
 								newBlipAnim(entity);
-							}else if (radarPings [i].Status == RelationshipStatus.Neutral && entityDistance > 500) {
-								//PlayCustomSound (SP_NEUTRAL, worldRadarPos);
-								//newBlipAnim(entity);
+							}
+							else if (radarPings [i].Status == RelationshipStatus.Neutral && entityDistanceSqr > 250000) 
+							{
+								// No Sound
 							}
 						}
-					} else {
-						if (radarPings [i].Announced) {
+					} 
+					else 
+					{
+						if (radarPings [i].Announced) 
+						{
 							radarPings [i].Announced = false;
 						}
 					}
@@ -2672,7 +2685,8 @@ namespace EliDangHUD
 					//DETECT FIRING RANGE
 					switch (radarPings[i].Status){
 					case RelationshipStatus.Hostile:
-						if (entityDistance < 800) {
+						if (entityDistanceSqr < 640000) // 800^2 = 640,000
+							{
 							if (!targetingFlipper) {
 								color_Current = color_GridEnemyAttack;
 							}
@@ -2723,73 +2737,27 @@ namespace EliDangHUD
 					}
 
 
-					if (skipThis) {
-					}else{
+					if (skipThis) 
+					{
+						// SKIP
+					}
+					else
+					{
 						// Draw each entity as a billboard on the radar
 						DrawLineBillboard(MaterialSquare, color_Current*0.25f*fadeDimmer*pulseTimer, radarEntityPos, lineDir, vertDistance, 0.001f*fadeDimmer);
 						//MyTransparentGeometry.AddBillboardOriented (MaterialCircle, color_Current*upDownDimmer*0.25f*pulseTimer, radarEntityPos+(lineDir*vertDistance), viewForward, viewLeft, 0.0025f*fadeDimmer*scale_Current);
 						DrawQuad(radarEntityPos+(lineDir*vertDistance), radarUp, (double)(0.005*fadeDimmer*scale_Current), MaterialCircle, color_Current*upDownDimmer*0.25f*pulseTimer*0.5f);
 
 						Vector3D radarEntityPos2 = radarEntityPos;
-						double dis2Cam = Vector3D.Distance (MyAPIGateway.Session.Camera.Position, radarEntityPos);
-						float glitchValue = (float)glitchAmount;
 
-						//Let's add some glitch to hostile entities that are a certain distance away.
-						if (entityDistance > radarRange*0.9) {
-							if (radarPings [i].Status == RelationshipStatus.Hostile) {
-								double tempDistance = Math.Min (entityDistance, radarRange);
-								tempDistance = (entityDistance - (radarRange * 0.9)) / (radarRange * 0.1);
-								tempDistance = MathHelper.Clamp (tempDistance, 0, 1);
-								glitchValue = (float)tempDistance;
-							}
-						}
+                        MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos2, viewLeft, viewUp, 0.0025f * fadeDimmer * scale_Current);
 
-						if (GetRandomBoolean()) {
-							if (glitchAmount > 0.001) {
-								Vector3D offsetRan = new Vector3D (
-									(GetRandomDouble () - 0.5) * 2,
-									(GetRandomDouble () - 0.5) * 2,
-									(GetRandomDouble () - 0.5) * 2
-								);
-
-								radarEntityPos2 = radarEntityPos + offsetRan * dis2Cam * glitchValue * 0.025;
-								color_Current *= GetRandomFloat ();
-							}
-						}
-						if (glitchValue < 0.8) {
-							MyTransparentGeometry.AddBillboardOriented (drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos2, viewLeft, viewUp, 0.0025f * fadeDimmer * scale_Current);
-						} else {
-							Vector4 cRed = new Vector4 (1, 0, 0, 1);
-							Vector4 cGrn = new Vector4 (0, 1, 0, 1);
-							Vector4 cblu = new Vector4 (0, 0, 1, 1);
-
-							Vector3D offsetRed = new Vector3D (
-								(GetRandomDouble () - 0.5) * 2,
-								(GetRandomDouble () - 0.5) * 2,
-								(GetRandomDouble () - 0.5) * 2
-							);
-							Vector3D offsetGrn = new Vector3D (
-								(GetRandomDouble () - 0.5) * 2,
-								(GetRandomDouble () - 0.5) * 2,
-								(GetRandomDouble () - 0.5) * 2
-							);
-							Vector3D offsetBlu = new Vector3D (
-								(GetRandomDouble () - 0.5) * 2,
-								(GetRandomDouble () - 0.5) * 2,
-								(GetRandomDouble () - 0.5) * 2
-							);
-
-							radarEntityPos2 = radarEntityPos + offsetRed * dis2Cam * glitchValue * 0.025;
-							MyTransparentGeometry.AddBillboardOriented (drawMat, cRed*color_Current * upDownDimmer * pulseTimer, radarEntityPos2, viewLeft, viewUp, 0.0025f * fadeDimmer * scale_Current);
-							radarEntityPos2 = radarEntityPos + offsetGrn * dis2Cam * glitchValue * 0.025;
-							MyTransparentGeometry.AddBillboardOriented (drawMat, cGrn*color_Current * upDownDimmer * pulseTimer, radarEntityPos2, viewLeft, viewUp, 0.0025f * fadeDimmer * scale_Current);
-							radarEntityPos2 = radarEntityPos + offsetBlu * dis2Cam * glitchValue * 0.025;
-							MyTransparentGeometry.AddBillboardOriented (drawMat, cblu*color_Current * upDownDimmer * pulseTimer, radarEntityPos2, viewLeft, viewUp, 0.0025f * fadeDimmer * scale_Current);
-
-						}
-						}
+                        
+					}
 				}
 			}
+
+
 
 			//Targeting CrossHair
 			double crossSize = 0.30;
