@@ -172,7 +172,7 @@ namespace EliDangHUD
 		//			return null;
 		//		}
 
-		public bool GridHasPassiveAntenna(IMyCubeGrid grid) 
+		public static bool GridHasPassiveAntenna(IMyCubeGrid grid) 
 		{
             IEnumerable<IMyRadioAntenna> antennas = grid.GetFatBlocks<IMyRadioAntenna>();
             int count = 0;
@@ -196,7 +196,7 @@ namespace EliDangHUD
             return false;
         }
 
-		public bool GridHasActiveAntenna(IMyCubeGrid grid) 
+		public static bool GridHasActiveAntenna(IMyCubeGrid grid) 
 		{
             IEnumerable<IMyRadioAntenna> antennas = grid.GetFatBlocks<IMyRadioAntenna>();
             int count = 0;
@@ -220,7 +220,7 @@ namespace EliDangHUD
             return false;
         }
 
-		public double GridActiveAntennaRange(IMyCubeGrid grid)
+		public static double GridActiveAntennaRange(IMyCubeGrid grid)
 		{
             IEnumerable<IMyRadioAntenna> antennas = grid.GetFatBlocks<IMyRadioAntenna>();
 			double maxRange = 0.0;
@@ -247,7 +247,7 @@ namespace EliDangHUD
 		/// <param name="hasPassive">Does the grid have passive radar capability?</param>
 		/// <param name="hasActive">Does the grid have active radar turned on?</param>
 		/// <param name="maxActiveRange">Active radar range if on.</param>
-        public void EvaluateGridAntennaStatus(IMyCubeGrid grid, out bool hasPassive, out bool hasActive, out double maxActiveRange)
+        public static void EvaluateGridAntennaStatus(IMyCubeGrid grid, out bool hasPassive, out bool hasActive, out double maxActiveRange)
         {
             hasPassive = false;
             hasActive = false;
@@ -275,7 +275,7 @@ namespace EliDangHUD
         }
 
 
-        public bool GridHasAntenna(IMyCubeGrid grid)
+        public static bool GridHasAntenna(IMyCubeGrid grid)
 		{
 			IEnumerable<IMyRadioAntenna> antennas = grid.GetFatBlocks<IMyRadioAntenna>();
 
