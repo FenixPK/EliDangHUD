@@ -147,161 +147,8 @@ namespace EliDangHUD
 			}
 		}
 
-		//		public IMyRadioAntenna CheckAndModifyAntennaProperties(IMyCubeGrid grid)
-		//		{
-		//			// Get all blocks of type IMyRadioAntenna
-		//			//var antennas = new List<IMyTerminalBlock>();
-		//			//grid.GetBlocksOfType<IMyRadioAntenna>(antennas);
-		//			//grid.GetBlocks<IMyRadioAntenna> (antennas);
-		//
-		//			var antennas = new List<IMyRadioAntenna>();
-		//			grid.GetBlocks(antennas, (antennas);
-		//
-		//			foreach (IMyRadioAntenna antenna in antennas)
-		//			{
-		//				if (antenna != null && antenna.IsFunctional && antenna.Enabled)
-		//				{
-		//					// Check if the antenna is broadcasting
-		//					if (antenna.IsBroadcasting)
-		//					{
-		//						return antenna;
-		//					}
-		//				}
-		//			}
-		//
-		//			return null;
-		//		}
 
-		public static bool GridHasPassiveAntenna(IMyCubeGrid grid) 
-		{
-            IEnumerable<IMyRadioAntenna> antennas = grid.GetFatBlocks<IMyRadioAntenna>();
-            int count = 0;
-            foreach (var i in antennas)
-            {
-                foreach (IMyRadioAntenna antenna in antennas)
-                {
-                    if (antenna.IsWorking)
-                    {
-						if (!i.CustomData.Contains("[NORADAR]"))
-						{ 
-							count++;
-						}
-                    }
-                }
-            }
-            if (count > 0) // If we have any powered+functional antennas that are not flagged as [NORADAR] then we can receive passive signals. 
-            {
-                return true;
-            }
-            return false;
-        }
-
-		public static bool GridHasActiveAntenna(IMyCubeGrid grid) 
-		{
-            IEnumerable<IMyRadioAntenna> antennas = grid.GetFatBlocks<IMyRadioAntenna>();
-            int count = 0;
-            foreach (var i in antennas)
-            {
-                foreach (IMyRadioAntenna antenna in antennas)
-                {
-                    if (antenna.IsWorking && antenna.IsBroadcasting)
-                    {
-                        if (!i.CustomData.Contains("[NORADAR]"))
-                        {
-                            count++;
-                        }
-                    }
-                }
-            }
-            if (count > 0) // If we have any powerd+functional+active/broadcasting antennas that are not flagged as [NORADAR] then we can send active signals. 
-            {
-                return true;
-            }
-            return false;
-        }
-
-		public static double GridActiveAntennaRange(IMyCubeGrid grid)
-		{
-            IEnumerable<IMyRadioAntenna> antennas = grid.GetFatBlocks<IMyRadioAntenna>();
-			double maxRange = 0.0;
-            foreach (var i in antennas)
-            {
-                foreach (IMyRadioAntenna antenna in antennas)
-                {
-                    if (antenna.IsWorking && antenna.IsBroadcasting)
-                    {
-                        if (!i.CustomData.Contains("[NORADAR]"))
-                        {
-							maxRange = Math.Max(maxRange, i.Radius);
-                        }
-                    }
-                }
-            }
-            return maxRange;
-        }
-
-		/// <summary>
-		/// Skips antennas tagged as [NORADAR]. Checks a grid for passive radar: any antenna that is functional/powered. Checks a grid for active radar: any antenna that is functional/powered, and broadcasting. Returns max active range if present.
-		/// </summary>
-		/// <param name="grid">The grid to check</param>
-		/// <param name="hasPassive">Does the grid have passive radar capability?</param>
-		/// <param name="hasActive">Does the grid have active radar turned on?</param>
-		/// <param name="maxActiveRange">Active radar range if on.</param>
-        public static void EvaluateGridAntennaStatus(IMyCubeGrid grid, out bool hasPassive, out bool hasActive, out double maxActiveRange)
-        {
-            hasPassive = false;
-            hasActive = false;
-            maxActiveRange = 0.0;
-
-            var antennas = grid.GetFatBlocks<IMyRadioAntenna>();
-
-            foreach (var antenna in antennas)
-            {
-                if (!antenna.IsWorking)
-                    continue;
-
-                if (antenna.CustomData.Contains("[NORADAR]"))
-                    continue;
-
-                hasPassive = true;
-
-                if (antenna.IsBroadcasting)
-                {
-                    hasActive = true;
-                    if (antenna.Radius > maxActiveRange)
-                        maxActiveRange = antenna.Radius;
-                }
-            }
-        }
-
-
-        public static bool GridHasAntenna(IMyCubeGrid grid)
-		{
-			IEnumerable<IMyRadioAntenna> antennas = grid.GetFatBlocks<IMyRadioAntenna>();
-
-			int count = 0;
-			foreach(var i in antennas)
-			{
-				foreach (IMyRadioAntenna antenna in antennas)
-				{
-					if (antenna.IsWorking)
-					{
-						// Check if the antenna is broadcasting
-						if (antenna.IsBroadcasting)
-						{
-							if (!i.CustomData.Contains("[NORADAR]"))
-								count++;
-						}
-					}
-				}
-			}
-			if(count>0)
-			{
-				return true;
-			}
-			return false;
-
-		}
+        
 
 		//==============DAMAGE HANDLER===========================================================
 		private Queue<IMySlimBlock> blocksToCheck = new Queue<IMySlimBlock>();
@@ -312,8 +159,6 @@ namespace EliDangHUD
 		{
 //			UpdateDamageCheck();
 //			CheckNextBlock();  // Check one block per frame for damage
-
-
 		}
 
 		public void UpdateDamageCheck()
@@ -463,10 +308,7 @@ namespace EliDangHUD
         bool IsHydrogenTank(IMyGasTank tank)
         {
 			// If a block can store something and has a capacity, and it mentions hydrogen, assume it's a hydrogen tank. 
-            return tank.Capacity > 0 &&
-                   (tank.DetailedInfo.Contains("Hydrogen") ||
-                    tank.DefinitionDisplayNameText.Contains("Hydrogen") ||
-                    tank.BlockDefinition.SubtypeName.Contains("Hydrogen"));
+            return tank.Capacity > 0 && (tank.DetailedInfo.Contains("Hydrogen") || tank.DefinitionDisplayNameText.Contains("Hydrogen") || tank.BlockDefinition.SubtypeName.Contains("Hydrogen"));
         }
 
         private void CalculateHydrogenTime()
