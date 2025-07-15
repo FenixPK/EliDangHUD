@@ -41,20 +41,53 @@ using BlendTypeEnum = VRageRender.MyBillboard.BlendTypeEnum;
 //
 //																					---CHERUB 04-18-2024
 //---
-/* FenixPK - 2025-07-13
-TODO: Enable squish value again? If users want that verticality squish we could toggle it in settings and allow specific value. Ie. 0.0 is off, 0.0-1.0 range. 
-DONE TODO: Fix grid flare setting.
-DONE TODO: Fix visor setting.
-TODO: Make altitude readout
-DONE TODO: Round space credits when at large values - should show K, M, B.
-TODO: Make max radar range be the max range of the antenna of the current ship. - Covered by active/passive.
-TODO: Make it so if antenna missing or broadcasting turned off only the Holograms and Radar cease to function, but the rest of the hud works as expected. - Covered by active/passive.
-DONE TODO: Fix H2 Display % remaining or time based on current draw like power does, gives me INVALID_NUMBER currently? - Added support for modded tanks by checking if block has capacity and has Hydrogen anywhere in details/subtype etc. 
-TODO: Make player condition hologram better... Could rotate it on a timer to show all sides, and then if taking damage rotate it so it shows the side being impacted?
+
+/*
+FenixPK - 2025-07-13:
+
+To CHERUB: Thank you for your time spent creating this wonderful mod. And thank you for making the code freely available and stating that we can use, reupload etc.
+I am interpreting this to mean this is under a GPL license, and will be releasing my modifications under GPL 3.0. 
+Free software as in freedom. Freedom to use it, modify it, re-upload it, package it, even sell it etc.
+
+Also, there is no way in heck I could have figured out the UI/artwork and 3D graphics of this (I mean maybe with enough time). I work with office software by day, and scripts by night. So standard UI's are one thing but
+anything 3D is over my head. Without your legwork to learn from my changes would be very difficult. 
+I spent weeks-months looking for radar mods, and weeks-months configuring WHIPs turret based radar on various LCDs using extended range sensors (raycasting I think?). 
+This script has the potential to replace all of that and be far more performance friendly. Especially if I can get this running on LCDs and holotables... And then tie it into vanilla/weaponcore targetting... Ambitious probably.
+----------------
+--CHANGES--
+DONE: Fix grid flare setting.
+DONE: Fix visor setting.
+DONE: Round space credits when at large values - should show K, M, B.
+DONE: Make max radar range be the max range of the antenna of the current ship. - Covered by active/passive.
+DONE: Fix H2 Display % remaining or time based on current draw like power does, gives me INVALID_NUMBER currently? - Added support for modded tanks by checking if block has capacity and has Hydrogen anywhere in details/subtype etc. 
+DONE: Make it keyword tag based [ELI_HUD] instead of main cockpit...
+DONE: Make it so if antenna missing or broadcasting turned off only the Holograms and Radar cease to function, but the rest of the hud works as expected. - Covered by active/passive.
+DONE: Overhaul entire antenna logic so we get active+passive radar and hud still functions regardless of antenna state for things like H2/Energy/Altitude etc. Uses simple SigInt logic for now.
+1) Antenna off/damaged = no radar.
+2) Antenna on/functional but NOT broadcasting = passive mode, receptive to grids with broadcasting antennas only, up to local grid antenna's configured broadcast range or global radar maximum (which could be draw distance if left at -1).
+and only if broadcasting grid antenna range would reach local grid. Ie. if they can see you actively, you can see them passively. 
+  TODO: Advanced SigInt logic where active signals from any ship can bounce around and be picked up in passive mode? So one active ship can feed passive fleet?
+3) Antenna on/functional AND broadcasting = active mode, local grid can pick up grids or entities/voxels within the broadcast range. By virtue of being in active mode, you can also passively pickup signals.
+ie. there is Passive, or Active+Passive, or Off. Broadcast on/off controls Passive vs Active mode, power controls On/Off.
+Text on radar display shows RDR[OFF], RDR[ACT], or RDR[PAS] based on mode. Then receptive distance in KM. Then [SCL] for the radar distance scale in KM.
+4) [SCL] (variable called radarScaleRange) controls how zoomed in or out the radar screen is, basically how many KM it displays and can be different than your detection range.
+It uses a configurable bracket distance users can change where it will only increase every X amount with a configurable percentage based buffer to prefer zooming out. 
+eg. at my default settings of 2000 meters bracket with 0.01 buffer if my range is 2000m + 20m buffer it would fall into the 4000m bracket because 2020 > 2000. If I had the bracket set to 1000 meters it would fall in the 3000m bracket. So on.
+This means raising or lowering the antenna broadcast range, even in broadcast = off mode, changes the zoom of the radar in addition to how far you can pickup targets.
+It also will shrink the radar display to zoom in on a selected target indicated by (T) at the end of the scale distance. It does the same range bracketing, but based on the target's distance from the local grid instead of the radar range.
+This makes it easier to see your position in relation to the target on the radar screen.
+  TODO: Make broadcast range only affect active signal sent out, and make scale be something else configurable that gets stored in the cockpit's block data that can have up/down toggles added to toolbar. No idea how to do this
+        so using the broadcast range for now.
+
+--TODO--
+TODO: Rework the glitch code regarding the radar, I removed it when trying to hunt down the performance issues when I first started and had no idea what anything in this code even did. 
+TODO: (PARTIAL) Make player condition hologram better... Could rotate it on a timer to show all sides, and then if taking damage rotate it so it shows the side being impacted? I have standardized the code so it is far easier to modify and maintain
+but made no actual changes to it yet.
 TODO: Can we color code power, weapon, antenna, control blocks in the target/player hologram? Then apply a yellow/red color gradient overtop for damage. 
 TODO: Make target hologram show the side facing the player at all times. 
-DONE TODO: Make it keyword tag based [ELI_HUD] instead of main cockpit...
-TODO: Overhaul entire antenna logic so we get active+passive radar and hud still functions regardless of antenna state for things like H2/Energy/Altitude etc. 
+TODO: Make altitude readout
+TODO: Maybe enable squish value again? If users want that verticality squish we could toggle it in settings and allow specific value. Ie. 0.0 is off, 0.0-1.0 range. 
+
 1) Antenna Power ON/OFF (or damaged) controls whether your ship can receive signals, if your ship has at least one functional antenna it can receive passive signals even if broadcast is off. 
 2) Antenna Broadcast = ON/OFF + broadcast range = active mode. If you are broadcast = true, anything in your broadcast range (ship, or voxel if turned on) will be picked up. Use the highest antenna range for ships with more than one broadcasting. 
 If you are broadcast = false than anything that is broadcast = true with a range that includes you will appear (up to the draw distance as a global maximum). This is your passive radar.
@@ -90,6 +123,7 @@ TODO: Make SigInt logic better? Eg. could we have it so any active signal sent b
 Ie. One ship with active radar could be the feeder for passive radar for many ships. Would want to make sensor bings for broadcasting ships stand out. 
 
 TODO: Make radar work on a holotable, especially if the above is accomplished!
+TODO: Make radar work on LCD with up or down triangles for verticality for eg. Only after holotable. 
 */
 
 using Sandbox.ModAPI.Ingame;
@@ -259,7 +293,7 @@ namespace EliDangHUD
         Vector4 color_GridFriend = (Color.Green).ToVector4() * 2;      
         Vector4 color_GridEnemy = (Color.Red).ToVector4() * 4;
         Vector4 color_GridEnemyAttack = (Color.Pink).ToVector4() * 4;	
-        Vector4 color_GridNeutral = (Color.Yellow).ToVector4() * 2;     
+        Vector4 color_GridNeutral = (Color.Cyan).ToVector4() * 2;     
         Vector4 color_FloatingObject = (Color.DarkGray).ToVector4();        
         Vector4 color_VoxelBase = (Color.DimGray).ToVector4();      
 
@@ -2528,7 +2562,6 @@ namespace EliDangHUD
 		public double radarScale = 0.000025;
 		public Vector3D radarOffset = new Vector3D(0, -0.20, -0.575);
 		private bool targetingFlipper = false; 
-		private bool underAttack = false;
 		private MatrixD radarMatrix;
 
 		private Vector3D worldRadarPos;
@@ -2693,7 +2726,8 @@ namespace EliDangHUD
 				// In here we will check if the player can still actively or passively target the current target and release them if not, or adjust range brackets accordingly if still targetted. 
 				bool playerCanDetect = false;
 				double distanceToTargetSqr = 0;
-				CanGridRadarDetectEntity(playerHasPassiveRadar, playerHasActiveRadar, playerMaxPassiveRange, playerMaxActiveRange, playerGridPos, currentTarget, out playerCanDetect, out targetPosReturn, out distanceToTargetSqr);
+				bool entityHasActiveRadar = false;
+				CanGridRadarDetectEntity(playerHasPassiveRadar, playerHasActiveRadar, playerMaxPassiveRange, playerMaxActiveRange, playerGridPos, currentTarget, out playerCanDetect, out targetPosReturn, out distanceToTargetSqr, out entityHasActiveRadar);
 
 				if (playerCanDetect)
 				{
@@ -2787,19 +2821,8 @@ namespace EliDangHUD
             {
                 //MyLog.Default.WriteLine($"FENIX_HUD: playerHasActiveRadar={playerHasActiveRadar}, playerHasPassiveRadar={playerHasPassiveRadar} - continuing to draw.");
             }
-      
 
-            underAttack = false;
-
-			//===Icon Colors===
-			//Vector4 color_GridFriend =		(Color.Green).ToVector4()*1;		//IMyCubeGrid
-			//Vector4 color_GridEnemy =		(Color.Red).ToVector4()*1;		//   "
-			//Vector4 color_GridEnemyAttack =	(Color.Pink).ToVector4()*4;		//   "
-			//Vector4 color_GridNeutral =		(Color.White).ToVector4()*1;		//   "
-			//Vector4 color_FloatingObject =	(Color.DarkGray).ToVector4();	//IMyFloatingObject
-			//Vector4 color_VoxelBase =		(Color.DimGray).ToVector4();		//IMyVoxelBase
-			//-----------------
-			Vector4 color_Current = color_VoxelBase;
+			Vector4 color_Current = color_VoxelBase; // Default to voxelbase color
 			float scale_Current = 1.0f;
 
 			// Radar Pulse Timer for the pulse animation
@@ -2867,8 +2890,9 @@ namespace EliDangHUD
 				bool playerCanDetect = false;
 				Vector3D entityPos;
 				double entityDistanceSqr;
+				bool entityHasActiveRadar = false;
 
-				CanGridRadarDetectEntity(playerHasPassiveRadar, playerHasActiveRadar, playerMaxPassiveRange, playerMaxActiveRange, playerGridPos, entity, out playerCanDetect, out entityPos, out entityDistanceSqr);
+				CanGridRadarDetectEntity(playerHasPassiveRadar, playerHasActiveRadar, playerMaxPassiveRange, playerMaxActiveRange, playerGridPos, entity, out playerCanDetect, out entityPos, out entityDistanceSqr, out entityHasActiveRadar);
 				if (!playerCanDetect || entityDistanceSqr > radarShownRangeSqr) // If can't detect it, or the radar scale prevents showing it move on.
 				{
 					continue;
@@ -2924,15 +2948,10 @@ namespace EliDangHUD
                     continue;
                 }
 
+				// Check if relationship status has changed and update ping (eg. if a ship flipped from neutral to hostile or hostile to friendly via capture). 
 				RadarPing currentPing = radarPings[i];
                 UpdateExistingRadarPingStatus(ref currentPing);
 				radarPings[i] = currentPing;
-
-                color_Current = radarPings[i].Color;
-				if (debug) 
-				{
-					MyLog.Default.WriteLine($"EntityID {radarPings[i].Entity.EntityId} color = {color_Current.ToString()}");
-				}
 
                 if (entityDistanceSqr < radarShownRangeSqr * (1-FADE_THRESHHOLD)) // Once we pass the fade threshold an auidible and visual cue should be applied. 
                 {
@@ -2963,14 +2982,20 @@ namespace EliDangHUD
                     }
                 }
 
-				// Detect being targeted (under attack)
-				if (radarPings[i].Status == RelationshipStatus.Hostile && IsEntityTargetingPlayer(radarPings[i].Entity)) 
+				// Do color of blip based on relationship to player
+                color_Current = radarPings[i].Color;
+                if (debug)
+                {
+                    //MyLog.Default.WriteLine($"FENIX_HUD: EntityID {radarPings[i].Entity.EntityId}, status = {currentPing.Status.ToString()} color = {color_Current}");
+                }
+
+                // Detect being targeted (under attack) and modify color based on flipper so the blip flashes
+                if (radarPings[i].Status == RelationshipStatus.Hostile && IsEntityTargetingPlayer(radarPings[i].Entity)) 
 				{
                     if (!targetingFlipper)
                     {
                         color_Current = color_GridEnemyAttack;
                     }
-                    underAttack = true;
                 }
 
 				// Pulse timers for animation
@@ -3018,19 +3043,29 @@ namespace EliDangHUD
 
                 MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, 0.0025f * fadeDimmer * scale_Current);
 
+                float pulse = (float)(0.5 + 0.5 * Math.Sin(radarTimer * 4)); // smooth pulse between 0 and 1
+                if (entityHasActiveRadar)
+                {
+                    double haloSize = 0.01 * fadeDimmer * scale_Current * (1.0 + 0.25 * pulse); // slightly larger than blip
+                    Vector4 haloColor = color_Current * 0.15f * pulse; // subtle, fading
+
+                    // Use the same position and orientation as the blip
+                    DrawQuad(radarEntityPos, radarUp, haloSize, MaterialCircle, haloColor, true);
+                }
+
                 if (currentTarget != null && entity == currentTarget)
                 {
                     float blipSize = 0.0025f * fadeDimmer * scale_Current;
                     float outlineSize = blipSize * 1.6f; // Slightly larger than the blip
-                    Vector4 color = new Vector4(Color.Yellow, 1);
+					Vector4 color = (Color.Yellow).ToVector4() * 2;
 
                     MyTransparentGeometry.AddBillboardOriented(
-                        MaterialTarget,     // Clean square outline
+                        MaterialTarget,     
                         color,
                         radarEntityPos,
                         viewLeft,           // Align with radar plane
                         viewUp,
-                        outlineSize         // Slightly larger than radar blip
+                        outlineSize        
                     );
                 }
 
@@ -3213,19 +3248,46 @@ namespace EliDangHUD
 			IMyFaction playerFaction = MyAPIGateway.Session.Factions.TryGetPlayerFaction(playerId);
 			IMyFaction ownerFaction = MyAPIGateway.Session.Factions.TryGetPlayerFaction(owner);
 
-			if (playerFaction == null || ownerFaction == null)
+            const int FriendlyThreshold = 500;
+
+			if (playerFaction != null && ownerFaction != null)
 			{
-				return RelationshipStatus.Hostile; // No faction info available
+				int rep = MyAPIGateway.Session.Factions.GetReputationBetweenFactions(playerFaction.FactionId, ownerFaction.FactionId);
+				if (rep >= FriendlyThreshold)
+					return RelationshipStatus.Friendly;
+				else if (rep < 0)
+					return RelationshipStatus.Hostile;
+				else
+					return RelationshipStatus.Neutral;
 			}
 
-			int reputation = MyAPIGateway.Session.Factions.GetReputationBetweenFactions(playerFaction.FactionId, ownerFaction.FactionId);
+            // Fallback: use in-game block hostility system
+            var relation = MyIDModule.GetRelationPlayerBlock(owner, playerId, MyOwnershipShareModeEnum.Faction);
 
-			if (reputation > 0)
-				return RelationshipStatus.Friendly;
-			else if (reputation < 0)
-				return RelationshipStatus.Hostile;
-			else
-				return RelationshipStatus.Neutral;
+            switch (relation)
+            {
+                case MyRelationsBetweenPlayerAndBlock.Enemies:
+                    return RelationshipStatus.Hostile;
+                case MyRelationsBetweenPlayerAndBlock.Owner:
+                case MyRelationsBetweenPlayerAndBlock.FactionShare:
+                    return RelationshipStatus.Friendly;
+                default:
+                    return RelationshipStatus.Neutral;
+            }
+
+   //         if (playerFaction == null || ownerFaction == null)
+			//{
+			//	return RelationshipStatus.Hostile; // No faction info available
+			//}
+
+			//int reputation = MyAPIGateway.Session.Factions.GetReputationBetweenFactions(playerFaction.FactionId, ownerFaction.FactionId);
+
+			//if (reputation > 0)
+			//	return RelationshipStatus.Friendly;
+			//else if (reputation < 0)
+			//	return RelationshipStatus.Hostile;
+			//else
+			//	return RelationshipStatus.Neutral;
 		}
 
 		public float GetCameraFOV()
@@ -3977,11 +4039,12 @@ namespace EliDangHUD
                         double playerMaxPassiveRange;
                         double playerMaxActiveRange;
                         double relativeDistanceSqr;
+						bool entityHasActiveRadar;
                         EvaluateGridAntennaStatus(playerGrid, out playerHasPassiveRadar, out playerHasActiveRadar, out playerMaxPassiveRange, out playerMaxActiveRange);
 
                         bool canPlayerDetect = false;
                         Vector3D entityPos = new Vector3D();
-                        CanGridRadarDetectEntity(playerHasPassiveRadar, playerHasActiveRadar, playerMaxPassiveRange, playerMaxActiveRange, gHandler.localGridEntity.GetPosition(), newTarget, out canPlayerDetect, out entityPos, out relativeDistanceSqr);
+                        CanGridRadarDetectEntity(playerHasPassiveRadar, playerHasActiveRadar, playerMaxPassiveRange, playerMaxActiveRange, gHandler.localGridEntity.GetPosition(), newTarget, out canPlayerDetect, out entityPos, out relativeDistanceSqr, out entityHasActiveRadar);
 
                         if (canPlayerDetect)
                         {
@@ -4069,11 +4132,13 @@ namespace EliDangHUD
 		/// <param name="canDetect">Out return true if detected</param>
 		/// <param name="entityPosReturn">Out return Vector3D position of the detected entity</param>
 		/// <param name="relativeDistanceSqrReturn">Out return squared relative distance between gridPos and entityReturnPos</param>
-        public void CanGridRadarDetectEntity(bool gridHasPassiveRadar, bool gridHasActiveRadar, double gridMaxPassiveRange, double gridMaxActiveRange, Vector3D gridPos, VRage.ModAPI.IMyEntity entity, out bool canDetect, out Vector3D entityPosReturn, out double relativeDistanceSqrReturn) 
+        public void CanGridRadarDetectEntity(bool gridHasPassiveRadar, bool gridHasActiveRadar, double gridMaxPassiveRange, double gridMaxActiveRange, Vector3D gridPos, VRage.ModAPI.IMyEntity entity, 
+			out bool canDetect, out Vector3D entityPosReturn, out double relativeDistanceSqrReturn, out bool entityHasActiveRadarReturn) 
 		{
 			canDetect = false;
 			entityPosReturn = new Vector3D();
             relativeDistanceSqrReturn = 0;
+			entityHasActiveRadarReturn = false;
 
 			if (!gridHasPassiveRadar && !gridHasActiveRadar) 
 			{
@@ -4115,12 +4180,20 @@ namespace EliDangHUD
             } 
             else 
 			{
-				// If a entity is a grid, the grid can detect it passively OR actively.
-				// entityGrid might be actively broadcasting a signal that reaches grid's maxPassiveRange.
-				// entityGrid might be within grid's maxActiveRange
-				// We should check if grid has active radar first and test that first, as we might be in passive only mode and could save some cycles
-				// Then if still not detected check passive where we evaluate the entityGrid's antenna status.
-				if (gridHasActiveRadar)
+                // If a entity is a grid, the grid can detect it passively OR actively.
+                // entityGrid might be actively broadcasting a signal that reaches grid's maxPassiveRange.
+                // entityGrid might be within grid's maxActiveRange
+                // We should check if grid has active radar first and test that first, as we might be in passive only mode and could save some cycles
+                // Then if still not detected check passive where we evaluate the entityGrid's antenna status.
+                double gridMaxPassiveRangeSqr = gridMaxPassiveRange * gridMaxPassiveRange;
+                bool entityHasPassiveRadar = false; // Not used
+                bool entityHasActiveRadar = false; // Is entityGrid sending out signals grid can passively receive?
+                double entityMaxPassiveRange = 0; // Not used
+                double entityMaxActiveRange = 0; // Grid can receive entityGrid's signals if within this range.
+
+                EvaluateGridAntennaStatus(entityGrid, out entityHasPassiveRadar, out entityHasActiveRadar, out entityMaxPassiveRange, out entityMaxActiveRange);
+				entityHasActiveRadarReturn = entityHasActiveRadar; // Can return this for re-use elsewhere.
+                if (gridHasActiveRadar)
 				{
 					if (IsWithinRadarRadius(relativeDistanceSqr, gridMaxActiveRangeSqr))
 					{
@@ -4132,13 +4205,6 @@ namespace EliDangHUD
 				}
 				else 
 				{
-					double gridMaxPassiveRangeSqr = gridMaxPassiveRange * gridMaxPassiveRange;
-                    bool entityHasPassiveRadar = false; // Not used
-                    bool entityHasActiveRadar = false; // Is entityGrid sending out signals grid can passively receive?
-					double entityMaxPassiveRange = 0; // Not used
-                    double entityMaxActiveRange = 0; // Grid can receive entityGrid's signals if within this range.
-
-                    EvaluateGridAntennaStatus(entityGrid, out entityHasPassiveRadar, out entityHasActiveRadar, out entityMaxPassiveRange, out entityMaxActiveRange);
                     if (!entityHasActiveRadar)
                     {
                         // If entity is not actively broadcasting it can't be passively detected. 
