@@ -3061,12 +3061,12 @@ namespace EliDangHUD
 				// that also have active radar and thus the bool would be true but it's range is low enough they can't reach us (see us). As in only show grids that can see us. 
                 if (entityHasActiveRadar && entityDistanceSqr <= entityMaxActiveRange*entityMaxActiveRange) 
                 {
-                    float pulseScale = 1.0f + (haloPulse * 0.25f); // Scale the halo by 25% at max pulse
+                    float pulseScale = 1.0f + (haloPulse * 0.20f); // Scale the halo by 15% at max pulse
                     float pulseAlpha = 1.0f * (1.0f - haloPulse); // Alpha goes from 0.25 to 0 at max pulse, so it fades out as pulse increases.
                     float ringSize =  blipSize * pulseScale; // Scale the ring size based on the pulse
                     Vector4 haloColor = color_Current * 0.25f * (float)haloPulse; // subtle, fading
                     // Use the same position and orientation as the blip
-                    DrawCircle(radarEntityPos, ringSize, radarUp, color_Current, false, 0.5f * pulseAlpha, 0.00035f); //0.5f * haloPulse
+                    DrawCircle(radarEntityPos, ringSize, radarUp, Color.WhiteSmoke, false, 1.0f * pulseAlpha, 0.00035f); //0.5f * haloPulse
 
                     //float haloSize = (blipSize * 1.05f) * (1.0f + 0.25f * haloPulse); // slightly larger than blip
                     //DrawQuad(radarEntityPos, radarUp, haloSize, MaterialCircleHollow, haloColor, true); // Soft pulsing halo/glow around the blip...
@@ -5221,9 +5221,8 @@ namespace EliDangHUD
 		}
 
 
-        private MatrixD CreateNormalizedLocalGridRotationMatrix()
-        {
-			// THIS IS THE NEW ONE I'm TESTING. 
+		private MatrixD CreateNormalizedLocalGridRotationMatrix()
+		{
             Sandbox.ModAPI.IMyCockpit cockpit = gHandler.localGridEntity as Sandbox.ModAPI.IMyCockpit;
             if (cockpit == null)
             {
@@ -5239,14 +5238,16 @@ namespace EliDangHUD
             MatrixD cockpitMatrix = cockpit.WorldMatrix; // Get cockpit orientation
             MatrixD gridMatrix = cockpit.CubeGrid.WorldMatrix; // Get grid orientation
 
-            // Calculate the relative orientation of cockpit relative to grid
-            MatrixD cockpitToGridMatrix = cockpitMatrix * MatrixD.Invert(gridMatrix);
+            MatrixD worldToGrid = MatrixD.Invert(grid.WorldMatrix);
+            Vector3D gridAngularVelocity = Vector3D.TransformNormal(angularVelocity, worldToGrid);
 
-            // Transform the angular velocity from the cockpit to the grid
-            Vector3D gridAngularVelocity = Vector3D.Transform(angularVelocity, cockpitToGridMatrix);
+            //// Calculate the relative orientation of cockpit relative to grid
+            //MatrixD cockpitToGridMatrix = cockpitMatrix * MatrixD.Invert(gridMatrix);
+            //// Transform the angular velocity from the cockpit to the grid
+            //Vector3D gridAngularVelocity = Vector3D.Transform(angularVelocity, cockpitToGridMatrix);
 
             // Configuration values - adjust these to tune the effect
-            const double maxAngularVelocity = 300.0; // Maximum angular velocity in your units
+            const double maxAngularVelocity = 1; // Maximum angular velocity in your units
             const double maxTiltAngle = 89.0 * Math.PI / 180.0; // 89 degrees in radians
             const double sensitivityMultiplier = 1.0; // Adjust this to make the effect more or less pronounced
 
@@ -5256,76 +5257,119 @@ namespace EliDangHUD
             double rotationY = ClampAndScale(gridAngularVelocity.Y, maxAngularVelocity, maxTiltAngle) * sensitivityMultiplier;
             double rotationZ = ClampAndScale(gridAngularVelocity.Z, maxAngularVelocity, maxTiltAngle) * sensitivityMultiplier;
 
-            // Create rotation matrices in grid-local space (these are temporary tilts based on current velocity)
-            MatrixD rotationMatrixX = MatrixD.CreateRotationX(-rotationX);
-            MatrixD rotationMatrixY = MatrixD.CreateRotationY(-rotationY);
-            MatrixD rotationMatrixZ = MatrixD.CreateRotationZ(-rotationZ);
+            // Create a rotation matrix purely from the angular velocity components
+            // This creates a rotation around an arbitrary axis defined by the velocity vector
+            Vector3D rotationAxis = new Vector3D(rotationX, rotationY, rotationZ);
+            double rotationAngle = rotationAxis.Length();
 
-            // Combine rotations (aerospace convention: Y-X-Z)
-            MatrixD localTiltMatrix = rotationMatrixY * rotationMatrixX * rotationMatrixZ;
-
-            // The base orientation should be the "behind view" - typically looking at the grid from behind
-            // This creates a base rotation that shows the ship from behind (180° rotation around Y-axis)
-            MatrixD baseOrientation = MatrixD.CreateRotationY(Math.PI);
-
-            // Apply the temporary tilt to the base orientation
-            MatrixD combinedLocalMatrix = localTiltMatrix * baseOrientation;
-
-            // Transform the combined matrix to world space using the grid's orientation
-            MatrixD gridRotationOnly = MatrixD.CreateFromQuaternion(QuaternionD.CreateFromRotationMatrix(gridMatrix));
-            MatrixD worldRotationMatrix = combinedLocalMatrix * gridRotationOnly;
-
-            return worldRotationMatrix;
-        }
-
-        private MatrixD CreateNormalizedLocalGridRotationMatrix() 
-		{   
-
-			Sandbox.ModAPI.IMyCockpit cockpit = gHandler.localGridEntity as Sandbox.ModAPI.IMyCockpit;
-			if (cockpit == null)
-			{
-				return MatrixD.Zero; // Return Zero matrix if no cockpit is found
-            }
-            VRage.Game.ModAPI.IMyCubeGrid grid = cockpit.CubeGrid;
-            if (grid == null)
+            if (rotationAngle > 0.001) // Avoid division by zero
             {
-				return MatrixD.Zero; // Return Zero matrix if no grid is found
+                // Normalize the axis
+                rotationAxis = rotationAxis / rotationAngle;
+
+                // Create rotation matrix around the arbitrary axis
+                MatrixD localRotationMatrix = MatrixD.CreateFromAxisAngle(rotationAxis, rotationAngle);
+                return localRotationMatrix;
             }
-			Vector3D angularVelocity = gHandler.localGridVelocityAngular; // Gets the angular velocity of the entity the player is currently controlling, which is a cockpit/seat etc.
-            MatrixD cockpitMatrix = cockpit.WorldMatrix; // Get cockpit orientation
-			MatrixD gridMatrix = cockpit.CubeGrid.WorldMatrix; // Get grid orientation
+            else
+            {
+                // No rotation needed
+                return MatrixD.Identity;
+            }
 
-			// Clculate the relative orientation of cockpit relative to grid
-			MatrixD cockpitToGridMatrix = cockpitMatrix * MatrixD.Invert(gridMatrix);
 
-			// Transform the angular velocity frm the cockpit to the grid
-			Vector3D gridAngularVelocity = Vector3D.Transform(angularVelocity, cockpitToGridMatrix);
+            //Sandbox.ModAPI.IMyCockpit cockpit = gHandler.localGridEntity as Sandbox.ModAPI.IMyCockpit;
+            //if (cockpit == null)
+            //{
+            //	return MatrixD.Zero; // Return Zero matrix if no cockpit is found
+            //}
+            //VRage.Game.ModAPI.IMyCubeGrid grid = cockpit.CubeGrid;
+            //if (grid == null)
+            //{
+            //	return MatrixD.Zero; // Return Zero matrix if no grid is found
+            //}
+            //Vector3D angularVelocity = gHandler.localGridVelocityAngular; // Gets the angular velocity of the entity the player is currently controlling, which is a cockpit/seat etc.
+            //MatrixD cockpitMatrix = cockpit.WorldMatrix; // Get cockpit orientation
+            //MatrixD gridMatrix = cockpit.CubeGrid.WorldMatrix; // Get grid orientation
 
-            // Configuration values - adjust these to tune the effect
-            const double maxAngularVelocity = 20; // Maximum angular velocity in your units
-            const double maxTiltAngle = 89.0 * Math.PI / 180.0; // 89 degrees in radians
-            const double sensitivityMultiplier = 1.0; // Adjust this to make the effect more or less pronounced
+            //// Clculate the relative orientation of cockpit relative to grid
+            //MatrixD cockpitToGridMatrix = cockpitMatrix * MatrixD.Invert(gridMatrix);
 
-            // Calculate rotation angles based on angular velocity
-            // Scale each component to the desired range and clamp to prevent flipping
-            double rotationX = ClampAndScale(gridAngularVelocity.X, maxAngularVelocity, maxTiltAngle) * sensitivityMultiplier;
-            double rotationY = ClampAndScale(gridAngularVelocity.Y, maxAngularVelocity, maxTiltAngle) * sensitivityMultiplier;
-            double rotationZ = ClampAndScale(gridAngularVelocity.Z, maxAngularVelocity, maxTiltAngle) * sensitivityMultiplier;
+            //// Transform the angular velocity frm the cockpit to the grid
+            //Vector3D gridAngularVelocity = Vector3D.Transform(angularVelocity, cockpitToGridMatrix);
 
-            // Create rotation matrices
-            MatrixD rotationMatrixX = MatrixD.CreateRotationX(-rotationX);
-            MatrixD rotationMatrixY = MatrixD.CreateRotationY(-rotationY);
-            MatrixD rotationMatrixZ = MatrixD.CreateRotationZ(-rotationZ);
+            //// Configuration values - adjust these to tune the effect
+            //const double maxAngularVelocity = 1; // Maximum angular velocity in your units
+            //const double maxTiltAngle = 89.0 * Math.PI / 180.0; // 89 degrees in radians
+            //const double sensitivityMultiplier = 1.0; // Adjust this to make the effect more or less pronounced
 
-            // Combine rotations (aerospace convention: Y-X-Z)
-            MatrixD localRotationMatrix = rotationMatrixY * rotationMatrixX * rotationMatrixZ;
+            //// Calculate rotation angles based on angular velocity
+            //// Scale each component to the desired range and clamp to prevent flipping
+            //double rotationX = ClampAndScale(gridAngularVelocity.X, maxAngularVelocity, maxTiltAngle) * sensitivityMultiplier;
+            //double rotationY = ClampAndScale(gridAngularVelocity.Y, maxAngularVelocity, maxTiltAngle) * sensitivityMultiplier;
+            //double rotationZ = ClampAndScale(gridAngularVelocity.Z, maxAngularVelocity, maxTiltAngle) * sensitivityMultiplier;
+
+            //// Create rotation matrices
+            //MatrixD rotationMatrixX = MatrixD.CreateRotationX(rotationX);
+            //MatrixD rotationMatrixY = MatrixD.CreateRotationY(rotationY);
+            //MatrixD rotationMatrixZ = MatrixD.CreateRotationZ(rotationZ);
+
+            //         // Combine rotations (aerospace convention: Y-X-Z)
+            //         MatrixD worldSpaceRotation = rotationMatrixY * rotationMatrixX * rotationMatrixZ;
+
+            //         // Transform the rotation to grid-local space
+            //         // This ensures the rotation is applied relative to the grid's orientation, not world orientation
+            //         MatrixD gridOrientation = MatrixD.CreateFromQuaternion(QuaternionD.CreateFromRotationMatrix(gridMatrix));
+            //         MatrixD localRotationMatrix = MatrixD.Invert(gridOrientation) * worldSpaceRotation * gridOrientation;
+
+            //         return localRotationMatrix;
+
+
+
+
+
+
+            //         // Combine rotations (aerospace convention: Y-X-Z)
+            //         MatrixD localRotationMatrix = rotationMatrixY * rotationMatrixX * rotationMatrixZ;
+
+            //return localRotationMatrix;
+
+
+
+
+
+
+
+
 
             // Transform the local rotation to world space using the grid's orientation
             // This ensures the hologram tilts relative to the grid's current orientation
-            MatrixD gridRotationOnly = MatrixD.CreateFromQuaternion(QuaternionD.CreateFromRotationMatrix(gridMatrix));
-            MatrixD worldRotationMatrix = localRotationMatrix * gridRotationOnly;
+            //MatrixD gridRotationOnly = MatrixD.CreateFromQuaternion(QuaternionD.CreateFromRotationMatrix(gridMatrix));
+            //MatrixD worldRotationMatrix = localRotationMatrix * gridRotationOnly;
 
-            return worldRotationMatrix;
+            //return worldRotationMatrix;
+
+            //// Combine rotations (aerospace convention: Y-X-Z)
+            //MatrixD localTiltMatrix = rotationMatrixY * rotationMatrixX * rotationMatrixZ;
+
+            //// The base orientation should be the "behind view" - typically looking at the grid from behind
+            //// This creates a base rotation that shows the ship from behind (180° rotation around Y-axis)
+            //MatrixD baseOrientation = MatrixD.CreateRotationY(Math.PI);
+
+            //// Apply the temporary tilt to the base orientation
+            //MatrixD combinedLocalMatrix = localTiltMatrix * baseOrientation;
+
+            //// Transform the combined matrix to world space using the grid's orientation
+            //MatrixD gridRotationOnly = MatrixD.CreateFromQuaternion(QuaternionD.CreateFromRotationMatrix(gridMatrix));
+            //MatrixD worldRotationMatrix = combinedLocalMatrix * gridRotationOnly;
+
+            //return worldRotationMatrix;
+
+
+
+
+
+
 
             //         // Use transformed angular velocity to create a rotation matrix. This, in theory, should mean that regardless of which cardinal directon the cockpit
             //         // is facing on the grid the rotation represented on the hologram will be correct. No more nose pitching up = hologram swiveling left/right or vice versa
@@ -5341,8 +5385,8 @@ namespace EliDangHUD
 
         }
 
-        // Helper function to scale and clamp angular velocity to rotation angle
-        private double ClampAndScale(double angularVelocity, double maxVelocity, double maxAngle)
+		// Helper function to scale and clamp angular velocity to rotation angle
+		private double ClampAndScale(double angularVelocity, double maxVelocity, double maxAngle)
         {
             // Normalize the angular velocity to (-1, 1) range
             double normalizedVelocity = angularVelocity / maxVelocity;
