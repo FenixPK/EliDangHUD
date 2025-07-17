@@ -2877,8 +2877,7 @@ namespace EliDangHUD
             // Okay I had to do some research on this. The way this works is Math.Sin() returns a value between -1 and 1, so we add 1 to it to get a value between 0 and 2, then divide by 2 to get a value between 0 and 1.
 			// Basically shifting the wave up so we are into positive value only territory, and then scaling it to a 0-1 range where 0 is completely invisible and 1 is fully visible. Neat.
             float haloPulse = (float)((Math.Sin(haloTimer.Elapsed.TotalSeconds * (4*Math.PI)) + 1.0) * 0.5); // 0 -> 1 -> 0 smoothly. Should give 2 second pulses. Could do (2*Math.PI) for 1 second pulses
-			float pulseScale = 1.0f + (haloPulse * 0.25f); // Scale the halo by 25% at max pulse
-			float pulseAlpha = 0.25f * (1.0f - haloPulse); // Alpha goes from 0.25 to 0 at max pulse, so it fades out as pulse increases.
+			
 
             for (int i = 0; i < radarPings.Count; i++)
 			{
@@ -3062,13 +3061,16 @@ namespace EliDangHUD
 				// that also have active radar and thus the bool would be true but it's range is low enough they can't reach us (see us). As in only show grids that can see us. 
                 if (entityHasActiveRadar && entityDistanceSqr <= entityMaxActiveRange*entityMaxActiveRange) 
                 {
-					float ringSize = (blipSize * 1.25f) * (1.0f + 0.25f * haloPulse); //blipSize * pulseScale; // Scale the ring size based on the pulse
-                    float haloSize = (blipSize * 1.05f) * (1.0f + 0.25f * haloPulse); // slightly larger than blip
+                    float pulseScale = 1.0f + (haloPulse * 0.25f); // Scale the halo by 25% at max pulse
+                    float pulseAlpha = 1.0f * (1.0f - haloPulse); // Alpha goes from 0.25 to 0 at max pulse, so it fades out as pulse increases.
+                    float ringSize =  blipSize * pulseScale; // Scale the ring size based on the pulse
                     Vector4 haloColor = color_Current * 0.25f * (float)haloPulse; // subtle, fading
+                    // Use the same position and orientation as the blip
+                    DrawCircle(radarEntityPos, ringSize, radarUp, color_Current, false, 0.5f * pulseAlpha, 0.00035f); //0.5f * haloPulse
 
-					// Use the same position and orientation as the blip
-					DrawQuad(radarEntityPos, radarUp, haloSize, MaterialCircle, haloColor, true); // Soft pulsing halo/glow around the blip...
-					//DrawQuad(radarEntityPos, radarUp, ringSize, MaterialCircleHollow, haloColor * pulseAlpha, true); // Soft expanding/pusling ring around the blip...
+                    //float haloSize = (blipSize * 1.05f) * (1.0f + 0.25f * haloPulse); // slightly larger than blip
+                    //DrawQuad(radarEntityPos, radarUp, haloSize, MaterialCircleHollow, haloColor, true); // Soft pulsing halo/glow around the blip...
+                    //DrawQuad(radarEntityPos, radarUp, ringSize, MaterialCircleHollow, haloColor * pulseAlpha, true); // Soft expanding/pusling ring around the blip...
                 }
 
                 if (currentTarget != null && entity == currentTarget)
@@ -4864,6 +4866,11 @@ namespace EliDangHUD
                 scaledPosition -= gridCenter; // set scaledPosition to be relative to the center of the grid
                 scaledPosition = Vector3D.Transform(scaledPosition, inverseMatrix); // Transform by the inverseMatrix
 				scaledPosition /= grid.GridSize; // Divide vector by grid size to get scaled coordinates, I guess this is what makes a large ship still fit on screen
+				// Yes my updated understanding of the above is we are normalizing the block position. So we normalize it a position relative to the grid position
+				// as if the grid were at (0, 0, 0) and then scale it by dividing by gridSize. Basically a grid could be at (1234, -1234, 1234), we don't really care.
+				// What we care about is there is a block on that grid taht is at (1235, -1233, 1235) in worldspace and relative to the grid's center that block is at (1, 1, 1)
+				// Then we scale it down by the grid size, so if the grid size is 2, then the block is at (0.5, 0.5, 0.5) in normalized coordinates.
+				// We dont care where the block is in the world, we care where it is on the grid. That makes sense to me now. 
 
 				VRage.Game.ModAPI.IMySlimBlock Blocker = block as VRage.Game.ModAPI.IMySlimBlock;
 				Vector3D Position = scaledPosition; // Store the scaled position of the block
@@ -4965,15 +4972,29 @@ namespace EliDangHUD
 			if (localGrid != null)
 			{
 				bool isEntityTarget = false;
-                Vector3D angularVelocity = gHandler.localGridVelocityAngular; // This uses the cockpit controlled by the player and gets the angular velocity of the cubeblock.
-                MatrixD rotationMatrix = CreateRotationMatrix(angularVelocity); // We don't use the rotation matrix for the localGrid currently. 
-                //MatrixD rotatedMatrix = ApplyRotation(grid.WorldMatrix, rotationMatrix);
+                // This uses the cockpit controlled by the player and gets the angular velocity of the cubeblock.
+                MatrixD angularRotationWiggle = CreateNormalizedLocalGridRotationMatrix(); // Used to apply a "wiggle" effect to the hologram based on the angular velocity of the grid.
+                
                 foreach (var BT in blockInfo)
                 {
-                    Vector3D positionR = BT.Position;
-                    Vector3D positionT = Vector3D.Transform(positionR, localGrid.WorldMatrix);
+					//Tests
+					//So if I were to create a fake MatrixD I could do whatever I want to the view...
+					//MatrixD rotate180X = MatrixD.CreateRotationX(MathHelper.ToRadians(180)); // This rotates the position 180 degrees around the X axis. Was math.pi in radians?
+					//Vector3D positionTest = Vector3D.Rotate(BT.Position, rotate180X);
+					//positionTest = Vector3D.Transform(positionTest, targetGrid.WorldMatrix);
+					// YES! The above did exactly what I expected, it rotated the position of the hologram 180 degrees around the X axis. So it was upside down. 
+					// HOWEVER it still rotates based on how the player rotates likely because HG_DrawBillboard uses the camera's position to draw the hologram...
+
+					// Note to self, we can create MatrixD's that have various rotational transformations and then use them here on a period so we get it to rotate through top, bottom, left, right, front, back etc. 
+					// Or make it a toggle with a keybind? So many ideas. 
+					Vector3D blockPositionWiggled = Vector3D.Rotate(BT.Position, angularRotationWiggle); // This applies the angular rotation based on the angular velocity of the grid.
+                    // This is to give a "wiggle" effect to a fixed hologram if you are rotating to represent how quickly you are rotating. For eg. if viewed from the back and you pitch nose up
+                    // the hologram will have the nose pitch up based on how fast you are rotating. The faster you are rotating in the upward direction, the more the nose of the hologram will pitch up.
+					MatrixD rotationOnlyGridMatrix = localGrid.WorldMatrix;
+					rotationOnlyGridMatrix.Translation = Vector3D.Zero; // Set the translation to zero to get only the rotation component.
+                    Vector3D blockPositionRotated = Vector3D.Transform(blockPositionWiggled, rotationOnlyGridMatrix);
                     double HealthPercent = ClampedD(BT.HealthCurrent / BT.HealthMax, 0, 1);
-                    HG_DrawBillboard(positionT - localGrid.GetPosition(), localGrid, isEntityTarget, HealthPercent);
+                    HG_DrawBillboard(blockPositionRotated, localGrid, isEntityTarget, HealthPercent);
                 }
             }
         }
@@ -4983,31 +5004,53 @@ namespace EliDangHUD
 			if (targetGrid != null)
 			{
 				bool isEntityTarget = true;
-				Vector3D angularVelocity = targetGrid.Physics.AngularVelocity; // This uses the target grid's angular velocity.
-				MatrixD rotationMatrix = CreateRotationMatrix(angularVelocity);
+				// Now that we know
+				//Vector3D angularVelocity = gHandler.localGridVelocityAngular; // This uses the target grid's angular velocity.
+				//MatrixD rotationMatrix = CreateAngularRotationMatrix(angularVelocity, 10); // 
 				
 				foreach (BlockTracker BT in blockInfo)
 				{
-					// For each block in the blockInfo list we calculate it's position, and health. Which we then pass to HG_DrawBillboard which is responsbile for drawing a square on screen at that position.
-					// I believe HG_DrawBillboard is responsible for the rotation of everything relative to the camera too. 
-					Vector3D positionR = BT.Position; 
-					positionR = Vector3D.Rotate(positionR, rotationMatrix); // My understanding of this is limited too.
-                    Vector3D positionT = Vector3D.Transform(positionR, targetGrid.WorldMatrix);                                                 // However I believe this rotates the position of the block relative to the target grid's angular velocity.
+                    //// For each block in the blockInfo list we calculate it's position, and health. Which we then pass to HG_DrawBillboard which is responsbile for drawing a square on screen at that position.
+                    //// I believe HG_DrawBillboard is responsible for the rotation of everything relative to the camera too. 
+                    //Vector3D positionR = BT.Position;
+                    //// Let's comment out the rotationMatrix that is applied from angular velocity, we don't need the hologram to "wiggle" based on our angular velocity (or its for that matter)
+                    //positionR = Vector3D.Rotate(positionR, rotationMatrix); // Adds hologram "wiggle" based on the angular velocity used to calculate rotationMatrix.
+                    //Vector3D positionT = Vector3D.Transform(positionR, targetGrid.WorldMatrix); // This transforms the position of the block to be relative to the target grid's world matrix.
 
-                    //So if I were to create a fake MatrixD I could do whatever I want to the view...
-                    MatrixD rotate180X = MatrixD.CreateRotationX(MathHelper.ToRadians(180)); // This rotates the position 180 degrees around the X axis. Was math.pi in radians?
-                    Vector3D positionTest = Vector3D.Rotate(BT.Position, rotate180X);
-					positionTest = Vector3D.Transform(positionTest, targetGrid.WorldMatrix);
-					// YES! The above did exactly what I expected, it rotated the position of the hologram 180 degrees around the X axis. So it was upside down. 
-					// HOWEVER it still rotates based on how the player rotates likely because HG_DrawBillboard uses the camera's position to draw the hologram...
-                    
-					double HealthPercent = ClampedD(BT.HealthCurrent / BT.HealthMax, 0, 1);
+                    // Okay lets do some math and write down my understanding.
+                    // positionT starts as the position of the block, but it has been normalized. So regardless of where the block is in the real world, it is now relative to the grid's center AND scaled down by dividing by the grid size.
+                    // so a block that was at (1, 1, 1) relative to the grid's center is now at (0.5, 0.5, 0.5) if the grid size is 2 meters. 
+                    // Then we transform the positionT by the targetGrid.WorldMatrix which will apply a rotation and translation to the positionT based on the target grid's world matrix.
+
+                    // Another example:Grid center at exactly (100, 100, 100) and block is at (100, 101, 100). Grid size is 10 meters. We store a normalized position (0, 1, 0)/10 = (0, 0.1, 0) in positionT.
+                    // ie. the block was +1 meter in Y axis from the grid's center and we scaled it down by the grid size of 10 meters. 
+                    // If the grid has rotated 180 degrees on the X axis since the block was stored and moved +1 meters in Z then the transformation using WorldMatrix would first rotate so we get (0, -0.1, 0) and then translate
+                    // so we get (0, -0.1, 1)...
+
+                    // OKAY. So this is actually kinda cool. when we take positionT and subtract the grid's world position coordinates we are effectively removing the translation component of the world matrix.
+                    // So we get rotation ONLY. NEAT! I've looked into other ways to do this using Quaternions, matrix multiplications etc. but this is rather elegant and simple. I just wish you added a comment about 
+                    // what the heck was going on so I didn't have to spend 1.5 days figuring it out haha. 
+                    // This also means we could take MatrixD worldMatrix = targetGrid.WorldMatrix, then set worldMatrix.Translation = Vector3D.Zero; and then use that as the targetGrid.WorldMatrix for the transformation
+                    // as another way to get rotational only transformation. And it eliminates a 3 component vector subtraction. So it is slightly more CPU efficient. Gimmie dem frames potato! 
+
+
+                    // OLD CODE for reference:
+                    //Vector3D positionR = BT.Position;
+                    //positionR = Vector3D.Rotate(positionR, rotationMatrix); // Adds hologram "wiggle" based on the angular velocity used to calculate rotationMatrix.
+                    //Vector3D positionT = Vector3D.Transform(positionR, targetGrid.WorldMatrix); // This transforms the position of the block to be relative to the target grid's world matrix
+                    //double HealthPercent = ClampedD(BT.HealthCurrent / BT.HealthMax, 0, 1);
                     //HG_DrawBillboard(positionT - targetGrid.GetPosition(), targetGrid, isEntityTarget, HealthPercent);
-                    HG_DrawBillboard(positionTest - targetGrid.GetPosition(), targetGrid, isEntityTarget, HealthPercent);
+
+                    // FenixPK's new code 2025-07-16 (not that yours was bad, I just want to know what the heck is going on). Tested and confirmed to work as understood/expected.
+                    MatrixD rotationOnlyGridMatrix = targetGrid.WorldMatrix;
+					rotationOnlyGridMatrix.Translation = Vector3D.Zero; // Set the translation to zero to get only the rotation component.
+                    Vector3D positionRotated = Vector3D.Transform(BT.Position , rotationOnlyGridMatrix); // This transforms the position of the block to be relative to the target grid's world matrix, but without translation.
+
+					double HealthPercent = ClampedD(BT.HealthCurrent / BT.HealthMax, 0, 1);
+                    HG_DrawBillboard(positionRotated, targetGrid, isEntityTarget, HealthPercent);
                 }
             }
         }
-        //MatrixD rotatedMatrix = grid.WorldMatrix * rotationMatrix; 
 
         private void HG_DrawHologram(VRage.Game.ModAPI.IMyCubeGrid grid, List<BlockTracker> blockInfo, bool isEntityTarget = false)
 		{
@@ -5019,7 +5062,7 @@ namespace EliDangHUD
 				{
 					
                     Vector3D angularVelocity = grid.Physics.AngularVelocity;
-                    MatrixD rotationMatrix = CreateRotationMatrix(angularVelocity);
+                    MatrixD rotationMatrix = CreateAngularRotationMatrix(angularVelocity);
                     //MatrixD rotatedMatrix = ApplyRotation(grid.WorldMatrix, rotationMatrix);
                     foreach (var BT in blockInfo)
                     {
@@ -5033,7 +5076,7 @@ namespace EliDangHUD
 				else
 				{
                     Vector3D angularVelocity = gHandler.localGridVelocityAngular;
-                    MatrixD rotationMatrix = CreateRotationMatrix(angularVelocity);
+                    MatrixD rotationMatrix = CreateAngularRotationMatrix(angularVelocity);
                     //MatrixD rotatedMatrix = ApplyRotation(grid.WorldMatrix, rotationMatrix);
                     foreach (var BT in blockInfo)
                     {
@@ -5047,53 +5090,7 @@ namespace EliDangHUD
 			}
 		}
 
-		//private void HG_DrawHologram(VRage.Game.ModAPI.IMyCubeGrid grid, List<BlockTracker> blockInfo, bool isTarget)
-  //      {
-  //          if (grid == null)
-  //          {
-  //              return;
-  //          }
 
-  //          foreach (var BT in blockInfo)
-  //          {
-  //              Vector3D positionR = BT.Position;
-  //              Vector3D positionT;
-
-  //              if (isTarget)
-  //              {
-  //                  // For target hologram: show only the target's orientation relative to player
-  //                  // Keep the hologram centered and at fixed size, but rotate it correctly
-
-  //                  // Calculate the relative rotation between player and target
-  //                  MatrixD playerMatrix = gHandler.localGridEntity.WorldMatrix;
-  //                  MatrixD targetMatrix = grid.WorldMatrix;
-
-  //                  // Get the rotation part only (no translation)
-  //                  MatrixD playerRotation = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(playerMatrix));
-  //                  MatrixD targetRotation = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(targetMatrix));
-
-  //                  // Calculate relative rotation: how target is rotated relative to player
-  //                  MatrixD relativeRotation = targetRotation * MatrixD.Transpose(playerRotation);
-
-  //                  // Apply this rotation to the block's local position (preserving scale)
-  //                  Vector3D rotatedPosition = Vector3D.Transform(positionR, relativeRotation);
-
-  //                  // Position the hologram at a fixed offset from player (centered display)
-  //                  positionT = gHandler.localGridEntity.GetPosition() + rotatedPosition;
-  //              }
-  //              else
-  //              {
-  //                  // For player hologram: apply local grid rotation to keep it stable
-  //                  Vector3D angularVelocity = gHandler.localGridVelocityAngular;
-  //                  MatrixD rotationMatrix = CreateRotationMatrix(angularVelocity);
-  //                  positionR = Vector3D.Rotate(BT.Position, rotationMatrix);
-  //                  positionT = Vector3D.Transform(positionR, grid.WorldMatrix);
-  //              }
-
-  //              double healthPercent = ClampedD(BT.HealthCurrent / BT.HealthMax, 0, 1);
-  //              HG_DrawBillboard(positionT - gHandler.localGridEntity.GetPosition(), grid, isTarget, healthPercent);
-  //          }
-  //      }
 
 
 
@@ -5222,11 +5219,196 @@ namespace EliDangHUD
 				DrawLineBillboard(MaterialSquare, color * 0.15f * (float)dotProd * (float)bootUpAlpha, holoCenter, holoDir, (float)holoLength, 0.0025f, BlendTypeEnum.AdditiveTop);
 			}
 		}
-			
-		private MatrixD CreateRotationMatrix(Vector3D angularVelocity)
+
+
+        private MatrixD CreateNormalizedLocalGridRotationMatrix()
+        {
+			// THIS IS THE NEW ONE I'm TESTING. 
+            Sandbox.ModAPI.IMyCockpit cockpit = gHandler.localGridEntity as Sandbox.ModAPI.IMyCockpit;
+            if (cockpit == null)
+            {
+                return MatrixD.Zero; // Return Zero matrix if no cockpit is found
+            }
+            VRage.Game.ModAPI.IMyCubeGrid grid = cockpit.CubeGrid;
+            if (grid == null)
+            {
+                return MatrixD.Zero; // Return Zero matrix if no grid is found
+            }
+
+            Vector3D angularVelocity = gHandler.localGridVelocityAngular; // Gets the angular velocity of the entity the player is currently controlling
+            MatrixD cockpitMatrix = cockpit.WorldMatrix; // Get cockpit orientation
+            MatrixD gridMatrix = cockpit.CubeGrid.WorldMatrix; // Get grid orientation
+
+            // Calculate the relative orientation of cockpit relative to grid
+            MatrixD cockpitToGridMatrix = cockpitMatrix * MatrixD.Invert(gridMatrix);
+
+            // Transform the angular velocity from the cockpit to the grid
+            Vector3D gridAngularVelocity = Vector3D.Transform(angularVelocity, cockpitToGridMatrix);
+
+            // Configuration values - adjust these to tune the effect
+            const double maxAngularVelocity = 300.0; // Maximum angular velocity in your units
+            const double maxTiltAngle = 89.0 * Math.PI / 180.0; // 89 degrees in radians
+            const double sensitivityMultiplier = 1.0; // Adjust this to make the effect more or less pronounced
+
+            // Calculate rotation angles based on angular velocity
+            // Scale each component to the desired range and clamp to prevent flipping
+            double rotationX = ClampAndScale(gridAngularVelocity.X, maxAngularVelocity, maxTiltAngle) * sensitivityMultiplier;
+            double rotationY = ClampAndScale(gridAngularVelocity.Y, maxAngularVelocity, maxTiltAngle) * sensitivityMultiplier;
+            double rotationZ = ClampAndScale(gridAngularVelocity.Z, maxAngularVelocity, maxTiltAngle) * sensitivityMultiplier;
+
+            // Create rotation matrices in grid-local space (these are temporary tilts based on current velocity)
+            MatrixD rotationMatrixX = MatrixD.CreateRotationX(-rotationX);
+            MatrixD rotationMatrixY = MatrixD.CreateRotationY(-rotationY);
+            MatrixD rotationMatrixZ = MatrixD.CreateRotationZ(-rotationZ);
+
+            // Combine rotations (aerospace convention: Y-X-Z)
+            MatrixD localTiltMatrix = rotationMatrixY * rotationMatrixX * rotationMatrixZ;
+
+            // The base orientation should be the "behind view" - typically looking at the grid from behind
+            // This creates a base rotation that shows the ship from behind (180° rotation around Y-axis)
+            MatrixD baseOrientation = MatrixD.CreateRotationY(Math.PI);
+
+            // Apply the temporary tilt to the base orientation
+            MatrixD combinedLocalMatrix = localTiltMatrix * baseOrientation;
+
+            // Transform the combined matrix to world space using the grid's orientation
+            MatrixD gridRotationOnly = MatrixD.CreateFromQuaternion(QuaternionD.CreateFromRotationMatrix(gridMatrix));
+            MatrixD worldRotationMatrix = combinedLocalMatrix * gridRotationOnly;
+
+            return worldRotationMatrix;
+        }
+
+        private MatrixD CreateNormalizedLocalGridRotationMatrix() 
+		{   
+
+			Sandbox.ModAPI.IMyCockpit cockpit = gHandler.localGridEntity as Sandbox.ModAPI.IMyCockpit;
+			if (cockpit == null)
+			{
+				return MatrixD.Zero; // Return Zero matrix if no cockpit is found
+            }
+            VRage.Game.ModAPI.IMyCubeGrid grid = cockpit.CubeGrid;
+            if (grid == null)
+            {
+				return MatrixD.Zero; // Return Zero matrix if no grid is found
+            }
+			Vector3D angularVelocity = gHandler.localGridVelocityAngular; // Gets the angular velocity of the entity the player is currently controlling, which is a cockpit/seat etc.
+            MatrixD cockpitMatrix = cockpit.WorldMatrix; // Get cockpit orientation
+			MatrixD gridMatrix = cockpit.CubeGrid.WorldMatrix; // Get grid orientation
+
+			// Clculate the relative orientation of cockpit relative to grid
+			MatrixD cockpitToGridMatrix = cockpitMatrix * MatrixD.Invert(gridMatrix);
+
+			// Transform the angular velocity frm the cockpit to the grid
+			Vector3D gridAngularVelocity = Vector3D.Transform(angularVelocity, cockpitToGridMatrix);
+
+            // Configuration values - adjust these to tune the effect
+            const double maxAngularVelocity = 20; // Maximum angular velocity in your units
+            const double maxTiltAngle = 89.0 * Math.PI / 180.0; // 89 degrees in radians
+            const double sensitivityMultiplier = 1.0; // Adjust this to make the effect more or less pronounced
+
+            // Calculate rotation angles based on angular velocity
+            // Scale each component to the desired range and clamp to prevent flipping
+            double rotationX = ClampAndScale(gridAngularVelocity.X, maxAngularVelocity, maxTiltAngle) * sensitivityMultiplier;
+            double rotationY = ClampAndScale(gridAngularVelocity.Y, maxAngularVelocity, maxTiltAngle) * sensitivityMultiplier;
+            double rotationZ = ClampAndScale(gridAngularVelocity.Z, maxAngularVelocity, maxTiltAngle) * sensitivityMultiplier;
+
+            // Create rotation matrices
+            MatrixD rotationMatrixX = MatrixD.CreateRotationX(-rotationX);
+            MatrixD rotationMatrixY = MatrixD.CreateRotationY(-rotationY);
+            MatrixD rotationMatrixZ = MatrixD.CreateRotationZ(-rotationZ);
+
+            // Combine rotations (aerospace convention: Y-X-Z)
+            MatrixD localRotationMatrix = rotationMatrixY * rotationMatrixX * rotationMatrixZ;
+
+            // Transform the local rotation to world space using the grid's orientation
+            // This ensures the hologram tilts relative to the grid's current orientation
+            MatrixD gridRotationOnly = MatrixD.CreateFromQuaternion(QuaternionD.CreateFromRotationMatrix(gridMatrix));
+            MatrixD worldRotationMatrix = localRotationMatrix * gridRotationOnly;
+
+            return worldRotationMatrix;
+
+            //         // Use transformed angular velocity to create a rotation matrix. This, in theory, should mean that regardless of which cardinal directon the cockpit
+            //         // is facing on the grid the rotation represented on the hologram will be correct. No more nose pitching up = hologram swiveling left/right or vice versa
+            //         Vector3D rotationAngle = gridAngularVelocity * deltaTime;
+            //         MatrixD rotationX = MatrixD.CreateRotationX(-rotationAngle.X);// Was x
+            //         MatrixD rotationY = MatrixD.CreateRotationY(-rotationAngle.Y); // Was y
+            //         MatrixD rotationZ = MatrixD.CreateRotationZ(-rotationAngle.Z);
+
+            //// I believe this is common in aerospace
+            //         MatrixD rotationMatrix = rotationY * rotationX * rotationZ;
+
+            //         return rotationMatrix;
+
+        }
+
+        // Helper function to scale and clamp angular velocity to rotation angle
+        private double ClampAndScale(double angularVelocity, double maxVelocity, double maxAngle)
+        {
+            // Normalize the angular velocity to (-1, 1) range
+            double normalizedVelocity = angularVelocity / maxVelocity;
+
+            // Clamp to prevent values outside (-1, 1)
+            normalizedVelocity = Math.Max(-1.0, Math.Min(1.0, normalizedVelocity));
+
+            // Scale to the desired angle range
+            return normalizedVelocity * maxAngle;
+        }
+
+
+
+
+        /// <summary>
+        /// This function creates a rotation matrix based on the angular velocity of the grid. Optional amplification factor can be used to increase the effect of the rotation. Use without amplification factor to get a rotation matrix that represents the
+        /// actual rotation of a grid in the last deltaTime period. Apply an amplification factor to make the rotation more pronounced, which is useful for visual effects like wobbling holograms based on angular velocity where the position re-sets afterword and isn't permanently
+        /// transformed by this function. I think anyway... -FenixPK 2025-07-16
+        /// </summary>
+        /// <param name="angularVelocity"></param>
+        /// <param name="amplificationFactor"></param>
+        /// <returns></returns>
+        private MatrixD CreateAngularRotationMatrix(Vector3D angularVelocity, float amplificationFactor = 10f)
 		{
-			// Create the rotation angle vector (angular velocity * deltaTime)
-			Vector3D rotationAngle = angularVelocity * deltaTime * 10;
+            // This appears to be genearating a rotation matrix based on the rotation that occured during the last deltaTime period.
+            // Baiscally if a grid is rotating at 0.5 radians per second around the Y-axis and detlaTime is 0.1 seconds then 
+            // rotationAngle.Y = 0.5 * 0.1 = 0.05 radians
+            // Therefore the matrix product would represent a 0.05 radian rotation around the Y-axis
+            // We have Vector3D angularVelocity which is the angular velocity of the grid in radians per second around each axis.
+            // So we can generate a rotation matrix that represents the a radian amount rotation around each axis based on the angular velocity and the deltaTime.
+            // What fun. 
+            // Additionally now that I know what it does and re-enabled it for the local grid I've observed that as I pivot up-down it rotates the hologram left/right, and vice versa left-right rotates the hologram up/down. 
+            // Roll seems fine. I wonder if this is a universal issue or just due to ship design? Ie a grid has xyz facings and you could put the cockpit facing forward on the x or y or z axis and that becomes "Forward" for the grid.
+            // so at any time you can have grids where forward is x, forward is y, or forward is z. 
+            // Further this is space engineers so you could have a cube that has multiple control seats, each facing x, -x, y, -y, z, -z so what really is the "front" of the grid?
+            // Assuming we use this function at all going forward we could make assumptions about the ships grid facing by which axis the currently controlled cockpit is facing.
+            // For ships with multiple seats and each player could have an EliDang's hud active we would want to use other indicators like if there are fixed weapons facing a certain direction. 
+            // Or hell we could add a tag called [ELI_FRONT] to a block and use the first block with that tag's forward face as the "front" of the grid (in case they tag more than one we don't want an exception).
+			// Eg. a remote control, control, even ai blocks have "front" faces. Any block that shows in console could be used but some have more obvious fronts than others. 
+			// Or we could use custom data on the control block itself. So we can tell it waht side we want to be treated as the front of the grid without needing a block tag... I like that more. 
+			// aye karumba. 
+
+            // NOTE ON amplificationFactor
+            // Amplifies the angular velocity to affect a rotation matrix in a way that pronounces the rotation effect based on how fast we are rotating.
+            // If rotational angular velocity is low, then the rotation matrix will be small and the hologram will wobble less.
+            // If rotational angular velocity is high, then the rotation matrix will be large and the hologram will wobble more.
+            // If used to directly rotate something it would cause it to rotate more than it actually did. So I wouldn't use this to take a fixed view of a grid
+            // and say "lets rotate it based on how much it rotated in the last deltaTime period" because it would amplify and you'd end up with the visual depiction
+            // rotating much faster than the actual grid...
+            // But since the way this function is used is to rotate a hologram based on your angularVelocity while you have angularVelocity and then it re-centers after it has the effect of 
+            // making it wobble more or less based on how fast you are rotating.
+            // Mind melting. I dislike magic numbers. 
+
+            // Create the rotation angle vector (angular velocity * deltaTime)
+            Vector3D rotationAngle = angularVelocity * deltaTime * amplificationFactor; // the * 10 here is likely a scaling factor? I'm honestly not sure? FenixPK replaced a magic number of "10" with a variable so this makes sense. 
+			// Removing * 10 made no visible difference to me, however setting it to 100 made it obvious what it did.
+			// As of current original author code where target hologram takes LOCAL GRID angular velicity and passes it to this function and transforms positionR by applying this
+			// matrix. If I pass in 100, it is obvious the target hologram block positions get rotated/wobbled a bit based on my current angular velocity before resetting back to original view...
+			// That original view is our positions relative to where we are facing IN THE WORLD not relative to each other.
+			// Eg if we are both facing forward (but I'm BEHIND THEM) and I rotate my ship to the left I am now seeing their right side as if I were looking at their right side. But I'm not.. they aren't even in front of me anymore.
+			// None of this makes sense to me other than as a way to view the target grid from different angles by rotating my ship on the spot... But that's only combined with the existing HG_DrawBillboard.
+			// This function alone just seems to "wobble" it a bit more in either axis to depict angular velocity. Ie. if moving quickly it wobbles more off the "regular" position, if moving slowly it wobbles less.
+			// That kinda makes sense for the local grid if we are fixing the view of it, it gives us feedback. But for the target... I don't think it makes sense.
+			// And the fact it shows the side of the target based on our WORLD facing, instead of relative to the grid makes no sense either.
+			// If I am behind a grid, and I rotate in any direction (without changing my x,y,z coordinate just rotation) I should still be seeing the back of the grid the whole time. That's the side facing my grid.
+			// I suspect it is using the camera direction, somewhere, somehow. This is melting my brain. 2025-07-16 FenixPK.
 
 			// Create the rotation matrices for each axis
 			MatrixD rotationX = MatrixD.CreateRotationX(-rotationAngle.X);

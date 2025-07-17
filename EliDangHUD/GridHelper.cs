@@ -25,6 +25,9 @@ namespace EliDangHUD
 		public string localGridName;
 
 		// Stores the current entity associated with the local player's grid.
+		/// <summary>
+		/// We find the entity the player is controlling and store it here, which is a cockpit or control block or perhaps even a seat?
+		/// </summary>
 		public IMyEntity localGridEntity;
 		public Vector3D localGridPosition;
 		// Stores the current velocity of the local player's grid.
