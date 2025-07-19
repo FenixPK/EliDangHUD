@@ -562,7 +562,7 @@ public class CustomCockpitLogic : MyGameLogicComponent
 
 		string updatedSection;
 
-		if (!ini.TryParse (customData, out result)) {
+		if (!ini.TryParse(customData, out result)) {
 		} else {
 			ini.Set(mySection, myKey, myValue);
 			string updatedData = ini.ToString ();
