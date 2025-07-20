@@ -111,6 +111,11 @@ And have a separate active radar set to 2km to pick up anything near you. This w
 --TODO--
 TODO: Rework where calculations are done. UpdateBeforeSimulation() should be for simulation calculations, (like the matrix math etc. we do for setting positions), and Draw() should be reserved for the actual rendering. There's a lot of complex math
 going on in Draw() that doesn't need to be there. 
+UPDATE- Now that I've read into it I think my understanding changed. 
+UpdateBeforeSimulation is only for physics related values. Applying thrust, handling player inputs like changing radar range, selecting targets etc. 
+UpdateAfterSimulation is where we do the heavy math, scanning for entities and updating their list of blocks, compare with previous data to compare state changes if necessary, trigger sound effects for new targets, and store all this for the Draw call to use. 
+Draw() handles rendering using already computed values.
+
 TODO: Rework the glitch code regarding the radar, I removed it when trying to hunt down the performance issues when I first started and had no idea what anything in this code even did. 
 TODO: (PARTIAL) Make player condition hologram better... Could rotate it on a timer to show all sides, and then if taking damage rotate it so it shows the side being impacted? I have standardized the code so it is far easier to modify and maintain
 but made no actual changes to it yet.
@@ -151,18 +156,18 @@ namespace EliDangHUD
 	// Define a class to hold planet information
 	public class PlanetInfo
 	{
-		public VRage.ModAPI.IMyEntity Entity 			{ get; set; }
-		public double Mass 					{ get; set; }	// We'll use radius as a stand-in for mass
-		public double GravitationalRange 	{ get; set; }	// Gravitational range of the planet
-		public VRage.ModAPI.IMyEntity ParentEntity 		{ get; set; }	// Parent entity of the planet
+		public VRage.ModAPI.IMyEntity Entity { get; set; }
+		public double Mass { get; set; }	// We'll use radius as a stand-in for mass
+		public double GravitationalRange { get; set; }	// Gravitational range of the planet
+		public VRage.ModAPI.IMyEntity ParentEntity { get; set; }	// Parent entity of the planet
 	}
 
 	// Define class to contain info about velocity hash marks
 	public class VelocityLine
 	{
-		public float velBirth 				{ get; set; }
-		public Vector3D velPosition 		{ get; set; }
-		public float velScale 				{ get; set; }
+		public float velBirth { get; set; }
+		public Vector3D velPosition { get; set; }
+		public float velScale { get; set; }
 	}
 
 	public enum RelationshipStatus
@@ -177,12 +182,12 @@ namespace EliDangHUD
 	// Define class to hold information about radar targets
 	public class RadarPing
 	{
-		public VRage.ModAPI.IMyEntity Entity 			{ get; set; }
-		public Stopwatch Time 				{ get; set; }
-		public float Width 					{ get; set; }
-		public RelationshipStatus Status 	{ get; set; }
-		public bool Announced 				{ get; set; }
-		public Vector4 Color 				{ get; set; }
+		public VRage.ModAPI.IMyEntity Entity { get; set; }
+		public Stopwatch Time { get; set; }
+		public float Width { get; set; }
+		public RelationshipStatus Status { get; set; }
+		public bool Announced { get; set; }
+		public Vector4 Color { get; set; }
 	}
 
 	public class RadarAnimation
@@ -212,7 +217,25 @@ namespace EliDangHUD
 		public Vector3D pos = Vector3D.Zero;
 	}
 
-	
+    /// <summary>
+    /// This enum stores the different views the Target hologram (or to some degree, local hologram) can use.
+    /// </summary>
+    public enum HologramView_Side
+    {
+        Rear = 0,
+        Left = 1,
+        Front = 2,
+        Right = 3,
+        Top = 4,
+        Bottom = 5,
+        Orbit = 6,
+        Perspective = 7
+    }
+
+	/// <summary>
+	/// This holds the global settings that will get loaded from and saved to the XML file in the save/world folder. Clients that are NOT also servers request these settings from the server. And upon request servers send them.
+	/// Clients that are ALSO servers are single player and just load from file. 
+	/// </summary>
     public class ModSettings
     {
         /// <summary>
@@ -317,22 +340,15 @@ namespace EliDangHUD
     [MySessionComponentDescriptor(MyUpdateOrder.BeforeSimulation | MyUpdateOrder.AfterSimulation)]
 	public class CircleRenderer : MySessionComponentBase
 	{
-        public enum HologramView_Side
-        {
-            Rear = 0,
-            Left = 1,
-            Front = 2,
-            Right = 3,
-            Top = 4,
-            Bottom = 5,
-			Orbit = 6,
-			Perspective = 7
-			
-        }
 
+		public bool _modInitialized = false;
+        private bool _entitiesInitialized = false;
 
         // File to store the settings in, and settings object to hold them.
         private const string settingsFile = "EDHH_settings.xml";
+		/// <summary>
+		/// This holds the settings that the mod uses globally, not per ship/seat. "theSettings" gets saved to XML in the save world folder.
+		/// </summary>
         private ModSettings theSettings = new ModSettings(); // Is instantiated with default values as a new ModSettings object, which is then overwritten by the settings file if it exists.
 		// For multiplayer the client requests this from the server. For single player it loads from the saved world folder. 
 		// This means I've completely overhauled the code so any reference to static constants like "someConstant" are now "theSettings.someConstant" instead. 
@@ -342,60 +358,39 @@ namespace EliDangHUD
         private const ushort MessageId = 10203;
         private const ushort RequestMessageId = 30201;
 
-  //      // Instanced configuration constants which will be set after loading settings from file, or defaults to set for first load (or if missing). 
-		//// Any changes here need to be reflected in the ModSettings class and vice versa!
-
-  //      public static float theSettings.lineThickness = 1.5f;
-		//public static Vector4 theSettings.lineColor = new Vector4(1f, 0.5f, 0.0f, 1f);
-		//public static Vector3 lineColorRGB = new Vector3(1f, 0.5f, 0.0);
-		//public static int theSettings.lineDetail = 90;
-		//public static Vector3D theSettings.starPos = new Vector3D(0, 0, 0);
-		//public static bool theSettings.starFollowSky = true;
-		//public static bool ENABLE_COCKPIT_DUST = true;
-		//public static bool theSettings.enableGridFlares = true; // Show a flare graphic on ships to make them more visible in the void
-  //      public static bool theSettings.enableVisor = true;
-		//public static double theSettings.maxRadarRangeGlobal = -1; // Max global radar range, -1 will use draw distance, otherwise can override if users want to limit radar range below draw limit.
-		//public static int theSettings.maxPings = 500;
-		//public static int theSettings.rangeBracketDistance = 2000; // Range brackets in meters. 
-		//public static bool theSettings.enableHologramsGlobal = true; // Global toggle for showing ship holograms. 
-		//public static bool theSettings.useHollowReticle = true; // Use a hollow reticle. Sometimes center dot blocks view of ship targetted, prefer hollow reticle. 
-  //      public static double theSettings.fadeThreshhold = 0.01; // In percent, distance at edge of radar range where resolution gets "fuzzy" and blips dim/fade away. Allows for smooth transition rather than sudden disappearance of radar. 
-
-        //------------------------------------
-        
-
         // Materials used for rendering various elements of the HUD
         // These are configured in the file TransparentMaterials_ED.sbc
-        private MyStringId MaterialDust1 = 				MyStringId.GetOrCompute("ED_DUST1");
-		private MyStringId MaterialDust2 = 				MyStringId.GetOrCompute("ED_DUST2");
-		private MyStringId MaterialDust3 = 				MyStringId.GetOrCompute("ED_DUST3");
-		private MyStringId MaterialVisor = 				MyStringId.GetOrCompute ("ED_visor");
-		private MyStringId Material = 					MyStringId.GetOrCompute("Square");
-		private MyStringId MaterialLaser = 				MyStringId.GetOrCompute("WeaponLaser");
-		private MyStringId MaterialBorder = 			MyStringId.GetOrCompute("ED_Border");
-		private MyStringId MaterialCompass = 			MyStringId.GetOrCompute("ED_Compass");
-		private MyStringId MaterialCross = 				MyStringId.GetOrCompute("ED_Targetting");
-		private MyStringId MaterialCrossOutter = 		MyStringId.GetOrCompute("ED_Targetting_Outter");
-		private MyStringId MaterialLockOn = 			MyStringId.GetOrCompute("ED_LockOn");
-        private MyStringId MaterialLockOnHollow = MyStringId.GetOrCompute("ED_LockOn_Hollow");
-        private MyStringId MaterialToolbarBack = 		MyStringId.GetOrCompute("ED_ToolbarBack");
-		private MyStringId MaterialCircle = 			MyStringId.GetOrCompute("ED_Circle");
-		private MyStringId MaterialCircleHollow = 		MyStringId.GetOrCompute("ED_CircleHollow");
-		private MyStringId MaterialCircleSeeThrough = 	MyStringId.GetOrCompute("ED_CircleSeeThrough");
-		private MyStringId MaterialCircleSeeThroughAdd = 	MyStringId.GetOrCompute("ED_CircleSeeThroughAdd");
-		private MyStringId MaterialTarget = 			MyStringId.GetOrCompute("ED_TargetArrows");
-		private MyStringId MaterialSquare = 			MyStringId.GetOrCompute("ED_Square");
-		private MyStringId MaterialTriangle = 			MyStringId.GetOrCompute("ED_Triangle");
-		private MyStringId MaterialDiamond = 			MyStringId.GetOrCompute("ED_Diamond");
-		private MyStringId MaterialCube = 				MyStringId.GetOrCompute("ED_Cube");
-		private MyStringId MaterialShipFlare = 			MyStringId.GetOrCompute("ED_SHIPFLARE");
+        private readonly MyStringId MaterialDust1 = 				MyStringId.GetOrCompute("ED_DUST1");
+		private readonly MyStringId MaterialDust2 = 				MyStringId.GetOrCompute("ED_DUST2");
+        private readonly MyStringId MaterialDust3 = MyStringId.GetOrCompute("ED_DUST3");
+        private readonly MyStringId MaterialVisor = 				MyStringId.GetOrCompute ("ED_visor");
+		private readonly MyStringId Material = 					MyStringId.GetOrCompute("Square");
+		private readonly MyStringId MaterialLaser = 				MyStringId.GetOrCompute("WeaponLaser");
+		private readonly MyStringId MaterialBorder = 			MyStringId.GetOrCompute("ED_Border");
+		private readonly MyStringId MaterialCompass = 			MyStringId.GetOrCompute("ED_Compass");
+		private readonly MyStringId MaterialCross = 				MyStringId.GetOrCompute("ED_Targetting");
+		private readonly MyStringId MaterialCrossOutter = 		MyStringId.GetOrCompute("ED_Targetting_Outter");
+		private readonly MyStringId MaterialLockOn = 			MyStringId.GetOrCompute("ED_LockOn");
+        private readonly MyStringId MaterialLockOnHollow = MyStringId.GetOrCompute("ED_LockOn_Hollow");
+        private readonly MyStringId MaterialToolbarBack = 		MyStringId.GetOrCompute("ED_ToolbarBack");
+		private readonly MyStringId MaterialCircle = 			MyStringId.GetOrCompute("ED_Circle");
+		private readonly MyStringId MaterialCircleHollow = 		MyStringId.GetOrCompute("ED_CircleHollow");
+		private readonly MyStringId MaterialCircleSeeThrough = 	MyStringId.GetOrCompute("ED_CircleSeeThrough");
+		private readonly MyStringId MaterialCircleSeeThroughAdd = 	MyStringId.GetOrCompute("ED_CircleSeeThroughAdd");
+		private readonly MyStringId MaterialTarget = 			MyStringId.GetOrCompute("ED_TargetArrows");
+		private readonly MyStringId MaterialSquare = 			MyStringId.GetOrCompute("ED_Square");
+		private readonly MyStringId MaterialTriangle = 			MyStringId.GetOrCompute("ED_Triangle");
+		private readonly MyStringId MaterialDiamond = 			MyStringId.GetOrCompute("ED_Diamond");
+		private readonly MyStringId MaterialCube = 				MyStringId.GetOrCompute("ED_Cube");
+		private readonly MyStringId MaterialShipFlare = 			MyStringId.GetOrCompute("ED_SHIPFLARE");
 		private List<string> MaterialFont = 			new List<string> ();
 
 
-        // Colors for use, multiplying the Vector4 color by a float to adjust brightness. I believe this has to do with HDR
+        // Colors for use, sometimes multiplying the Vector4 color by a float to adjust brightness/glow. I believe this has to do with how HDR works
         private Vector4 LINECOLOR_Comp;
 		private Vector3 LINECOLOR_Comp_RPG;
 		private Vector3 lineColorRGB = new Vector3(1f, 0.5f, 0.0); // Local RGB line color, this is overrwritten by the CustomData per cockpit block.
+
         private Vector4 color_GridFriend = (Color.Green).ToVector4() * 2;
         private Vector4 color_GridEnemy = (Color.Red).ToVector4() * 4;
         private Vector4 color_GridEnemyAttack = (Color.Pink).ToVector4() * 4;
@@ -434,7 +429,16 @@ namespace EliDangHUD
 		private double glitchAmount = 0;
 		private double glitchAmount_overload = 0;
 		private double glitchAmount_min = 0;
-        private double powerLoad = 0;
+
+		/// <summary>
+		/// At what percent power usage does the glitch effect start?
+		/// </summary>
+		private double powerLoadGlitchStart = 0.667;
+
+		/// <summary>
+		/// What is the grid's current power load, for calculating glitch effect
+		/// </summary>
+        private double powerLoadCurrent = 0;
 
         // Random floats for random number generation?
         private List<float> randomFloats = new List<float>();
@@ -442,6 +446,9 @@ namespace EliDangHUD
 
 		// Track the radar animations
 		private List<RadarAnimation> RadarAnimations = new List<RadarAnimation>();
+
+        // The radar variables
+        private float min_blip_scale = 0.05f;
 
         // Variables that can be set by the CUSTOM DATA of the cockpit block to enable/disable various features of the HUD.
         public bool EnableMASTER = true;
@@ -455,10 +462,22 @@ namespace EliDangHUD
 		public bool EnableSpeedLines = true;
 
 		public bool HologramView_PerspectiveAttemptOne = false;
-		public HologramView_Side HologramView_Current = HologramView_Side.Rear; // 0 is back, 1 is left, 2 is right, 3 is front, 4 is top, 5 is bottom. 
+		public HologramView_Side HologramView_Current = HologramView_Side.Perspective; // 0 is back, 1 is left, 2 is right, 3 is front, 4 is top, 5 is bottom. 
 		private int HologramView_Current_MaxSide = 5; // In case we add more? - Max is still 5. 6 and 7 are reserved for orbit and perspective cams currently.
 		public bool HologramView_AngularWiggle = true;
         public bool HologramView_AngularWiggleTarget = true;
+
+		// The Rotation matrices for changing the view of the target or local grid holograms. This allows Slerp'ing smoothly from view to view so it doesn't snap when we switch the side being displayed. 
+		public MatrixD hologramRotationMatrixTarget_Current = MatrixD.Identity;
+		public MatrixD hologramRotationMatrixTarget_Goal = MatrixD.Identity;
+		public MatrixD hologramRotationMatrixLocal_Current = MatrixD.Identity;
+		public MatrixD hologramRotationMatrixLocal_Goal = MatrixD.Identity;
+
+		// If we apply angular rotation wiggle to the view or not, basically the faster you are turning the more the hologram turns in that direction. This is only relevant for "fixed" views
+		// like back, front, side etc. So you get a sense for which direction the grid is rotating. 
+		public MatrixD angularRotationWiggleTarget = MatrixD.Identity;
+		public MatrixD angularRotationWiggleLocal = MatrixD.Identity;
+
 
 
         // The player
@@ -466,15 +485,14 @@ namespace EliDangHUD
 		private bool client; // Is this a client or server? If "dedicated server" is detected then this is true. 
         private VRage.Game.ModAPI.IMyCubeGrid playerGrid;
 
-		private float min_blip_scale = 0.05f;
-
-        private MyIni ini = new MyIni();
+		
 
 		//================= WEAPON CORE ===============================================================================================
-		private bool isWeaponCore = false;
-		public bool IsWeaponCoreLoaded(){
+		private bool _isWeaponCore = false;
+		public bool IsWeaponCoreLoaded()
+		{
 			bool isWeaponCorePresent = MyAPIGateway.Session.Mods.Any(mod => mod.PublishedFileId == 3154371364); // Replace with actual WeaponCore ID (as of 2025-07-17 this is accurate)
-			isWeaponCore = isWeaponCorePresent;
+            _isWeaponCore = isWeaponCorePresent;
 			return isWeaponCorePresent;
 		}
         //=============================================================================================================================
@@ -656,6 +674,10 @@ namespace EliDangHUD
 			}
 			return new ModSettings(); // Return default settings if no file exists
 		}
+
+		/// <summary>
+		/// Calls the base.SaveData() and then saves settings from theSettings to xml in the world save. 
+		/// </summary>
         public override void SaveData()
         {
             base.SaveData();
@@ -665,19 +687,17 @@ namespace EliDangHUD
                 SaveSettings(theSettings);
             }
         }
+
+		/// <summary>
+		/// Unsubscribe from event listeners.
+		/// </summary>
         protected override void UnloadData()
         {
             UnsubscribeFromEvents();
         }
         //=============================================================================================================================
 
-        /// <summary>
-        /// Draw the holographic speed and power guages on the HUD. 
-        /// </summary>
-        private void DrawGauges(){
-			DrawPower();
-			DrawSpeed();
-		}
+        
 
         /// <summary>
         /// This method draws text on the radar HUD.
@@ -689,10 +709,12 @@ namespace EliDangHUD
         /// <param name="color">The color of the text</param>
         /// <param name="dim">Modifier for brightness of the text</param>
         /// <param name="flipUp">If true uses radarMatrix.Forward instead of radarMatrix.Up.</param>
-        private void DrawText(string text, double size, Vector3D pos, Vector3D dir, Vector4 color, float dim = 1, bool flipUp = false){
+        private void DrawText(string text, double size, Vector3D pos, Vector3D dir, Vector4 color, float dim = 1, bool flipUp = false)
+		{
 			text = text.ToLower ();
 			Vector3D up = radarMatrix.Up;
-			if (flipUp) {
+			if (flipUp) 
+			{
 				up = radarMatrix.Forward;
 			}
 			Vector3D left = Vector3D.Cross(up, dir);
@@ -700,19 +722,31 @@ namespace EliDangHUD
 			for (int i = 0; i < parsedText.Count; i++) {
 				Vector3D offset = -left * (size*i*1.8);
 				if (parsedText [i] != " ") {
-					DrawQuadRigid (pos + offset, dir, size, getFontMaterial(parsedText [i]), color * GLOW * dim, flipUp);
+					DrawQuadRigid(pos + offset, dir, size, getFontMaterial(parsedText[i]), color * GLOW * dim, flipUp);
 				}
 			}
 		}
 
         /// <summary>
+        /// Draw the holographic speed and power guages on the HUD. 
+        /// </summary>
+        private void DrawGauges()
+        {
+            DrawPower();
+            DrawSpeed();
+        }
+
+        /// <summary>
         /// This function draws the power gauge on the HUD.
         /// </summary>
-        private void DrawPower(){
+        private void DrawPower() 
+		{
+
 			Vector4 color = theSettings.lineColor;
 
-			if (powerLoad > 0.667) {
-				float powerLoad_offset = (float)powerLoad - 0.667f;
+			if (powerLoadCurrent > powerLoadGlitchStart) 
+			{
+				float powerLoad_offset = (float)powerLoadCurrent - (float)powerLoadGlitchStart;
 				powerLoad_offset /= 0.333f;
 
 				color.X = LerpF (color.X, 1, powerLoad_offset);
@@ -720,20 +754,20 @@ namespace EliDangHUD
 				color.Z = LerpF (color.Z, 0, powerLoad_offset);
 			}
 
-			double PL = Math.Round(powerLoad*100);
+			double powerLoadCurrentPercent = Math.Round(powerLoadCurrent*100);
 			double size = 0.0070;
-			string PLS = PL.ToString ();
-			if (PL < 100) {
-				PLS = " " + PLS;
+			string powerLoadCurrentPercentString = powerLoadCurrentPercent.ToString ();
+			if (powerLoadCurrentPercent < 100) {
+				powerLoadCurrentPercentString = " " + powerLoadCurrentPercentString;
 			}
-			if (PL < 10) {
-				PLS = " " + PLS;
+			if (powerLoadCurrentPercent < 10) {
+				powerLoadCurrentPercentString = " " + powerLoadCurrentPercentString;
 			}
-			PLS = "~" + PLS + "%";
+			powerLoadCurrentPercentString = "~" + powerLoadCurrentPercentString + "%";
 			Vector3D pos = worldRadarPos+(radarMatrix.Forward*radarRadius*0.4)+(radarMatrix.Left*radarRadius*1.3)+(radarMatrix.Up*0.0085);
-			Vector3D dir = Vector3D.Normalize (pos - worldRadarPos);
+			Vector3D dir = Vector3D.Normalize(pos - worldRadarPos);
 			dir = Vector3D.Normalize((dir+radarMatrix.Forward)/2);
-			DrawText (PLS, size, pos, dir, color);
+			DrawText (powerLoadCurrentPercentString, size, pos, dir, color);
 			DrawText (" 000 ", size, pos, dir, color, 0.333f);
 
 			double sizePow = 0.0045;
@@ -745,8 +779,8 @@ namespace EliDangHUD
 			float powerPer = 60 * (gHandler.powerStored / gHandler.powerStoredMax);
 
 			//----ARC----
-			float arcLength = 56f*(float)powerLoad;
-			float arcLengthTime = 70f*(float)powerLoad;
+			float arcLength = 56f*(float)powerLoadCurrent;
+			float arcLengthTime = 70f*(float)powerLoadCurrent;
 			DrawArc(worldRadarPos-radarMatrix.Up*0.0025, radarRadius*1.27, radarMatrix.Up, 35, 35+arcLengthTime, color, 0.007f, 0.5f);
 			DrawArc(worldRadarPos-radarMatrix.Up*0.0025, radarRadius*1.27 + 0.01, radarMatrix.Up, 42, 42+powerPer, LINECOLOR_Comp, 0.002f, 0.75f);
 		}
@@ -1011,29 +1045,29 @@ namespace EliDangHUD
 				for(var i = 0; i < dustList.Count; i++) {
 					dustList[i].life += deltaTime;
 
-					float alpha = (float)(dustList [i].life / dustList [i].lifeTime);
+					float alpha = (float)(dustList[i].life / dustList[i].lifeTime);
 					alpha = (alpha - 0.5f) * 2;
-					alpha = Math.Abs (alpha);
+					alpha = Math.Abs(alpha);
 					alpha = 1 - alpha;
-					alpha = (float)(Math.Pow ((double)alpha, 0.5)) * 0.5f;
+					alpha = (float)(Math.Pow((double)alpha, 0.5)) * 0.5f;
 
-					alpha = Clamped (alpha, 0.001f, 1);
+					alpha = Clamped(alpha, 0.001f, 1);
 
-					Vector3D pos =  dustList[i].pos + (dustList[i].life * dustList[i].velocity)*0.125;
-					pos = Vector3D.Transform (pos, radarMatrix);
-					Vector4 color = new Vector4 (1,1,1,1) * alpha * 0.5f;
+					Vector3D pos = dustList[i].pos + (dustList[i].life * dustList[i].velocity)*0.125;
+					pos = Vector3D.Transform(pos, radarMatrix);
+					Vector4 color = new Vector4(1,1,1,1) * alpha * 0.5f;
 
 					Vector3D dir = MyAPIGateway.Session.Camera.WorldMatrix.Up;
 					Vector3D lef = MyAPIGateway.Session.Camera.WorldMatrix.Left;
 
-					double scale = dustList [i].scale;// * (double)alpha;
+					double scale = dustList[i].scale;// * (double)alpha;
 					//scale *= scale;
 
 					//DrawQuad (pos, MyAPIGateway.Session.Camera.WorldMatrix.Backward, dustList[i].scale, dustList[i].Material, color);
-					MyTransparentGeometry.AddBillboardOriented (dustList [i].Material, color, pos, lef, dir, (float)scale, BlendTypeEnum.AdditiveTop);
+					MyTransparentGeometry.AddBillboardOriented(dustList[i].Material, color, pos, lef, dir, (float)scale, BlendTypeEnum.AdditiveTop);
 
 					if (dustList[i].life >= dustList[i].lifeTime *0.985) {
-						dustList[i] = formatDust ();
+						dustList[i] = formatDust();
 					}
 				}
 			}
@@ -1044,61 +1078,85 @@ namespace EliDangHUD
 			DustParticle dust = new DustParticle();
 			dust.life = 0;
 			dust.Material = MaterialDust1;
-			double whichMat = Math.Round (GetRandomDouble () * 3);
+			double whichMat = Math.Round(GetRandomDouble() * 3);
 			if (whichMat > 1) {
 				dust.Material = MaterialDust2;
 			} else if (whichMat > 2) {
 				dust.Material = MaterialDust3;
 			}
-			dust.lifeTime = GetRandomDouble () * 8 + 2;
+			dust.lifeTime = GetRandomDouble() * 8 + 2;
 			dust.velocity = new Vector3D ((GetRandomDouble()-0.5)*2, (GetRandomDouble()-0.5)*2, (GetRandomDouble()-0.5)*2);
-			dust.velocity = Vector3D.Normalize (dust.velocity) * (GetRandomDouble () * 0.1);
-			dust.scale = GetRandomDouble () * 0.1 + 0.025;
+			dust.velocity = Vector3D.Normalize(dust.velocity) * (GetRandomDouble() * 0.1);
+			dust.scale = GetRandomDouble() * 0.1 + 0.025;
 			dust.pos = new Vector3D ((GetRandomDouble()-0.5)*2, (GetRandomDouble()-0.5)*2, (GetRandomDouble()-0.5)*2);
 			dust.pos *= 0.25;
 
 			return dust;
 		}
 
-		private void deleteDust(){
+		private void deleteDust()
+		{
 			dustList.Clear();
 		}
 
 		//RANDOM=============================================================================
-		private void populateRandoms(){
-			randomFloats.Clear ();
-			int totalRands = 33;
-			for(int i = 0 ; i < totalRands ; i++){
-				randomFloats.Add (MyRandom.Instance.NextFloat ());
+		/// <summary>
+		/// Populates a list of random float values for use in getting random floats, doubles (by casting) or bools. We do this now so we can reference randoms in Draw thread etc. without getting new ones all the time which is computationally expensive.
+		/// You could think of this like generating a new seed at the start of the mod/game which we use for randomness throughout the session. 
+		/// </summary>
+		private void PopulateRandoms()
+		{
+			randomFloats.Clear();
+			int totalRands = 337; // Change from 33 to 337 which is a prime number. Since we are not computing this each call we want more values than 33 so as not to have noticeable patterns.
+			// With 337 there are only two common factors, 1 and 337 so it only syncs with other game mechanics (FPS for eg) every 337 frames. 
+			for(int i = 0 ; i < totalRands ; i++)
+			{
+				randomFloats.Add(MyRandom.Instance.NextFloat());
 			}
 		}
 
+		/// <summary>
+		/// Gets a float from our random float list
+		/// </summary>
+		/// <returns></returns>
 		public float GetRandomFloat()
 		{
 			float value = randomFloats[nextRandomFloat];
 			nextRandomFloat += 1;
-			if (nextRandomFloat >= randomFloats.Count) {
+			if (nextRandomFloat >= randomFloats.Count) 
+			{
 				nextRandomFloat = 0;
 			}
 			return value;
 		}
 
 
+		/// <summary>
+		/// Casts a float from our random float list to double.
+		/// </summary>
+		/// <returns></returns>
 		public double GetRandomDouble()
 		{
-			float value = randomFloats [nextRandomFloat];
+			float value = randomFloats[nextRandomFloat];
 			nextRandomFloat += 1;
-			if (nextRandomFloat >= randomFloats.Count) {
+			if (nextRandomFloat >= randomFloats.Count) 
+			{
 				nextRandomFloat = 0;
 			}
 			return (double)value;
 		}
 
+		/// <summary>
+		/// Returns true or false depending on rounding result of float from our float list. The list of floats is populated between 0 and 1 by using MyRandom.Instance.NextFloat() this checks the float after rounding to nearest integer.
+		/// So below 0.5 becomes false, above 0.5 becomes true, and with bankers rounding 0.5 exactly is also false. So it's 51% false and 49% true. Assuming our floats are evenly distributed.  
+		/// </summary>
+		/// <returns></returns>
 		public bool GetRandomBoolean()
 		{
-			float value = randomFloats [nextRandomFloat];
+			float value = randomFloats[nextRandomFloat];
 			nextRandomFloat += 1;
-			if (nextRandomFloat >= randomFloats.Count) {
+			if (nextRandomFloat >= randomFloats.Count) 
+			{
 				nextRandomFloat = 0;
 			}
 			return Convert.ToBoolean((int)Math.Round(value));
@@ -1107,10 +1165,12 @@ namespace EliDangHUD
 
 
 		//LOAD DATA==========================================================================
+		/// <summary>
+		/// Load initial mod settings, and values. This occurs once at load of mod (start of game). 
+		/// </summary>
 		public override void LoadData()
 		{	
 			base.LoadData();
-			//configData = ReadConfigFile (); //Distabling for now as I try a new method.
 
 			SubscribeToEvents();
 
@@ -1125,27 +1185,47 @@ namespace EliDangHUD
 			timeSinceSound.Start();
 
 			populateFonts();
+            PopulateRandoms(); // Lets do this ONCE here to save literally thousands of CPU calls per tick like it was doing in UpdateBeforeSimulation haha. 
 
-			LINECOLOR_Comp_RPG = secondaryColor (lineColorRGB)*2 + new Vector3(0.01f,0.01f,0.01f);
+            LINECOLOR_Comp_RPG = secondaryColor(lineColorRGB)*2 + new Vector3(0.01f,0.01f,0.01f);
 			LINECOLOR_Comp = new Vector4 (LINECOLOR_Comp_RPG, 1f);
 
-            if (theSettings.maxRadarRangeGlobal == -1)
+            // Handle variables set based on the settings XML file inside the world folder. If they can't be used directly or need more initialization logic first.
+            if (!MyAPIGateway.Multiplayer.MultiplayerActive)
             {
-                maxRadarRange = (double)MyAPIGateway.Session.SessionSettings.ViewDistance;
+                // True single player - use full range
+                if (theSettings.maxRadarRangeGlobal == -1)
+				{
+                    maxRadarRange = 50000; // Hard limit == broadcast distance 
+                }
+				else 
+				{
+                    maxRadarRange = Math.Min(theSettings.maxRadarRangeGlobal, 50000); // Hard limit == broadcast distance 
+                }
             }
             else
             {
-                maxRadarRange = theSettings.maxRadarRangeGlobal;
+                // Any multiplayer scenario - respect sync distance
+                if (theSettings.maxRadarRangeGlobal == -1)
+				{
+                    maxRadarRange = MyAPIGateway.Session.SessionSettings.SyncDistance; // Use sync distance directly.
+                }
+				else 
+				{
+                    maxRadarRange = Math.Min(theSettings.maxRadarRangeGlobal, MyAPIGateway.Session.SessionSettings.SyncDistance); // Use limit OR sync distance, whichever is lower. As entities wont sync below this distance anyway.
+                }	
             }
 
             if (theSettings.starFollowSky) {
 				//Thank you Rotate With Skybox Mod
 				if (MyAPIGateway.Utilities.IsDedicated && MyAPIGateway.Session.IsServer)
-					return;
-
+				{ 
+					return; 
+				}
 				if (!MyAPIGateway.Session.SessionSettings.EnableSunRotation)
-					return;
-
+				{ 
+					return; 
+				}
 				MyObjectBuilder_Sector saveOB = MyAPIGateway.Session.GetSector ();
 
 				Vector3 baseSunDir;
@@ -1158,65 +1238,32 @@ namespace EliDangHUD
 		}
 		//-----------------------------------------------------------------------------------
 
-		//-----------------------------------------------------------------------------------
 
+		
 
-		private bool findEntitiesOnce = false;
-		private int msgWaiter = 0;
-		//UPDATE=============================================================================
-		//------------- B E F O R E -----------------
-		public override void UpdateBeforeSimulation()
+        //UPDATE=============================================================================
+        //------------- B E F O R E -----------------
+        /// <summary>
+        /// The UpdateBeforeSimulation override is part of the VRage modding pipeline. The BeforeSimulation runs before Draw(). Basically anything that needs to be computed befor physics simulation. Like player inputs, application of thrust etc. I believe this runs 60 times per tick.
+        /// The Draw() call runs multiple times per tick to draw graphics on screen (at your FPS) and therefore should be segregated to only do with rendering. 
+        /// </summary>
+        public override void UpdateBeforeSimulation()
 		{
-			if(!EnableMASTER){
+			// If the mod isn't even enabled do nothing.
+			if(!EnableMASTER)
+			{
 				return;
 			}
 
-			if (!findEntitiesOnce) 
-			{
-                // Initialize the planet manager
-                planetList = GetPlanets ();
-				planetListDetails = GatherPlanetInfo(planetList);
-
-				// Initialize Entity List for Radar
-				FindEntities ();
-				findEntitiesOnce = true;
-			}
-
-			if (gHandler != null) 
-			{
-				gHandler.UpdateGrid ();
-				populateRandoms ();
-
-				gHandler.UpdateDamageCheck ();
-				double damageAmount = gHandler.getDamageAmount ();
-				glitchAmount_overload += damageAmount;
-
-			}
-
-			// Delta timer? Not sure how this is used in the code exactly. Used for time2Ready but not sure exactly what it does...
-			if (deltaTimer != null) 
-			{
-				if (!deltaTimer.IsRunning) 
-				{
-					deltaTimer.Start ();
-				}
-				deltaTime = deltaTimer.Elapsed.TotalSeconds;
-				deltaTimer.Restart ();
-			}
-
-			// Halo timer for active radar pulse effect. 
-			if (haloTimer != null) 
-			{
-				if (!haloTimer.IsRunning) 
-				{
-					haloTimer.Start ();
-				}
-            }
+			
         }
 
 		private bool InitializedAudio = false;
 
         //------------ A F T E R ------------------
+		/// <summary>
+		/// UpdateAfterSimulation should be used to handle anything that requires the results of physics simulation. Playing sounds for eg. or updating a variable that tracks damage (UI updates that depnd on the result of physics simulation).
+		/// </summary>
         public override void UpdateAfterSimulation()
 		{
 			if(!EnableMASTER)
@@ -1224,7 +1271,47 @@ namespace EliDangHUD
 				return;
 			}
 
-			if (!InitializedAudio) 
+            // Delta timer? Not sure how this is used in the code exactly. Used for time2Ready but not sure exactly what it does...
+            if (deltaTimer != null)
+            {
+                if (!deltaTimer.IsRunning)
+                {
+                    deltaTimer.Start();
+                }
+                deltaTime = deltaTimer.Elapsed.TotalSeconds;
+                deltaTimer.Restart();
+            }
+
+            // Halo timer for active radar pulse effect. 
+            if (haloTimer != null)
+            {
+                if (!haloTimer.IsRunning)
+                {
+                    haloTimer.Start();
+                }
+            }
+
+            if (!_entitiesInitialized)
+            {
+                // Initialize the planet manager
+                planetList = GetPlanets();
+                planetListDetails = GatherPlanetInfo(planetList);
+
+                // Initialize Entity List for Radar
+                FindEntities();
+                _entitiesInitialized = true;
+            }
+
+            if (gHandler != null)
+            {
+                gHandler.UpdateGrid();
+                gHandler.UpdateDamageCheck();
+                double damageAmount = gHandler.getDamageAmount();
+                glitchAmount_overload += damageAmount;
+
+            }
+
+            if (!InitializedAudio) 
 			{
 				InitializeAudio ();
 				IsWeaponCoreLoaded ();
@@ -1246,7 +1333,6 @@ namespace EliDangHUD
                 return;
             }
 
-
 			if (IsPlayerControlling) {
 				if (!isSeated) {
 					//Seated Event!
@@ -1258,6 +1344,12 @@ namespace EliDangHUD
 					OnStandUp();
 				}
 			}
+
+			// Tell everything we have run once and initialized values, so Draw call can use them. 
+			if (!_modInitialized) 
+			{
+				_modInitialized = true;
+            }
 		}
 
         bool HasPowerProduction(VRage.Game.ModAPI.IMyCubeGrid grid)
@@ -1276,6 +1368,10 @@ namespace EliDangHUD
         }
 
         //------------ D R A W -----------------
+		/// <summary>
+		/// Draw runs many times per tick (your FPS). But rendering can be skipped and it runs at different rates. We should not be updating game states here. No updating variables, no complex math calculations etc. This is for rendering only. 
+		/// Heavy calculations in here will affect your framerate. 
+		/// </summary>
         public override void Draw()
 		{
 			base.Draw();
@@ -1341,7 +1437,7 @@ namespace EliDangHUD
                 {
                     return;
                 }
-                powerLoad = gHandler.GetGridPowerUsagePercentage(playerGrid);
+                powerLoadCurrent = gHandler.GetGridPowerUsagePercentage(playerGrid);
 
 				glitchAmount_min = MathHelper.Clamp(gHandler.GetGridPowerUsagePercentage(playerGrid), 0.85, 1.0)-0.85;
 				glitchAmount_overload = MathHelper.Lerp (glitchAmount_overload, 0, deltaTime * 2);
@@ -1542,7 +1638,8 @@ namespace EliDangHUD
 			return false;
 		}
 
-		private void OnSitDown(){
+		private void OnSitDown()
+		{
 			isSeated = true;
 			//MyAPIGateway.Utilities.ShowMessage("NOTICE", "Entering Cockpit.");
 
@@ -1556,11 +1653,12 @@ namespace EliDangHUD
 			PlayCustomSound (SP_BOOTUP, worldRadarPos);
 			//PlayCustomSound (SP_ZOOMINIT, worldRadarPos);
 
-			HG_InitializeLocalGrid ();
+			HG_InitializeLocalGrid();
 
 		}
 
-		private void OnStandUp(){
+		private void OnStandUp()
+		{
 			isSeated = false;
 			//MyAPIGateway.Utilities.ShowMessage("NOTICE", "Leaving Cockpit.");
 			//Trigger animations and sounds for console.
@@ -1639,14 +1737,14 @@ namespace EliDangHUD
 			EnableHolograms_them = !theSettings.enableHologramsGlobal ? false : ini.Get(mySection, "ScannerHoloThem").ToBoolean(true); // If disabled at global level don't even check just default to false.
             EnableHolograms_you = !theSettings.enableHologramsGlobal ? false : ini.Get(mySection, "ScannerHoloYou").ToBoolean(true); // If disabled at global level don't even check just default to false.
 
-			// Whether to draw the hologram in perspective view (ie. as seen from our position, eg. radar waves bouncing off it and returning to us). If false uses flat view which we can rotate at will. 
+
             HologramView_AngularWiggle = ini.Get(mySection, "HologramViewFlat_AngularWiggle").ToBoolean(true);
             HologramView_AngularWiggleTarget = ini.Get(mySection, "HologramViewFlat_AngularWiggleTarget").ToBoolean(true);
+			HologramView_Side theSide;
 			string hologramViewFlat_CurrentSideString = ini.Get(mySection, "HologramViewFlat_CurrentSide").ToString();
-			if (Enum.TryParse<HologramView_Side>(hologramViewFlat_CurrentSideString, out HologramView_Side theSide))
+			if (Enum.TryParse<HologramView_Side>(hologramViewFlat_CurrentSideString, out theSide))
 			{
 				HologramView_Current = theSide;
-
             }
 
 
@@ -2397,19 +2495,21 @@ namespace EliDangHUD
 			up.Normalize();
 			left.Normalize();
 
-			if (GetRandomBoolean()) {
-				if (glitchAmount > 0.001) {
+			if (GetRandomBoolean()) 
+			{
+				if (glitchAmount > 0.001) 
+				{
 					float glitchValue = (float)glitchAmount;
 
 					Vector3D offsetRan = new Vector3D (
-						(GetRandomDouble () - 0.5) * 2,
-						(GetRandomDouble () - 0.5) * 2,
-						(GetRandomDouble () - 0.5) * 2
+						(GetRandomDouble() - 0.5) * 2,
+						(GetRandomDouble() - 0.5) * 2,
+						(GetRandomDouble() - 0.5) * 2
 					);
-					double dis2Cam = Vector3D.Distance (MyAPIGateway.Session.Camera.Position, position);
+					double dis2Cam = Vector3D.Distance(MyAPIGateway.Session.Camera.Position, position);
 
 					position += offsetRan * dis2Cam * glitchValue * 0.025;
-					color *= GetRandomFloat ();
+					color *= GetRandomFloat();
 				}
 			}
 
@@ -4251,7 +4351,6 @@ namespace EliDangHUD
 			Vector3 retColor = new Vector3 (r, g, b);
 			return retColor;
 
-
 		}
 		//--------------------------------------------------------------------------
 
@@ -5697,6 +5796,8 @@ namespace EliDangHUD
                     if (!HologramView_PerspectiveAttemptOne)
 					{
                         MatrixD rotationMatrixForView = MatrixD.Identity; // new matrixD.
+
+						// Can use MatrixD.slerp to smoothly transition between a current matrix and a target matrix for rotation...
 
 						// I actually think instead of just CreateRotationY/X/Z I need to do this relative to my cockpit blocks "up" direction, or it doesn't make any sense.
                         switch (HologramView_Current)
