@@ -73,6 +73,12 @@ The hologram of the target rotates in world space. So when I turn my ship to the
 When I put the hologram in front of the screen as a test it became readily apparent it rotates because it shares a worldRadarPos/radarMatrix... The BLIPS on the radar screen rotate as your ship does. Of course they do. They're supposed to.
 But the hologram shouldn't and sharing a matrix for these is, *probably*, the problem :/ That said I'm in way over my head and there's probably something else going on. Tackling one variable at a time until I narrow this down. 
 
+2025-07-20 I figured out the target hologram.... eventually. But not due to any accomplishment on my part. 
+It now has an Orbit cam (that was easy, in fact I think that is what this used to do before I gutted it and broke everything and had to start over). 
+And a perspective Cam that handles both perpendicular edge cases and properly negates all of the local grids orientation so it gives you a view of what you'd see if you were looking at your target no matter where you are.
+Ie. what side is facing you. In theory this means if it is facing you with weapons pointed right at you, you should be able to tell from the hologram lol.
+also I challenged myself to use it to fly around a ship and get behind it without looking at anything but the hologram for reference (it doesn't show distance, so I was pretty far away from it, but I WAS behind it). 
+
 ----------------
 --CHANGES--
 DONE: Fix grid flare setting.
@@ -108,7 +114,8 @@ going on in Draw() that doesn't need to be there.
 TODO: Rework the glitch code regarding the radar, I removed it when trying to hunt down the performance issues when I first started and had no idea what anything in this code even did. 
 TODO: (PARTIAL) Make player condition hologram better... Could rotate it on a timer to show all sides, and then if taking damage rotate it so it shows the side being impacted? I have standardized the code so it is far easier to modify and maintain
 but made no actual changes to it yet.
-TODO: Make target condition hologram better - ideally would show orientation relative to local grid. Ie. if they are facing you it shows them facing you.
+TODO: (PARTIAL) Make target condition hologram better - ideally would show orientation relative to local grid. Ie. if they are facing you it shows them facing you.
+  It does show the orientation/perspective properly now! But in my efforts to figure it out I removed everything even the color for damaged blocks lol. So I have to add it all back. 
 TODO: Can we color code power, weapon, antenna, control blocks in the target/player hologram? Then apply a yellow/red color gradient overtop for damage. 
 
 TODO: Make altitude readout
@@ -447,11 +454,11 @@ namespace EliDangHUD
 		public bool EnableToolbars = true;
 		public bool EnableSpeedLines = true;
 
-		public bool HologramView_Perspective = true;
-		public HologramView_Side HologramViewFlat_CurrentSide = HologramView_Side.Rear; // 0 is back, 1 is left, 2 is right, 3 is front, 4 is top, 5 is bottom. 
-		private int HologramViewFlat_CurrentSide_MAX = 5; // In case we add more? - Max is still 5, 6 is reserved for "perspective" view while I try something new.
-		public bool HologramViewFlat_AngularWiggle = true;
-        public bool HologramViewFlat_AngularWiggleTarget = true;
+		public bool HologramView_PerspectiveAttemptOne = false;
+		public HologramView_Side HologramView_Current = HologramView_Side.Rear; // 0 is back, 1 is left, 2 is right, 3 is front, 4 is top, 5 is bottom. 
+		private int HologramView_Current_MaxSide = 5; // In case we add more? - Max is still 5. 6 and 7 are reserved for orbit and perspective cams currently.
+		public bool HologramView_AngularWiggle = true;
+        public bool HologramView_AngularWiggleTarget = true;
 
 
         // The player
@@ -1633,9 +1640,15 @@ namespace EliDangHUD
             EnableHolograms_you = !theSettings.enableHologramsGlobal ? false : ini.Get(mySection, "ScannerHoloYou").ToBoolean(true); // If disabled at global level don't even check just default to false.
 
 			// Whether to draw the hologram in perspective view (ie. as seen from our position, eg. radar waves bouncing off it and returning to us). If false uses flat view which we can rotate at will. 
-			HologramView_Perspective = ini.Get(mySection, "HologramView_Perspective").ToBoolean(true);
-            HologramViewFlat_AngularWiggle = ini.Get(mySection, "HologramViewFlat_AngularWiggle").ToBoolean(true);
-            HologramViewFlat_AngularWiggleTarget = ini.Get(mySection, "HologramViewFlat_AngularWiggleTarget").ToBoolean(true);
+            HologramView_AngularWiggle = ini.Get(mySection, "HologramViewFlat_AngularWiggle").ToBoolean(true);
+            HologramView_AngularWiggleTarget = ini.Get(mySection, "HologramViewFlat_AngularWiggleTarget").ToBoolean(true);
+			string hologramViewFlat_CurrentSideString = ini.Get(mySection, "HologramViewFlat_CurrentSide").ToString();
+			if (Enum.TryParse<HologramView_Side>(hologramViewFlat_CurrentSideString, out HologramView_Side theSide))
+			{
+				HologramView_Current = theSide;
+
+            }
+
 
             // Toolbar
             EnableToolbars = ini.Get(mySection, "ScannerTools").ToBoolean(true);
@@ -4296,27 +4309,27 @@ namespace EliDangHUD
                     }
 				}
 			}
-			if (!HologramView_Perspective) 
+			if (!HologramView_PerspectiveAttemptOne) 
 			{
                 if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.NumPad4))
                 {
-					HologramViewFlat_CurrentSide = ((int)HologramViewFlat_CurrentSide - 1 < 0 ? HologramView_Side.Bottom : HologramViewFlat_CurrentSide - 1); // Step down, or roll over to max.
+					HologramView_Current = ((int)HologramView_Current - 1 < 0 ? HologramView_Side.Bottom : HologramView_Current - 1); // Step down, or roll over to max.
                 }
                 if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.NumPad5))
                 {
-					HologramViewFlat_CurrentSide = HologramView_Side.Rear; // Reset
+					HologramView_Current = HologramView_Side.Rear; // Reset
                 }
                 if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.NumPad6))
                 {
-                    HologramViewFlat_CurrentSide = ((int)HologramViewFlat_CurrentSide + 1 > HologramViewFlat_CurrentSide_MAX ? HologramView_Side.Rear : HologramViewFlat_CurrentSide + 1); // Step up, or roll over to min.
+                    HologramView_Current = ((int)HologramView_Current + 1 > HologramView_Current_MaxSide ? HologramView_Side.Rear : HologramView_Current + 1); // Step up, or roll over to min.
                 }
                 if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.NumPad1))
                 {
-					HologramViewFlat_CurrentSide = HologramView_Side.Orbit; 
+					HologramView_Current = HologramView_Side.Orbit; 
                 }
                 if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.NumPad3))
                 {
-                    HologramViewFlat_CurrentSide = HologramView_Side.Perspective; // Perspective
+                    HologramView_Current = HologramView_Side.Perspective; // Perspective
                 }
             }
 
@@ -5225,7 +5238,7 @@ namespace EliDangHUD
                 rotationOnlyGridMatrix.Translation = Vector3D.Zero; // Set the translation to zero to get only the rotation component.
 
                 // This uses the cockpit controlled by the player and gets the angular velocity of the cubeblock.
-                if (HologramViewFlat_AngularWiggle) 
+                if (HologramView_AngularWiggle) 
 				{
                     angularRotationWiggle = CreateNormalizedLocalGridRotationMatrix();  // Used to apply a "wiggle" effect to the hologram based on the angular velocity of the grid.
                 }
@@ -5250,7 +5263,7 @@ namespace EliDangHUD
 					Vector3D blockPositionTransformed = Vector3D.Zero;
 					Vector3D finalBlockPositionToDraw = Vector3D.Zero;
 
-                    if (HologramViewFlat_AngularWiggle) 
+                    if (HologramView_AngularWiggle) 
 					{
                         // This is to give a "wiggle" effect to a fixed hologram if you are rotating to represent how quickly you are rotating. For eg. if viewed from the back and you pitch nose up
                         // the hologram will have the nose pitch up based on how fast you are rotating. The faster you are rotating in the upward direction, the more the nose of the hologram will pitch up.
@@ -5521,20 +5534,18 @@ namespace EliDangHUD
 
                     // Original author had the block position divided by gridSize, So instead of working with positions in meters we work with position in blocks and the actual size in game might be different if small grid vs big grid ship. 
                     // This allows the hologram to display a 20x20x20 small block ship the same as a 20x20x20 large block ship.
-                    // HOWEVER.... This means when we do anything fun like Inverse matrix of gridA to get gridB into gridA's frame of reference we are using blocks as UoM in gridB's matrix and fucking meters as UoM in gridA's matrix.
+                    // HOWEVER.... This means when we do anything fun like Inverse matrix of gridA to get gridB into gridA's frame of reference we are using blocks as UoM in gridB's matrix and meters as UoM in gridA's matrix.
                     // This is like mixing Tons and Metric Board Feet in a subtotal and then wondering why your average is wrong. It doesn't work xD
 
 
-                    // Toggle between flat view and relative perspective view
-                    bool angularWiggle = true;
 
-                    // Tinker with this, could apply to the flat view?
-                    // Create 180-degree yaw rotation (around Y-axis)
-                    //MatrixD yaw180 = MatrixD.CreateRotationY(Math.PI); // 180 degrees = π radians
-                    //Vector3D blockPositionRotated = Vector3D.Transform(blockPositionFlat, yaw180);
-
-					if (HologramView_Perspective) 
+					if (HologramView_PerspectiveAttemptOne) 
 					{
+						// NOTE 2025-07-20 none of this worked, I tried my best but I could not get it working using my own brain. I almost gave up by Claude came in clutch with some 
+						// perspective cam code in the View enum switch below. I mean I definitely had to tease it out by asking specific questions and really thinking about what we had to invert/counteract etc. 
+						// But I don't know how those Dot products actually work, I just know it works in game. 
+
+
 						// PERSPECTIVE VIEW MODE:
 						// This view mode shows us a hologram of the targetGrid as it is positioned relative to us. Ie. if we had a gimbaled camera pointing at it from our grid to it what side would we see?
 						// A fun way of thinking of this is the radar is returning signals bounced off the grid and showing us that surface.
@@ -5661,7 +5672,7 @@ namespace EliDangHUD
 						rotationOnlyGridBMatrix.Translation = Vector3D.Zero;
 
 						// Do we wiggle?
-						if (HologramViewFlat_AngularWiggleTarget)
+						if (HologramView_AngularWiggleTarget)
 						{
 							blockPositionToTransform = Vector3D.Rotate(blockPositionRelativeToGridCenter, angularRotationWiggle);
 						}
@@ -5676,20 +5687,19 @@ namespace EliDangHUD
                         
                         blockPositionTransformed = blockPositionOrientationNeutral;
                     }
+
                     // Do scaling into block unit of measure from meters (so small grid and large grid are drawn the same size in the hologram) HERE, not earlier. Just before we draw this. 
                     // Or better yet move all of this to BeforeUpdateSimulation and just store them until we do the draw call but that re-write is waaaay down the road at this point. 
                     // Calculate an offset transformation so it draws on the left or right holographic display based on settings, flipAxisForTarget = -1 causes it to draw on the left
                     blockPositionConvertedFromMetersToBlocks = blockPositionTransformed / gridB.GridSize; // Convert from meters UoM to blocks UoM independent of large vs small grid ship.
                     blockPositionInBlocksScaledForHologram = Vector3D.Transform(blockPositionConvertedFromMetersToBlocks, scalingMatrix);
 
-
-
-                    if (!HologramView_Perspective)
+                    if (!HologramView_PerspectiveAttemptOne)
 					{
                         MatrixD rotationMatrixForView = MatrixD.Identity; // new matrixD.
 
 						// I actually think instead of just CreateRotationY/X/Z I need to do this relative to my cockpit blocks "up" direction, or it doesn't make any sense.
-                        switch (HologramViewFlat_CurrentSide)
+                        switch (HologramView_Current)
                         {
                             case HologramView_Side.Rear:
                                 // Rear (default - no rotation needed)
@@ -5812,6 +5822,8 @@ namespace EliDangHUD
                                 //// Apply the compensation
                                 //rotationMatrixForView = rotationMatrixForView * differentialRotation;
 
+
+								// Round 3, the winner, this perpendicular on the left/right being handled made all the difference. It has the effect I was hoping for. 
                                 // Create proxy matrix: gridB's orientation at gridA's position
                                 MatrixD proxyMatrix = gridB.WorldMatrix;
                                 proxyMatrix.Translation = gridA.WorldMatrix.Translation;
@@ -5875,19 +5887,6 @@ namespace EliDangHUD
                                 rotationMatrixForView = MatrixD.Identity;
                                 break;
                         }
-
-                        //                        // Create a view matrix looking from gridA towards gridB
-                        //                        Vector3D cameraPosition = gridA.WorldMatrix.Translation;
-                        //                        Vector3D targetPosition = gridB.WorldMatrix.Translation;
-                        //                        Vector3D upVector = Vector3D.Up; // or gridA.WorldMatrix.Up
-
-                        //                        MatrixD viewMatrix = MatrixD.CreateLookAt(cameraPosition, targetPosition, upVector);
-
-                        //                        // Convert view matrix to rotation matrix (remove translation component)
-                        //                        rotationMatrixForView = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(MatrixD.Invert(viewMatrix)));
-                        //break;
-
-
 
                         // Rotate around a center point
                         Vector3D rotatedRelativePosition = Vector3D.Transform(blockPositionInBlocksScaledForHologram, rotationMatrixForView); 
