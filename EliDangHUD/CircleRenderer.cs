@@ -1,4 +1,4 @@
-﻿using ParallelTasks;
+using ParallelTasks;
 using Sandbox.Common.ObjectBuilders;
 using Sandbox.Common.ObjectBuilders.Definitions;
 using Sandbox.Definitions;
@@ -13,6 +13,7 @@ using Sandbox.Game.Lights;
 using Sandbox.Game.Screens.Helpers;
 using Sandbox.Game.World;
 using Sandbox.Game.WorldEnvironment.Modules;
+using Sandbox.Graphics.GUI;
 using Sandbox.ModAPI;
 using Sandbox.ModAPI.Ingame;
 using Sandbox.ModAPI.Interfaces;
@@ -106,6 +107,8 @@ This makes it easier to see your position in relation to the target on the radar
         so using the broadcast range for now.
 This allows for fun things like having a passive antenna up to 50km to pick up grids with active radar on up to that distance (if their active signals are pinging you anyway). 
 And have a separate active radar set to 2km to pick up anything near you. This way your leaked signals don't give you away as far, but passive grids (or asteroids!) can't totally sneak up on you. 
+DONE: Move random number generation to LoadData so it occurs once, and populates a large list of random floats between 0 and 1. These are then used by GetRandomFloat, GetRandomDouble, or GetRandomBoolean. 
+These array lookups are far more efficient than generating random numbers. And in the original mod we were generating 33 random numbers per tick. 
 
 
 --TODO--
@@ -115,6 +118,13 @@ UPDATE- Now that I've read into it I think my understanding changed.
 UpdateBeforeSimulation is only for physics related values. Applying thrust, handling player inputs like changing radar range, selecting targets etc. 
 UpdateAfterSimulation is where we do the heavy math, scanning for entities and updating their list of blocks, compare with previous data to compare state changes if necessary, trigger sound effects for new targets, and store all this for the Draw call to use. 
 Draw() handles rendering using already computed values.
+
+TODO: Figure out all this DamageAmount/AttachGrid/DetachGrid event handler stuff. It looks... incomplete? Eg GetDamageAmount if called would re-set the amount to zero. It is used to get a damage amount to add to glitch amount overload.
+but the way it is configured all that happens prior to this is attaching event handlers for on function changed. So amount would always be 0?
+Is this a remnant from presumably older code that used the queue of blocks to check each one for current damage, so it would do something like upon sitting in the control seat of a grid that was already damaged
+store that value? 
+
+TODO: Look into use of IMyCockpit vs IMyShipController, didn't we see reports of players wishing it worked for remote controlled ships?
 
 TODO: Rework the glitch code regarding the radar, I removed it when trying to hunt down the performance issues when I first started and had no idea what anything in this code even did. 
 TODO: (PARTIAL) Make player condition hologram better... Could rotate it on a timer to show all sides, and then if taking damage rotate it so it shows the side being impacted? I have standardized the code so it is far easier to modify and maintain
@@ -188,7 +198,14 @@ namespace EliDangHUD
 		public RelationshipStatus Status { get; set; }
 		public bool Announced { get; set; }
 		public Vector4 Color { get; set; }
-	}
+		public bool PlayerCanDetect { get; set; }
+
+        public Vector3D RadarPingPosition { get; set; }
+        public double RadarPingDistanceSqr { get; set;  }
+        public bool RadarPingHasActiveRadar { get; set; }
+
+        public double RadarPingMaxActiveRange { get; set; }
+    }
 
 	public class RadarAnimation
 	{
@@ -343,6 +360,11 @@ namespace EliDangHUD
 
 		public bool _modInitialized = false;
         private bool _entitiesInitialized = false;
+        private bool _audioInitialized = false;
+		private bool _customDataInitialized = false;
+		private bool _localGridHasPower = false;
+		private bool _controlledBlockTaggedForMod = false;
+		private double _distanceToCameraSqr = 0;
 
         // File to store the settings in, and settings object to hold them.
         private const string settingsFile = "EDHH_settings.xml";
@@ -409,7 +431,7 @@ namespace EliDangHUD
 		Vector3 SunRotationAxis;
 
 		// Grid helper has handy procedures and stores information about the local grid.
-		GridHelper gHandler = new GridHelper ();
+		GridHelper gHandler = new GridHelper();
 
         // Some global variables to use for dimming?
         public static float GLOW = 1f; // This is overwritten by the configurable brightness settings per cockpit. But is here as a default, it is not something in the mod settings but rather the BLOCK settings.
@@ -417,10 +439,21 @@ namespace EliDangHUD
 		public float ControlDimmer = 1f;
 		public float SpeedDimmer = 1f;
 
-		// Timers for calculating time deltas and timing effects.
-		private Stopwatch stopwatch;
-		private Stopwatch deltaTimer;
-		private double deltaTime = 0;
+
+        /// <summary>
+        /// Stopwatch timer used for modulating visual pulses on radar, possibly holograms. Shouldn't ever need be restarted as the double stored time elapsed should last thousands of years before overflow
+        /// </summary>
+        private readonly Stopwatch timerRadarElapsedTimeTotal = new Stopwatch();
+
+        /// <summary>
+        /// Used for calculating the elapsed time between ticks of the game (delta). This is used to determine how much time has passed since the last tick, and is used in AfterUpdateSimulation
+        /// </summary>
+        private readonly Stopwatch timerGameTickDelta = new Stopwatch();
+
+		/// <summary>
+		/// Holds how many seconds have passed since the last tick of the game, specifically in AfterUpdateSimulation. It stores the seconds elapsed, then re-starts the timer back to 0 each call of AfterUpdateSimulation.
+		/// </summary>
+		private double deltaTimeSinceLastTick = 0;
 
 		// Flag that we set to tell us whether the player is seated in a cockpit or not. 
 		public bool isSeated = false;
@@ -478,14 +511,11 @@ namespace EliDangHUD
 		public MatrixD angularRotationWiggleTarget = MatrixD.Identity;
 		public MatrixD angularRotationWiggleLocal = MatrixD.Identity;
 
-
+		
 
         // The player
         private IMyPlayer player;
 		private bool client; // Is this a client or server? If "dedicated server" is detected then this is true. 
-        private VRage.Game.ModAPI.IMyCubeGrid playerGrid;
-
-		
 
 		//================= WEAPON CORE ===============================================================================================
 		private bool _isWeaponCore = false;
@@ -737,7 +767,7 @@ namespace EliDangHUD
         }
 
         /// <summary>
-        /// This function draws the power gauge on the HUD.
+        /// This function draws the power gauge on the HUD. 
         /// </summary>
         private void DrawPower() 
 		{
@@ -749,34 +779,32 @@ namespace EliDangHUD
 				float powerLoad_offset = (float)powerLoadCurrent - (float)powerLoadGlitchStart;
 				powerLoad_offset /= 0.333f;
 
-				color.X = LerpF (color.X, 1, powerLoad_offset);
-				color.Y = LerpF (color.Y, 0, powerLoad_offset);
-				color.Z = LerpF (color.Z, 0, powerLoad_offset);
+				color.X = LerpF(color.X, 1, powerLoad_offset);
+				color.Y = LerpF(color.Y, 0, powerLoad_offset);
+				color.Z = LerpF(color.Z, 0, powerLoad_offset);
 			}
 
 			double powerLoadCurrentPercent = Math.Round(powerLoadCurrent*100);
 			double size = 0.0070;
-			string powerLoadCurrentPercentString = powerLoadCurrentPercent.ToString ();
-			if (powerLoadCurrentPercent < 100) {
+			string powerLoadCurrentPercentString = powerLoadCurrentPercent.ToString();
+			if (powerLoadCurrentPercent < 100) 
+			{
 				powerLoadCurrentPercentString = " " + powerLoadCurrentPercentString;
 			}
-			if (powerLoadCurrentPercent < 10) {
+			if (powerLoadCurrentPercent < 10) 
+			{
 				powerLoadCurrentPercentString = " " + powerLoadCurrentPercentString;
 			}
 			powerLoadCurrentPercentString = "~" + powerLoadCurrentPercentString + "%";
-			Vector3D pos = worldRadarPos+(radarMatrix.Forward*radarRadius*0.4)+(radarMatrix.Left*radarRadius*1.3)+(radarMatrix.Up*0.0085);
-			Vector3D dir = Vector3D.Normalize(pos - worldRadarPos);
-			dir = Vector3D.Normalize((dir+radarMatrix.Forward)/2);
-			DrawText (powerLoadCurrentPercentString, size, pos, dir, color);
-			DrawText (" 000 ", size, pos, dir, color, 0.333f);
 
-			double sizePow = 0.0045;
-			double powerSeconds = (double)gHandler.powerHours * 3600;
-			string powerSecondsS = "~" + FormatSecondsToReadableTime (powerSeconds);
-			Vector3D powerPos = worldRadarPos + radarMatrix.Left * radarRadius * 0.88 + radarMatrix.Backward * radarRadius * 1.1 + radarMatrix.Down * sizePow * 2;
-			DrawText (powerSecondsS, sizePow, powerPos, radarMatrix.Forward, LINECOLOR_Comp, 1);
+			DrawText(powerLoadCurrentPercentString, size, _powerLoadCurrentPercentPosition, _powerLoadCurrentPercentDirection, color);
+			DrawText(" 000 ", size, _powerLoadCurrentPercentPosition, _powerLoadCurrentPercentDirection, color, 0.333f);
 
-			float powerPer = 60 * (gHandler.powerStored / gHandler.powerStoredMax);
+			double powerSeconds = (double)gHandler.localGridPowerHoursRemaining * 3600;
+			string powerSecondsS = "~" + FormatSecondsToReadableTime(powerSeconds);
+			DrawText(powerSecondsS, _powerSecondsRemainingSizeModifier, _powerSecondsRemainingPosition, radarMatrix.Forward, LINECOLOR_Comp, 1);
+
+			float powerPer = 60 * (gHandler.localGridPowerStored / gHandler.localGridPowerStoredMax);
 
 			//----ARC----
 			float arcLength = 56f*(float)powerLoadCurrent;
@@ -789,9 +817,9 @@ namespace EliDangHUD
         /// <summary>
         /// This function draws the speed gauge on the HUD.
         /// </summary>
-        private void DrawSpeed(){
-
-			maxSpeed = Math.Max (maxSpeed, gHandler.localGridSpeed);
+        private void DrawSpeed()
+		{
+			maxSpeed = Math.Max(maxSpeed, gHandler.localGridSpeed);
 
 			double PL = Math.Round(gHandler.localGridSpeed);
 			double size = 0.0070;
@@ -810,27 +838,20 @@ namespace EliDangHUD
 				PLS = " " + PLS;
 			}
 
-			Vector3D pos = worldRadarPos+(radarMatrix.Forward*radarRadius*0.4)+(radarMatrix.Right*radarRadius*1.3)+(radarMatrix.Up*0.0085);
-			Vector3D dir = Vector3D.Normalize (pos - worldRadarPos);
-			dir = Vector3D.Normalize((dir+radarMatrix.Forward)/2);
-
-			Vector3D left = Vector3D.Cross(radarMatrix.Up, dir);
-			pos = (left * size * 7) + pos;
-
-			DrawText (PLS, size, pos, dir, theSettings.lineColor);
-			DrawText ("0000 ", size, pos, dir, theSettings.lineColor, 0.333f);
+			DrawText (PLS, size, _speedPosition, _speedDirection, theSettings.lineColor);
+			DrawText ("0000 ", size, _speedPosition, _speedDirection, theSettings.lineColor, 0.333f);
 
 			//----ARC----
 			float arcLength = (float)(gHandler.localGridSpeed/maxSpeed);
-			arcLength = Clamped (arcLength, 0, 1);
+			arcLength = Clamped(arcLength, 0, 1);
 			arcLength *= 70;
 			DrawArc(worldRadarPos-radarMatrix.Up*0.0025, radarRadius*1.27, radarMatrix.Up, 360-30-arcLength, 360-30, theSettings.lineColor, 0.007f, 0.5f);
 
-			double sizePow = 0.0045;
+			
 			double powerSeconds = (double)gHandler.H2powerSeconds;
-			string powerSecondsS = "@" + FormatSecondsToReadableTime (powerSeconds);
-			Vector3D powerPos = worldRadarPos + radarMatrix.Right * radarRadius * 0.88 + radarMatrix.Backward * radarRadius * 1.1 + radarMatrix.Down * sizePow * 2 + radarMatrix.Left *powerSecondsS.Length * sizePow * 1.8;
-			DrawText (powerSecondsS, sizePow, powerPos, radarMatrix.Forward, LINECOLOR_Comp, 1);
+			string powerSecondsS = "@" + FormatSecondsToReadableTime(powerSeconds);
+			Vector3D hydrogenSecondsRemainingPos = _hydrogenSecondsRemainingPosition + radarMatrix.Left * powerSecondsS.Length * _hydrogenSecondsRemainingSizeModifier * 1.8;
+			DrawText (powerSecondsS, _hydrogenSecondsRemainingSizeModifier, hydrogenSecondsRemainingPos, radarMatrix.Forward, LINECOLOR_Comp, 1);
 
 			float powerPer = 56f*gHandler.H2Ratio;
 			DrawArc(worldRadarPos-radarMatrix.Up*0.0025, radarRadius*1.27 + 0.01, radarMatrix.Up, 360-37-powerPer, 360-37, LINECOLOR_Comp, 0.002f, 0.75f);
@@ -839,7 +860,7 @@ namespace EliDangHUD
         /// <summary>
         /// Populates the MaterialFont list with the names of the materials used for rendering text in the HUD. These come from the transparent materials file TransparentMaterials_ED.sbc.
         /// </summary>
-        private void populateFonts(){
+        private void PopulateFonts(){
 			int num = 51;
 
 			for (int y = 0; y < num; y++) {
@@ -1029,51 +1050,30 @@ namespace EliDangHUD
 		}
 
 		private List<DustParticle> dustList = new List<DustParticle>();
-		private void updateDust()
+		private void UpdateDust()
 		{
 			int dustAmount = 32;
 
 			if (dustList.Count < dustAmount) {
 				for (int i = 0; i < dustAmount - dustList.Count; i++) {
 					//Generate Dust
-					dustList.Add (formatDust());
+					dustList.Add(FormatDust());
 				}
 			}
 				
 			if (dustList.Count > 0) {
 				//update Dust
 				for(var i = 0; i < dustList.Count; i++) {
-					dustList[i].life += deltaTime;
-
-					float alpha = (float)(dustList[i].life / dustList[i].lifeTime);
-					alpha = (alpha - 0.5f) * 2;
-					alpha = Math.Abs(alpha);
-					alpha = 1 - alpha;
-					alpha = (float)(Math.Pow((double)alpha, 0.5)) * 0.5f;
-
-					alpha = Clamped(alpha, 0.001f, 1);
-
-					Vector3D pos = dustList[i].pos + (dustList[i].life * dustList[i].velocity)*0.125;
-					pos = Vector3D.Transform(pos, radarMatrix);
-					Vector4 color = new Vector4(1,1,1,1) * alpha * 0.5f;
-
-					Vector3D dir = MyAPIGateway.Session.Camera.WorldMatrix.Up;
-					Vector3D lef = MyAPIGateway.Session.Camera.WorldMatrix.Left;
-
-					double scale = dustList[i].scale;// * (double)alpha;
-					//scale *= scale;
-
-					//DrawQuad (pos, MyAPIGateway.Session.Camera.WorldMatrix.Backward, dustList[i].scale, dustList[i].Material, color);
-					MyTransparentGeometry.AddBillboardOriented(dustList[i].Material, color, pos, lef, dir, (float)scale, BlendTypeEnum.AdditiveTop);
+					dustList[i].life += deltaTimeSinceLastTick;
 
 					if (dustList[i].life >= dustList[i].lifeTime *0.985) {
-						dustList[i] = formatDust();
+						dustList[i] = FormatDust();
 					}
 				}
 			}
 		}
 
-		private DustParticle formatDust()
+		private DustParticle FormatDust()
 		{
 			DustParticle dust = new DustParticle();
 			dust.life = 0;
@@ -1094,7 +1094,38 @@ namespace EliDangHUD
 			return dust;
 		}
 
-		private void deleteDust()
+		private void DrawDust()
+		{
+			if (dustList.Count > 0)
+			{
+				//update Dust
+				for (var i = 0; i < dustList.Count; i++)
+				{
+					float alpha = (float)(dustList[i].life / dustList[i].lifeTime);
+					alpha = (alpha - 0.5f) * 2;
+					alpha = Math.Abs(alpha);
+					alpha = 1 - alpha;
+					alpha = (float)(Math.Pow((double)alpha, 0.5)) * 0.5f;
+
+					alpha = Clamped(alpha, 0.001f, 1);
+
+					Vector3D pos = dustList[i].pos + (dustList[i].life * dustList[i].velocity) * 0.125;
+					pos = Vector3D.Transform(pos, radarMatrix);
+					Vector4 color = new Vector4(1, 1, 1, 1) * alpha * 0.5f;
+
+					Vector3D dir = MyAPIGateway.Session.Camera.WorldMatrix.Up;
+					Vector3D lef = MyAPIGateway.Session.Camera.WorldMatrix.Left;
+
+					double scale = dustList[i].scale;// * (double)alpha;
+													 //scale *= scale;
+
+					//DrawQuad (pos, MyAPIGateway.Session.Camera.WorldMatrix.Backward, dustList[i].scale, dustList[i].Material, color);
+					MyTransparentGeometry.AddBillboardOriented(dustList[i].Material, color, pos, lef, dir, (float)scale, BlendTypeEnum.AdditiveTop);
+				}
+			}
+		}
+
+		private void DeleteDust()
 		{
 			dustList.Clear();
 		}
@@ -1161,14 +1192,27 @@ namespace EliDangHUD
 			}
 			return Convert.ToBoolean((int)Math.Round(value));
 		}
-		//-----------------------------------------------------------------------------------
+
+        /// <summary>
+        /// Starts deltaTimer if not already running. Stores the current elapsed time as deltaTime, then restarts the timer back to 0. 
+        /// </summary>
+        public void UpdateElapsedTimeDeltaTimer()
+        {
+            if (!timerGameTickDelta.IsRunning)
+            {
+                timerGameTickDelta.Start();
+            }
+            deltaTimeSinceLastTick = timerGameTickDelta.Elapsed.TotalSeconds;
+            timerGameTickDelta.Restart();
+        }
+        //-----------------------------------------------------------------------------------
 
 
-		//LOAD DATA==========================================================================
-		/// <summary>
-		/// Load initial mod settings, and values. This occurs once at load of mod (start of game). 
-		/// </summary>
-		public override void LoadData()
+        //LOAD DATA==========================================================================
+        /// <summary>
+        /// Load initial mod settings, and values. This occurs once at load of mod (start of game). 
+        /// </summary>
+        public override void LoadData()
 		{	
 			base.LoadData();
 
@@ -1176,15 +1220,11 @@ namespace EliDangHUD
 
 			randomFloats.Add(0);
 
-			deltaTimer = new Stopwatch ();
-			deltaTimer.Start();
+			timerGameTickDelta.Start(); // Delta timer for time passed since last tick
+			timerRadarElapsedTimeTotal.Start(); // Timer for radar pulse effects and other animations. Stores elapsed time
+            timerElapsedTimeSinceLastSound.Start(); // Delta timer for time passe since last sound
 
-			stopwatch = new Stopwatch();
-			stopwatch.Start();
-
-			timeSinceSound.Start();
-
-			populateFonts();
+			PopulateFonts();
             PopulateRandoms(); // Lets do this ONCE here to save literally thousands of CPU calls per tick like it was doing in UpdateBeforeSimulation haha. 
 
             LINECOLOR_Comp_RPG = secondaryColor(lineColorRGB)*2 + new Vector3(0.01f,0.01f,0.01f);
@@ -1238,8 +1278,322 @@ namespace EliDangHUD
 		}
 		//-----------------------------------------------------------------------------------
 
+		public MatrixD _cameraMatrix;
+		public Vector3D _cameraPosition;
 
-		
+        public MatrixD _headMatrix;
+        public Vector3D _headPosition;
+
+        public Vector3D _powerLoadCurrentPercentPosition;
+		public Vector3D _powerLoadCurrentPercentDirection;
+        public Vector3D _powerSecondsRemainingPosition;
+        public double _powerSecondsRemainingSizeModifier = 0.0045;
+
+        public Vector3D _speedPosition;
+		public Vector3D _speedDirection;
+		public Vector3D _hydrogenSecondsRemainingPosition;
+		public double _hydrogenSecondsRemainingSizeModifier = 0.0045;
+
+		public Vector3D _hologramPositionRight;
+		public Vector3D _hologramPositionLeft;
+
+		public bool _playerHasPassiveRadar;
+		public bool _playerHasActiveRadar;
+		public double _playerMaxPassiveRange;
+		public double _playerMaxActiveRange;
+
+		public Vector3D _currentTargetPositionReturned;
+		public bool _playerCanDetectCurrentTarget;
+		public double _distanceToCurrentTargetSqr;
+        public double _distanceToCurrentTarget;
+        public bool _currentTargetHasActiveRadar;
+		public double _currentTargetMaxActiveRange;
+
+		public Vector3D _radarCurrentRangeTextPosition;
+
+		public double _fadeDistance;
+        public double _fadeDistanceSqr; 
+		public double _radarShownRangeSqr;
+
+
+		/// <summary>
+		/// Updates the positions of UI elements based on the current camera and player head position. These values are stored in class variables that can be used later by the render pipeline in Draw() 
+		/// </summary>
+        public void UpdateUIPositions() 
+		{
+            // CAMERA POSITION //
+            // Get the camera's vectors
+            _cameraMatrix = MyAPIGateway.Session.Camera.WorldMatrix;
+            _cameraPosition = MyAPIGateway.Session.Camera.Position;
+
+            //Head Location=================================================
+            // Get the player's character entity
+            _headPosition = Vector3D.Zero;
+            IMyCharacter character = MyAPIGateway.Session.Player.Character;
+
+            if (character != null)
+            {
+                // Extract the head matrix
+                _headMatrix = character.GetHeadMatrix(true);
+
+                // Get the head position from the head matrix
+                _headPosition = _headMatrix.Translation;
+                _headPosition -= gHandler.localGridControlledEntityPosition;
+            }
+			//==============================================================
+
+
+			// COCKPIT RADAR SCREEN POSITION AND OFFSET //
+			// Apply the radar offset to the ship's position
+			radarMatrix = gHandler.localGridControlledEntityMatrix; // Set the radar matrix = the localGrid controlled entity matrix, ie. the cockpit or control seat.
+            worldRadarPos = Vector3D.Transform(radarOffset, radarMatrix) + _headPosition;
+
+            // Radar scale/range
+            _radarCurrentRangeTextPosition = worldRadarPos + radarMatrix.Up * -0.1 + radarMatrix.Left * 0.3;
+
+            // Positions
+            // Power Load / Power Remaining
+            _powerLoadCurrentPercentPosition = worldRadarPos + (radarMatrix.Forward * radarRadius * 0.4) + (radarMatrix.Left * radarRadius * 1.3) + (radarMatrix.Up * 0.0085);
+            _powerLoadCurrentPercentDirection = Vector3D.Normalize(_powerLoadCurrentPercentPosition - worldRadarPos);
+            _powerLoadCurrentPercentDirection = Vector3D.Normalize((_powerLoadCurrentPercentDirection + radarMatrix.Forward) / 2);
+            _powerSecondsRemainingPosition = worldRadarPos + radarMatrix.Left * radarRadius * 0.88 + radarMatrix.Backward * radarRadius * 1.1 + radarMatrix.Down * _powerSecondsRemainingSizeModifier * 2;
+
+			// Speed / Hydrogen Remaining
+            double speedSize = 0.0070;
+            _speedPosition = worldRadarPos + (radarMatrix.Forward * radarRadius * 0.4) + (radarMatrix.Right * radarRadius * 1.3) + (radarMatrix.Up * 0.0085);
+            _speedDirection = Vector3D.Normalize(_speedPosition - worldRadarPos);
+            _speedDirection = Vector3D.Normalize((_speedDirection + radarMatrix.Forward) / 2);
+            Vector3D left = Vector3D.Cross(radarMatrix.Up, _speedDirection);
+            _speedPosition = (left * speedSize * 7) + _speedPosition;
+			_hydrogenSecondsRemainingPosition = worldRadarPos + radarMatrix.Right * radarRadius * 0.88 + radarMatrix.Backward * radarRadius * 1.1 + radarMatrix.Down * _hydrogenSecondsRemainingSizeModifier * 2;
+
+            // Holograms
+            _hologramPositionRight = worldRadarPos + radarMatrix.Left * -radarRadius + radarMatrix.Left * _hologramRightOffset_HardCode.X + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
+            _hologramPositionLeft = worldRadarPos + radarMatrix.Left * -radarRadius * -1 + radarMatrix.Left * _hologramRightOffset_HardCode.X * -1 + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
+			// Could add further user customization of the offset here.
+
+
+            // COCKPIT TARGET HOLOGRAM SCREEN POSITION AND OFFSET //
+            // These might be removed, or at least replaced with a logic where we use the radarPos first and then offset the holograms from there. 
+            cockpitMatrix = gHandler.localGridControlledEntity.WorldMatrix;
+            // Now we want to discard yaw and keep pitch and roll. The holograms should not rotate as the ship rotates, they'll be displayed in a fixed space in front of you in your cockpit. But as the ship rolls
+            // around the forward axis or pitches nose up or down the position needs to stay relative to the forward of the ship (block) essentially. 
+            // As I typed that I already foresee an issue with ops stations that face left/right on your ship, will that affect things if we use the cockpit forward instead of grid forward? No... maybe?
+            cockpitForward = Vector3D.Normalize(new Vector3D(0, cockpitMatrix.Forward.Y, cockpitMatrix.Forward.Z)); // Remove X which is yaw.... I think? But we still need pitch right.
+            cockpitUp = cockpitMatrix.Up; // This preserves roll, up will orient based on the cockpits orientation. 
+            cockpitRight = Vector3D.Normalize(Vector3D.Cross(cockpitUp, cockpitForward));
+            cockpitUp = Vector3D.Normalize(Vector3D.Cross(cockpitForward, cockpitRight)); // re-orthagonalize up vector.
+
+            // Set the hologram matrix so it has roll and pitch but NOT yaw. Holograms don't need to spin around as your ship spins around, but do need to stay stable in front of you. 
+            targetHologramMatrix = MatrixD.CreateWorld(Vector3D.Zero, cockpitForward, cockpitUp);
+            localHologramMatrix = MatrixD.CreateWorld(Vector3D.Zero, cockpitForward, cockpitUp);
+
+            // Offsets for the local worldspace to set where these UI controls appear, should be configurable. 
+            targetHologramOffset = new Vector3D(-0.5, -0.2, -1.5);
+            localHologramOffset = new Vector3D(0.5, -0.2, -1.5);
+
+            // Set these offsets using the ORIGINAL cockpit matrix, so offset stays relative to cockpit.
+            targetHologramWorldPos = Vector3D.Transform(targetHologramOffset, cockpitMatrix);
+            localHologramWorldPos = Vector3D.Transform(localHologramOffset, cockpitMatrix);
+            targetHologramMatrix.Translation = targetHologramWorldPos;
+            localHologramMatrix.Translation = localHologramWorldPos;
+
+
+
+        }
+
+
+
+		/// <summary>
+		/// Updates radar detections based on the player's current grid's radar capabilities in relation to the entities. Ie. if player is in passive mode and entities nearby have active radar on. Also updates the current target selection.
+		/// </summary>
+		public void UpdateRadarDetections()
+		{
+
+            // Check radar active/passive status and broadcast range for player grid.
+            // playerGrid is set once earlier in the Draw() method when determining if cockpit is eligible, player controlled etc, and is used to get power draw among other things. Saved for re-use here and elsewhere.
+            EvaluateGridAntennaStatus(gHandler.localGrid, out _playerHasPassiveRadar, out _playerHasActiveRadar, out _playerMaxPassiveRange, out _playerMaxActiveRange);
+
+            // Radar distance/scale should be based on our highest functional, powered antenna (regardless of mode).
+            radarScaleRange = _playerMaxPassiveRange; // Already limited to global max. Uses passive only because in active mode active and passive will be equal. 
+
+            _currentTargetPositionReturned = new Vector3D(); // Will reuse this.
+            if (currentTarget != null && !currentTarget.Closed)
+            {
+                // In here we will check if the player can still actively or passively target the current target and release them if not, or adjust range brackets accordingly if still targetted. 
+                CanGridRadarDetectEntity(_playerHasPassiveRadar, _playerHasActiveRadar, _playerMaxPassiveRange, _playerMaxActiveRange, gHandler.localGridPosition,
+                    currentTarget, out _playerCanDetectCurrentTarget, out _currentTargetPositionReturned, out _distanceToCurrentTargetSqr, out _currentTargetHasActiveRadar, out _currentTargetMaxActiveRange);
+
+                if (_playerCanDetectCurrentTarget)
+                {
+                    if (debug)
+                    {
+                        //MyLog.Default.WriteLine($"FENIX_HUD: Target selected, and can detect");
+                    }
+                    _distanceToCurrentTarget = Math.Sqrt(_distanceToCurrentTargetSqr);
+                    radarScaleRange_Goal = GetRadarScaleBracket(_distanceToCurrentTarget);
+                    squishValue_Goal = 0.0;
+					double distanceToCamera = Vector3D.DistanceSquared(_cameraPosition, _currentTargetPositionReturned); // Additional check on target distance to our CAMERA. 
+                    if (distanceToCamera > 50000d*50000d)
+                    {
+                        ReleaseTarget();
+                    }
+                }
+                else
+                {
+                    if (debug)
+                    {
+                        //MyLog.Default.WriteLine($"FENIX_HUD: Target selected, but playerCanDetect is false - clearing target");
+                    }
+                    ReleaseTarget();
+                    radarScaleRange_Goal = GetRadarScaleBracket(radarScaleRange);
+                    squishValue_Goal = 0.75;
+                }
+            }
+            else
+            {
+                if (debug)
+                {
+                    //MyLog.Default.WriteLine($"FENIX_HUD: No Target found");
+                }
+                radarScaleRange_Goal = GetRadarScaleBracket(radarScaleRange);
+                squishValue_Goal = 0.75;
+            }
+            squishValue = LerpD(squishValue, squishValue_Goal, 0.1);
+
+            // Handle smooth animation when first starting up or sitting in seat, along with smooth animation for switching range bracket due to targetting. 
+            radarScaleRange_CurrentLogin = LerpD(radarScaleRange_CurrentLogin, radarScaleRange_GoalLogin, 0.01);
+            radarScaleRange_Current = LerpD(radarScaleRange_Current, radarScaleRange_Goal, 0.1);
+            radarScaleRange = radarScaleRange_Current * radarScaleRange_CurrentLogin;
+
+            radarScale = (radarRadius / radarScaleRange);
+
+            _fadeDistance = radarScaleRange * (1 - theSettings.fadeThreshhold); // Eg at 0.01 would be 0.99%. For a radar distance of 20,000m this means the last 19800-19999 becomes fuzzy/dims the blip.
+            _fadeDistanceSqr = _fadeDistance * _fadeDistance; // Sqr for fade distance in comparisons.
+            _radarShownRangeSqr = radarScaleRange * radarScaleRange; // Anything over this range, even if within sensor range, can't be drawn on screen. 
+
+            for (int i = 0; i < radarPings.Count; i++)
+            {
+                VRage.ModAPI.IMyEntity entity = radarPings[i].Entity;
+                if (entity == null)
+                {
+                    radarPings.RemoveAt(i);
+                    continue; // Clear the ping then continue
+                }
+                if (!ShowVoxels && radarPings[i].Status == RelationshipStatus.Vox)
+                {
+                    continue; // Skip voxels if not set to show them. 
+                }
+                if (entity.GetTopMostParent() == gHandler.localGridControlledEntity.GetTopMostParent())
+                {
+                    continue; // Skip drawing yourself on the radar.
+                }
+
+                bool playerCanDetect = false;
+                Vector3D entityPos;
+                double entityDistanceSqr;
+                bool entityHasActiveRadar = false;
+                double entityMaxActiveRange = 0;
+
+                CanGridRadarDetectEntity(_playerHasPassiveRadar, _playerHasActiveRadar, _playerMaxPassiveRange, _playerMaxActiveRange, gHandler.localGridPosition,
+                    entity, out playerCanDetect, out entityPos, out entityDistanceSqr, out entityHasActiveRadar, out entityMaxActiveRange);
+
+				radarPings[i].PlayerCanDetect = playerCanDetect;
+				radarPings[i].RadarPingPosition = entityPos;
+                radarPings[i].RadarPingDistanceSqr = entityDistanceSqr;
+                radarPings[i].RadarPingHasActiveRadar = entityHasActiveRadar;
+				radarPings[i].RadarPingMaxActiveRange = entityMaxActiveRange;
+
+                if (!playerCanDetect || entityDistanceSqr > _radarShownRangeSqr) // If can't detect it, or the radar scale prevents showing it move on.
+                {
+                    continue;
+                }
+
+                // Check if relationship status has changed and update ping (eg. if a ship flipped from neutral to hostile or hostile to friendly via capture). 
+                RadarPing currentPing = radarPings[i];
+                UpdateExistingRadarPingStatus(ref currentPing);
+                radarPings[i] = currentPing;
+
+                if (entityDistanceSqr < _radarShownRangeSqr * (1 - theSettings.fadeThreshhold)) // Once we pass the fade threshold an auidible and visual cue should be applied. 
+                {
+                    if (!radarPings[i].Announced)
+                    {
+                        radarPings[i].Announced = true;
+                        if (radarPings[i].Status == RelationshipStatus.Hostile && entityDistanceSqr > 250000) //500^2 = 250,000
+                        {
+                            PlayCustomSound(SP_ENEMY, worldRadarPos);
+                            NewAlertAnim(entity);
+                        }
+                        else if (radarPings[i].Status == RelationshipStatus.Friendly && entityDistanceSqr > 250000)
+                        {
+                            PlayCustomSound(SP_NEUTRAL, worldRadarPos);
+                            NewBlipAnim(entity);
+                        }
+                        else if (radarPings[i].Status == RelationshipStatus.Neutral && entityDistanceSqr > 250000)
+                        {
+                            // No Sound
+                        }
+                    }
+                }
+                else
+                {
+                    if (radarPings[i].Announced)
+                    {
+                        radarPings[i].Announced = false;
+                    }
+                }
+            }
+        }
+
+		public void UpdateSpeedSettings() 
+		{
+            ControlDimmer += 0.05f;
+            SpeedDimmer = Clamped((float)gHandler.localGridSpeed * 0.01f + 0.05f, 0f, 1f);
+
+            SpeedDimmer = (float)(Math.Pow(SpeedDimmer, 2));
+
+            SpeedDimmer = MathHelper.Clamp(Remap((float)gHandler.localGridSpeed, (SpeedThreshold * 0.75f), SpeedThreshold, 0f, 1f), 0f, 1f);
+            ControlDimmer = Clamped(ControlDimmer, 0f, 1f);
+            GlobalDimmer = ControlDimmer * SpeedDimmer;
+
+            if (GlobalDimmer > 0.01f)
+            {
+                //Get Sun direction
+                if (theSettings.starFollowSky)
+                {
+                    MyOrientation sunOrientation = getSunOrientation();
+
+                    Quaternion sunRotation = sunOrientation.ToQuaternion();
+                    Vector3D sunForwardDirection = Vector3D.Transform(Vector3D.Forward, sunRotation);
+
+                    theSettings.starPos = sunForwardDirection * 100000000;
+                }
+            }
+        }
+
+		public void DrawSpeedLinesAndPlanetOrbits()
+		{
+            if (ShowVelocityLines && (float)gHandler.localGridSpeed > 10)
+            {
+                //DrawSpeedGaugeLines(gHandler.localGridControlledEntity, gHandler.localGridVelocity); // Original author disabled this function
+                UpdateAndDrawVerticalSegments(gHandler.localGridControlledEntity, gHandler.localGridVelocity);
+            }
+
+            if (GlobalDimmer > 0.01f)
+            {
+                //Draw orbit lines
+                foreach (var i in planetListDetails)
+                {
+                    // Cast the entity to IMyPlanet
+                    MyPlanet planet = (MyPlanet)i.Entity;
+                    Vector3D parentPos = (i.ParentEntity != null) ? i.ParentEntity.GetPosition() : theSettings.starPos;
+
+                    DrawPlanetOutline(planet);
+                    DrawPlanetOrbit(planet, parentPos);
+                }
+            }
+        }
+
 
         //UPDATE=============================================================================
         //------------- B E F O R E -----------------
@@ -1254,11 +1608,7 @@ namespace EliDangHUD
 			{
 				return;
 			}
-
-			
         }
-
-		private bool InitializedAudio = false;
 
         //------------ A F T E R ------------------
 		/// <summary>
@@ -1266,106 +1616,147 @@ namespace EliDangHUD
 		/// </summary>
         public override void UpdateAfterSimulation()
 		{
-			if(!EnableMASTER)
+
+            if (MyAPIGateway.Gui.IsCursorVisible || !_customDataInitialized)
+            {
+				// Always check if not initialized, and if cursor is visible (ie. we are possibly editing the custom data). 
+				// This should ensure differences in ship setup apply (so long as we re-set this bool to false when we get up from the seat). 
+                CheckCustomData();
+            }
+
+            if (!EnableMASTER)
+            {
+                return;
+            }
+
+            // Delta timer is used to track the number of seconds between game ticks by storing the elapsed seconds and then re-starting the timer back to 0 each call of AfterUpdateSimulation. 
+            if (timerGameTickDelta != null)
+            {
+				UpdateElapsedTimeDeltaTimer();
+            }
+			if (timerRadarElapsedTimeTotal != null && !timerRadarElapsedTimeTotal.IsRunning) 
 			{
-				return;
+				timerRadarElapsedTimeTotal.Start(); // We only need to start this once, putting this here in case it stops for some reason?
 			}
 
-            // Delta timer? Not sure how this is used in the code exactly. Used for time2Ready but not sure exactly what it does...
-            if (deltaTimer != null)
-            {
-                if (!deltaTimer.IsRunning)
+            // Only execute things in here once for the mod. Everything out here should be executed potentially more than once such as the grid handler updating per ship. 
+            if (!_modInitialized)
+			{
+                if (!_entitiesInitialized)
                 {
-                    deltaTimer.Start();
-                }
-                deltaTime = deltaTimer.Elapsed.TotalSeconds;
-                deltaTimer.Restart();
-            }
+                    // Initialize the planet manager
+                    planetList = GetPlanets(); // We get planets once at launch, then by listening to OnEntityAdd event we can handle new ones. 
+                    planetListDetails = GatherPlanetInfo(planetList); 
 
-            // Halo timer for active radar pulse effect. 
-            if (haloTimer != null)
-            {
-                if (!haloTimer.IsRunning)
+                    // Initialize Entity List for Radar
+                    FindEntities(); // We get entities once at launch, then by listening to OnEntityAdd event we can handle new ones. 
+                    _entitiesInitialized = true;
+                }
+                if (!_audioInitialized)
                 {
-                    haloTimer.Start();
+                    InitializeAudio(); // Initialize audio sounds and an emitter once. 
+                    _audioInitialized = true;
                 }
-            }
-
-            if (!_entitiesInitialized)
-            {
-                // Initialize the planet manager
-                planetList = GetPlanets();
-                planetListDetails = GatherPlanetInfo(planetList);
-
-                // Initialize Entity List for Radar
-                FindEntities();
-                _entitiesInitialized = true;
+                IsWeaponCoreLoaded(); // Check if weapon core is loaded and set a boolean true if so (WIP)
+                _modInitialized = true;
             }
 
             if (gHandler != null)
             {
-                gHandler.UpdateGrid();
-                gHandler.UpdateDamageCheck();
-                double damageAmount = gHandler.getDamageAmount();
-                glitchAmount_overload += damageAmount;
+                gHandler.UpdateLocalGrid(); // Always update current grid each tick
 
-            }
-
-            if (!InitializedAudio) 
-			{
-				InitializeAudio ();
-				IsWeaponCoreLoaded ();
-				InitializedAudio = true;
-			}
-
-			//PlayQueuedSounds ();
-
-
-			bool IsPlayerControlling = gHandler.IsPlayerControlling;
-			var cockpit = gHandler.localGridEntity as Sandbox.ModAPI.IMyCockpit;
-
-			if (cockpit == null) {
-				return;
-			}
-            if (!cockpit.CustomName.Contains("[ELI_HUD]"))
-            {
-                Echo("Include [ELI_HUD] tag in cockpit name to enable Scanner.");
-                return;
-            }
-
-			if (IsPlayerControlling) {
-				if (!isSeated) {
-					//Seated Event!
-					OnSitDown();
-				}
-			} else {
-				if (isSeated) {
-					//Standing Event!
-					OnStandUp();
-				}
-			}
-
-			// Tell everything we have run once and initialized values, so Draw call can use them. 
-			if (!_modInitialized) 
-			{
-				_modInitialized = true;
-            }
-		}
-
-        bool HasPowerProduction(VRage.Game.ModAPI.IMyCubeGrid grid)
-        {
-            List<Sandbox.ModAPI.IMyPowerProducer> producers = new List<Sandbox.ModAPI.IMyPowerProducer>();
-            MyAPIGateway.TerminalActionsHelper.GetTerminalSystemForGrid(grid)?.GetBlocksOfType(producers);
-
-            foreach (var producer in producers)
-            {
-				if (producer.IsWorking && producer.Enabled && producer.CurrentOutput > 0.01f) 
-				{
-                    return true;
+                if (gHandler.damageHandlerCurrentGrid == null)
+                {
+                    // Only if not already initialized call this method, as it adds event handlers on each BLOCK of the grid for if the Functional status changes (ie. is damaged to non-functional).
+                    // Not quite sure how this plays into the total damage variable for the grid and how it affects glitch just yet...
+                    gHandler.InitializeLocalGridDamageHandler();
                 }
             }
-            return false;
+
+            // Each tick check if the player is controlling a grid
+            bool IsPlayerControlling = (gHandler != null && gHandler.IsPlayerControlling && gHandler.localGridControlledEntity != null && gHandler.localGrid != null);
+
+			// If player is controlling we perform an OnSitDown event, or if we aren't seated we perform an OnStandUp event.
+            if (IsPlayerControlling)
+            {
+				// localGrid will be null if we aren't in a cockpit block and that block doesn't have a grid initialized, localGridEntity will be null if we aren't controlling a seat of some kind. 
+
+                if (!gHandler.localGridControlledEntityCustomName.Contains("[ELI_HUD]"))
+                {
+                    Echo("Include [ELI_HUD] tag in cockpit block name to enable Scanner.");
+					_controlledBlockTaggedForMod = false;
+                    return;
+                }
+				_controlledBlockTaggedForMod = true;
+
+                if (!HasPowerProduction(gHandler.localGrid))
+                {
+					// If the grid has no power we don't draw any UI for it as radar / holograms could not be active.
+					_localGridHasPower = false;
+                    return;
+                }
+				_localGridHasPower = true;
+
+                // Calculate positions and offsets and matrices etc.
+
+                _powerLoadCurrentPercentPosition = worldRadarPos + (radarMatrix.Forward * radarRadius * 0.4) + (radarMatrix.Left * radarRadius * 1.3) + (radarMatrix.Up * 0.0085);
+
+
+                powerLoadCurrent = gHandler.GetGridPowerUsagePercentage(gHandler.localGrid);
+
+                glitchAmount_min = MathHelper.Clamp(gHandler.GetGridPowerUsagePercentage(gHandler.localGrid), 0.85, 1.0) - 0.85;
+                glitchAmount_overload = MathHelper.Lerp(glitchAmount_overload, 0, deltaTimeSinceLastTick * 2);
+                glitchAmount = MathHelper.Clamp(glitchAmount_overload, glitchAmount_min, 1);
+                if (glitchAmount_overload < 0.01)
+                {
+                    glitchAmount_overload = 0;
+                }
+
+                // Perform sitdown event once until we get up. 
+                if (!isSeated)
+                {
+                    //Seated Event!
+                    OnSitDown();
+                }
+
+                CheckPlayerInput();
+
+                UpdateUIPositions(); // Update the positions of the UI elements based on the current grid and camera position.
+				
+				UpdateRadarDetections(); // Update some radar scaling/range values based on current target etc. Then loop through each entity and check if player can detect it, update relationships, store values like active radar range etc.
+				
+				UpdateSpeedSettings();
+
+                if (EnableDust)
+                {
+                    UpdateDust();
+                }
+
+				HG_Update();
+
+                if (EnableMoney)
+                {
+                    UpdateCredits();
+                }
+                if (EnableToolbars)
+                {
+                    UpdateToolbars();
+                }
+            }
+            else
+            {
+				// If no longer controlling a grid, we should perform the OnStandUp event if we haven't already.
+                if (isSeated)
+                {
+                    //Standing Event!
+                    OnStandUp();
+                }
+            }
+            _distanceToCameraSqr = Vector3D.DistanceSquared(_cameraPosition, worldRadarPos);
+
         }
+
+        
 
         //------------ D R A W -----------------
 		/// <summary>
@@ -1376,179 +1767,126 @@ namespace EliDangHUD
 		{
 			base.Draw();
 
-			if(!EnableMASTER)
-			{
-				if (MyAPIGateway.Gui.IsCursorVisible) 
-				{
-					CheckCustomData(); //We don't need to keep check the colors unless we have the thing open.
-				}
-				return;
-			}
-
-			//Flares ------------------------------------------------------------------------------------------------------
-			DrawGridFlare();
-			//-------------------------------------------------------------------------------------------------------------
+            if (!EnableMASTER)
+            {
+				// If not enabled don't render anything
+                return;
+            }
 
 			IMyPlayer player = MyAPIGateway.Session?.LocalHumanPlayer;
 			if (player == null)
 			{
+				// Exit if we are not a palyer. This is only null for dedicated servers. Everything past this point should run if mod is enabled on the current block and you are not a dedicated server.
 				return;
 			}
-			var controlledEntity = player.Controller?.ControlledEntity;
-			if (controlledEntity == null)
-			{
-				return;
-			}
-			// Check if the controlled entity is a turret or remote control
-			var turret = controlledEntity.Entity as Sandbox.ModAPI.IMyLargeTurretBase;
-            if (turret != null)
-            {
-                return;
-            }
-			var remoteControl = controlledEntity as Sandbox.ModAPI.IMyRemoteControl;
-            if (remoteControl != null && remoteControl.Pilot != null)
-            {
-                return;
-            }
 
-            //visor -------------------------------------------------------------------------------------------------------
+            // Draw grid flares (glint) behind grids (if enabled). 
+            DrawGridFlare();
+
+            // Update visor effects (if enabled)
             UpdateVisor();
-			//-------------------------------------------------------------------------------------------------------------
 
-			//Is the player in a vehichle? Fade or show the orbit lines!
-			bool IsPlayerControlling = gHandler != null && gHandler.IsPlayerControlling;
+            // gHandler must be initialized, the player must be controlling something, that something (entity) must be initialized, and that entity must have a localGrid initialized that it belongs to. 
+			// localGridControlledntity will only be non-null if the player has control of a block (cockpit, seat etc.)
+            bool IsPlayerControlling = (gHandler != null && gHandler.IsPlayerControlling && gHandler.localGridControlledEntity != null && gHandler.localGrid != null);
 
-            if (IsPlayerControlling) {
-				if (gHandler == null || gHandler.localGridEntity == null)
-				{ 
-					return; 
-				}
-                Sandbox.ModAPI.IMyCockpit cockpit = gHandler.localGridEntity as Sandbox.ModAPI.IMyCockpit;
-				if (cockpit == null || cockpit.CubeGrid == null || !cockpit.CustomName.Contains("[ELI_HUD]")) 
-				{ 
-					return; 
-				}
-                if (!cockpit.CustomName.Contains("[ELI_HUD]"))
+			// The player must be in control of a valid grid, and it must have power. 
+			if (IsPlayerControlling && _localGridHasPower && _controlledBlockTaggedForMod)
+			{
+				// If the player is controlling a valid block, with a valid grid, and it has power, and was tagged for using the mod then we continue. 
+
+				//----Additional Checks----//
+                // Check if the controlled entity is a turret or remote control
+                Sandbox.ModAPI.IMyLargeTurretBase turret = gHandler.localGridControlledEntity as Sandbox.ModAPI.IMyLargeTurretBase;
+                if (turret != null)
+                {
+                    return; // Do we actually want this? Or should turrets have radar? Perhaps turret based radar can be a secondary feature that rotates radar plane based on where turret is looking?
+                }
+                Sandbox.ModAPI.IMyRemoteControl remoteControl = gHandler.localGridControlledEntity as Sandbox.ModAPI.IMyRemoteControl;
+                if (remoteControl != null && remoteControl.Pilot != null)
+                {
+                    return; // Again do we actually want this or should remotely controlled grids have radar?
+                }
+				//----End Additional Checks----//
+
+				DrawSpeedLinesAndPlanetOrbits();
+
+				// Check for camera distance, so we do not draw close up hud elements if position would prevent their viewing anyway.
+                if (_distanceToCameraSqr > 4) // 2^2 = 4
                 {
                     return;
                 }
-                playerGrid = cockpit.CubeGrid;
-                if (!HasPowerProduction(playerGrid))
+
+                DrawRadar();
+
+                //if dust ----------------------------------------------------------------------------------
+                if (EnableDust)
                 {
+					DrawDust();
+                }
+                //------------------------------------------------------------------------------------------
+
+                if (EnableGauges)
+                {
+                    DrawGauges();
+                }
+
+                if (GlobalDimmer > 0.99f)
+                {
+                    TB_activationTime = 0;
+                    HG_activationTime = 0;
+                    HG_activationTimeTarget = 0;
                     return;
                 }
-                powerLoadCurrent = gHandler.GetGridPowerUsagePercentage(playerGrid);
 
-				glitchAmount_min = MathHelper.Clamp(gHandler.GetGridPowerUsagePercentage(playerGrid), 0.85, 1.0)-0.85;
-				glitchAmount_overload = MathHelper.Lerp (glitchAmount_overload, 0, deltaTime * 2);
-				glitchAmount = MathHelper.Clamp (glitchAmount_overload, glitchAmount_min, 1);
-				if (glitchAmount_overload < 0.01) 
-				{
-					glitchAmount_overload = 0;
-				}
-			} 
+                if (EnableHolograms)
+                {
+					// 2025-07-25 FenixPK has separated the block position calculations to UpdateAfterSimulation, this simply loops through the blocks and draws them now.
+					HG_Draw();
+                    //HG_Update_OLD();
+                }
+
+                if (EnableMoney)
+                {
+					DrawCredits();
+                }
+
+                if (EnableToolbars)
+                {
+					DrawToolbars();
+                }
+
+            }
 			else 
 			{
-				return;
-			}
-
-			float speed = (float)gHandler.localGridSpeed;
-
-			if (IsPlayerControlling) {
-				ControlDimmer += 0.05f;
-				//MyVisualScriptLogicProvider.ShowNotification(speed.ToString(), 2, "White");
-				SpeedDimmer = Clamped(speed*0.01f+0.05f, 0f, 1f);
-
-				SpeedDimmer = (float)(Math.Pow (SpeedDimmer, 2));
-
-				if (ShowVelocityLines && speed > 10) {
-					DrawSpeedGaugeLines (gHandler.localGridEntity, gHandler.localGridVelocity);
-					UpdateAndDrawVerticalSegments (gHandler.localGridEntity, gHandler.localGridVelocity);
-				}
-			} else {
-				ControlDimmer -= 0.05f;
-			}
-
-			bool isGuiVisible = MyAPIGateway.Gui.IsCursorVisible; 
-			if (isGuiVisible) {
-				CheckCustomData (); //We don't need to keep check the colors unless we have the thing open.
-			}
-				
-			SpeedDimmer = MathHelper.Clamp(Remap(speed, (SpeedThreshold*0.75f), SpeedThreshold, 0f, 1f), 0f, 1f);
-			ControlDimmer = Clamped (ControlDimmer, 0f, 1f);
-			GlobalDimmer = ControlDimmer * SpeedDimmer;
-
-			if (GlobalDimmer > 0.01f) {
-				//Get Sun direction
-				if (theSettings.starFollowSky) {
-					MyOrientation sunOrientation = getSunOrientation ();
-
-					Quaternion sunRotation = sunOrientation.ToQuaternion ();
-					Vector3D sunForwardDirection = Vector3D.Transform (Vector3D.Forward, sunRotation);
-
-					theSettings.starPos = sunForwardDirection * 100000000;
-				}
-				//Draw orbit lines
-				foreach (var i in planetListDetails) {
-					// Cast the entity to IMyPlanet
-					MyPlanet planet = (MyPlanet)i.Entity;
-					Vector3D parentPos = (i.ParentEntity != null) ? i.ParentEntity.GetPosition () : theSettings.starPos;
-
-					DrawPlanetOutline (planet);
-					DrawPlanetOrbit (planet, parentPos);
-				}
-
-				//DEBUG
-				//DrawWorldUpAxis (STARPOS);
-
-			}
-
-			CheckPlayerInput();
-
-            DrawRadar();
-
-            double dis2cameraSqr = Vector3D.DistanceSquared(MyAPIGateway.Session.Camera.Position, worldRadarPos);
-            if (dis2cameraSqr > 4) // 2^2 = 4
-            {
+                ControlDimmer -= 0.05f;
                 return;
-            }
-
-			//if dust ----------------------------------------------------------------------------------
-			if (EnableDust) {
-				updateDust ();
 			}
-			//------------------------------------------------------------------------------------------
-
-			if (EnableGauges) {
-				DrawGauges ();
-			}
-
-			if (GlobalDimmer > 0.99f) {
-				TB_activationTime = 0;
-				HG_activationTime = 0;
-				HG_activationTimeTarget = 0;
-				return;
-			}
-
-			if (EnableHolograms) {
-				HG_Update ();
-			}
-				
-			if (EnableMoney) {
-				UpdateCredits ();
-			}
-				
-			if (EnableToolbars) {
-				UpdateToolbars ();
-			}
-
 		}
-		//-----------------------------------------------------------------------------------
+        //-----------------------------------------------------------------------------------
 
+		/// <summary>
+		/// Checks each IMyPowerProducer block in the grid to see if it is working, enabled, and has output greater than 0.01. If at least one satisfies returns true. 
+		/// </summary>
+		/// <param name="grid"></param>
+		/// <returns></returns>
+        bool HasPowerProduction(VRage.Game.ModAPI.IMyCubeGrid grid)
+        {
+            List<Sandbox.ModAPI.IMyPowerProducer> producers = new List<Sandbox.ModAPI.IMyPowerProducer>();
+            MyAPIGateway.TerminalActionsHelper.GetTerminalSystemForGrid(grid)?.GetBlocksOfType(producers);
 
+            foreach (var producer in producers)
+            {
+                if (producer.IsWorking && producer.Enabled && producer.CurrentOutput > 0.01f)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
 
-		//ACTIVATION=========================================================================
-		private double visorLife = 0;
+        //ACTIVATION=========================================================================
+        private double visorLife = 0;
 		private bool visorDown = false;
 
 		private void UpdateVisor()
@@ -1573,11 +1911,11 @@ namespace EliDangHUD
 
                     if (visorDown)
                     {
-                        visorLife -= deltaTime * 1.5;
+                        visorLife -= deltaTimeSinceLastTick * 1.5;
                     }
                     else
                     {
-                        visorLife += deltaTime * 1.5;
+                        visorLife += deltaTimeSinceLastTick * 1.5;
                     }
 
                     visorLife = ClampedD(visorLife, 0, 1);
@@ -1650,11 +1988,10 @@ namespace EliDangHUD
 			CheckCustomData();
 			glitchAmount_overload = 0.25;
 
-			PlayCustomSound (SP_BOOTUP, worldRadarPos);
+			PlayCustomSound(SP_BOOTUP, worldRadarPos);
 			//PlayCustomSound (SP_ZOOMINIT, worldRadarPos);
 
 			HG_InitializeLocalGrid();
-
 		}
 
 		private void OnStandUp()
@@ -1671,8 +2008,9 @@ namespace EliDangHUD
 			TB_activationTime = 0;
 			HG_activationTime = 0;
 			HG_activationTimeTarget = 0;
-			ReleaseTarget();
-			deleteDust ();
+            _customDataInitialized = false; // Re-set custom data if we get out of the grid control seat.
+            ReleaseTarget();
+			DeleteDust();
 
 		}
 
@@ -1680,9 +2018,12 @@ namespace EliDangHUD
 		private bool ShowVoxels = true;
 		private float SpeedThreshold = 10f;
 
+		/// <summary>
+		/// Parses the controlled block's CustomData for a section starting with "EliDang". If parsed successfuly after loading settings sets _customDataInitialized = true.
+		/// </summary>
 		private void CheckCustomData()
 		{
-			Sandbox.ModAPI.Ingame.IMyTerminalBlock block = (Sandbox.ModAPI.Ingame.IMyTerminalBlock)gHandler.localGridEntity;
+			Sandbox.ModAPI.Ingame.IMyTerminalBlock block = (Sandbox.ModAPI.Ingame.IMyTerminalBlock)gHandler.localGridControlledEntity;
 
 			// Read your specific data
 			string mySection = "EliDang"; // Your specific section
@@ -1696,7 +2037,8 @@ namespace EliDangHUD
 			if (ini.TryParse(customData, out result))
 			{
 				ReadCustomData(ini);
-				return;
+                _customDataInitialized = true;
+                return;
 			}
 
 			// Pattern to match the section including the delimiter "---"
@@ -1710,7 +2052,8 @@ namespace EliDangHUD
 				if (ini.TryParse(sectionData, out result))
 				{
 					ReadCustomData(ini);
-					return;
+                    _customDataInitialized = true;
+                    return;
 				}
 				else
 				{
@@ -1725,7 +2068,12 @@ namespace EliDangHUD
 			}
 		}
 
-		private void ReadCustomData(MyIni ini){
+		/// <summary>
+		/// Loads an ini object that has already been parsed setting the variables in the code to the values from the ini. 
+		/// </summary>
+		/// <param name="ini"></param>
+		private void ReadCustomData(MyIni ini)
+		{
 
 			string mySection = "EliDang";
 
@@ -1763,8 +2111,8 @@ namespace EliDangHUD
 			double radarOffsetZ = ini.Get(mySection, "ScannerZ").ToDouble(-0.575);
 			radarOffset = new Vector3D(radarOffsetX, radarOffsetY, radarOffsetZ);
 
-			// Scale
-			float radarScaleData = ini.Get(mySection, "ScannerS").ToSingle(1);
+            // Scale
+            float radarScaleData = ini.Get(mySection, "ScannerS").ToSingle(1);
 			radarRadius = 0.125f * radarScaleData;
 
 			// Brightness
@@ -1853,9 +2201,12 @@ namespace EliDangHUD
 		private Color ParseColor(string colorString)
 		{
 			if (string.IsNullOrEmpty(colorString))
-				return lineColorRGB*GLOW;  // Default color if no data
+			{
+                return lineColorRGB * GLOW;  // Default color if no data
+			}
 
-			string[] parts = colorString.Split(',');
+
+            string[] parts = colorString.Split(',');
 			if (parts.Length == 3)
 			{
 				byte r, g, b;
@@ -1943,26 +2294,32 @@ namespace EliDangHUD
 			}
 
 			bool found = false;
-			if (entity is VRage.ModAPI.IMyEntity) {
-				foreach (var i in radarPings) {
-					if (i.Entity == entity) {
+			if (entity is VRage.ModAPI.IMyEntity) 
+			{
+				foreach (var i in radarPings) 
+				{
+					if (i.Entity == entity) 
+					{
 						found = true;
 						break;
 					}
 				}
-				if (!found) {
-					if(entity.DisplayName != "Stone" && entity.DisplayName != null){
-						RadarPing newPing = newRadarPing (entity);
+				if (!found) 
+				{
+					if(entity.DisplayName != "Stone" && entity.DisplayName != null)
+					{
+						RadarPing newPing = newRadarPing(entity);
 						radarPings.Add (newPing);
 					}
 				}
 			}
-			if (!radarEntities.Contains (entity)) {
-				if (entity is VRage.Game.ModAPI.IMyCubeGrid) {
-					radarEntities.Add (entity);
+			if (!radarEntities.Contains(entity)) 
+			{
+				if (entity is VRage.Game.ModAPI.IMyCubeGrid) 
+				{
+					radarEntities.Add(entity);
 				}
 			}
-
 		}
 
 		private void OnEntityRemove(VRage.ModAPI.IMyEntity entity)
@@ -1976,9 +2333,12 @@ namespace EliDangHUD
 				}
 			}
 
-			if (entity is VRage.ModAPI.IMyEntity) {
-				foreach (var i in radarPings) {
-					if (i.Entity == entity) {
+			if (entity is VRage.ModAPI.IMyEntity) 
+			{
+				foreach (var i in radarPings) 
+				{
+					if (i.Entity == entity) 
+					{
 						i.Time.Stop();
 						radarPings.Remove (i);
 						break;
@@ -1986,7 +2346,8 @@ namespace EliDangHUD
 				}
 			}
 
-			if (radarEntities.Contains(entity)) {
+			if (radarEntities.Contains(entity)) 
+			{
 				radarEntities.Remove (entity);
 			}
 		}
@@ -1998,7 +2359,8 @@ namespace EliDangHUD
 		/// <summary>
 		/// If grid flares are enabled draws a flare on screen so they show up better in the void. 
 		/// </summary>
-		void DrawGridFlare(){
+		void DrawGridFlare()
+		{
 			if (theSettings.enableGridFlares) 
 			{
                 MatrixD cameraMatrix = MyAPIGateway.Session.Camera.WorldMatrix;
@@ -2032,21 +2394,19 @@ namespace EliDangHUD
 		}
 
 
-		void DrawLineBillboard(MyStringId material, Vector4 color, Vector3D origin, Vector3 directionNormalized, float length, float thickness, BlendTypeEnum blendType = 0, int customViewProjection = -1, float intensity = 1, List<VRageRender.MyBillboard> persistentBillboards = null){
-			
-			if (GetRandomBoolean()) {
-				if (glitchAmount > 0.001) {
+		void DrawLineBillboard(MyStringId material, Vector4 color, Vector3D origin, Vector3 directionNormalized, float length, float thickness, BlendTypeEnum blendType = 0, int customViewProjection = -1, float intensity = 1, List<VRageRender.MyBillboard> persistentBillboards = null)
+		{
+			if (GetRandomBoolean()) 
+			{
+				if (glitchAmount > 0.001) 
+				{
 					float glitchValue = (float)glitchAmount;
 
-					Vector3D offsetRan = new Vector3D (
-						                    (GetRandomDouble () - 0.5) * 2,
-						                    (GetRandomDouble () - 0.5) * 2,
-						                    (GetRandomDouble () - 0.5) * 2
-					                    );
-					double dis2Cam = Vector3D.Distance (MyAPIGateway.Session.Camera.Position, origin);
+					Vector3D offsetRan = new Vector3D ((GetRandomDouble() - 0.5) * 2, (GetRandomDouble() - 0.5) * 2, (GetRandomDouble() - 0.5) * 2);
+					double dis2Cam = Vector3D.Distance(MyAPIGateway.Session.Camera.Position, origin);
 
 					origin += offsetRan * dis2Cam * glitchValue * 0.025;
-					color *= GetRandomFloat ();
+					color *= GetRandomFloat();
 				}
 			}
 
@@ -2058,10 +2418,10 @@ namespace EliDangHUD
 			BlendTypeEnum blendType = BlendTypeEnum.Standard;
 			float lineThickness = 0.001f;
 			Vector3D cameraPosition = MyAPIGateway.Session.Camera.Position;
-			lineThickness = Convert.ToSingle (Vector3D.Distance (cameraPosition, position)) * lineThickness;
+			lineThickness = Convert.ToSingle(Vector3D.Distance(cameraPosition, position)) * lineThickness;
 
 			float lineLength = 0.25f;
-			lineLength = Convert.ToSingle (Vector3D.Distance (cameraPosition, position)) * lineLength;
+			lineLength = Convert.ToSingle(Vector3D.Distance(cameraPosition, position)) * lineLength;
 
 			// Define the colors for each axis
 			Color xColor = Color.Red;
@@ -2069,13 +2429,13 @@ namespace EliDangHUD
 			Color zColor = Color.Blue;
 
 			// Draw the X-axis (red) RIGHT
-			DrawLineBillboard (Material, xColor, position, Vector3D.Right, lineLength, lineThickness, blendType);
+			DrawLineBillboard(Material, xColor, position, Vector3D.Right, lineLength, lineThickness, blendType);
 
 			// Draw the Y-axis (green) UP
-			DrawLineBillboard (Material, yColor, position, Vector3D.Up, lineLength, lineThickness, blendType);
+			DrawLineBillboard(Material, yColor, position, Vector3D.Up, lineLength, lineThickness, blendType);
 
 			// Draw the Z-axis (blue) FORWARD
-			DrawLineBillboard (Material, zColor, position, Vector3D.Forward, lineLength, lineThickness, blendType);
+			DrawLineBillboard(Material, zColor, position, Vector3D.Forward, lineLength, lineThickness, blendType);
 		}
 
 		// Method to draw a circle in 3D space
@@ -2138,10 +2498,10 @@ namespace EliDangHUD
 				Vector3D point2 = orbitPoints[(i + 1) % count];  // Wrap around to the beginning
 				Vector3 direction = (point2 - point1);  // Direction vector of the line segment
 
-				Vector3D normalizedPoint1 = Vector3D.Normalize (point1-center);
-				double dotPoint1 = Vector3D.Dot (normalizedPoint1, MyAPIGateway.Session.Camera.WorldMatrix.Backward);
-				dotPoint1 = RemapD (dotPoint1, -1, 1, 0.25, 1);
-				dotPoint1 = ClampedD (dotPoint1, 0.1, 1);
+				Vector3D normalizedPoint1 = Vector3D.Normalize(point1-center);
+				double dotPoint1 = Vector3D.Dot(normalizedPoint1, MyAPIGateway.Session.Camera.WorldMatrix.Backward);
+				dotPoint1 = RemapD(dotPoint1, -1, 1, 0.25, 1);
+				dotPoint1 = ClampedD(dotPoint1, 0.1, 1);
 
 				// Calculate camera distance from whole segment.
 				float distanceToSegment = DistanceToLineSegment(cameraPosition, point1, point2);
@@ -2165,7 +2525,7 @@ namespace EliDangHUD
 					dotFlipper = false;
 					// Add a line billboard representing the line segment
 					if (dimmer > 0.01f && segmentThickness > 0) {
-						DrawLineBillboard (Material, lineColor * dimmer * (float)dotPoint1, point1, direction, lineLength, segmentThickness, blendType);
+						DrawLineBillboard(Material, lineColor * dimmer * (float)dotPoint1, point1, direction, lineLength, segmentThickness, blendType);
 					}
 				} else {
 					dotFlipper = true;
@@ -2174,7 +2534,8 @@ namespace EliDangHUD
 		}
 
 		// Outline a planet with a dotted line
-		void DrawPlanetOutline(VRage.ModAPI.IMyEntity entity){
+		void DrawPlanetOutline(VRage.ModAPI.IMyEntity entity)
+		{
 			// Cast the entity to a MyPlanet object
 			MyPlanet planet = (MyPlanet)entity;
 
@@ -2184,7 +2545,7 @@ namespace EliDangHUD
 			planetRadius = Math.Max(planetAtmo, planetRadius);
 
 			// Get the position of the planet
-			Vector3D planetPosition = entity.GetPosition ();
+			Vector3D planetPosition = entity.GetPosition();
 
 			// Determine the direction to aim the outline towards (camera position)
 			Vector3D aimDirection = AimAtCam(planetPosition);
@@ -2194,7 +2555,8 @@ namespace EliDangHUD
 		}
 
 		// Fake an orbit for a planet
-		void DrawPlanetOrbit(VRage.ModAPI.IMyEntity entity, Vector3D parentPosition){
+		void DrawPlanetOrbit(VRage.ModAPI.IMyEntity entity, Vector3D parentPosition)
+		{
 			// Cast the entity to a MyPlanet object
 			MyPlanet planet = (MyPlanet)entity;
 
@@ -2204,7 +2566,7 @@ namespace EliDangHUD
 			planetRadius = Math.Max(planetAtmo, planetRadius);
 
 			// Get the position of the planet
-			Vector3D planetPosition = entity.GetPosition ();
+			Vector3D planetPosition = entity.GetPosition();
 
 			// Calculate the distance between the planet and its parent
 			double orbitRadius = Vector3D.Distance(planetPosition, parentPosition); 
@@ -2272,8 +2634,9 @@ namespace EliDangHUD
 			// Calculate the segment brightness based on distance from camera.
 			float dimmer = Clamped(Remap(distanceToSegment, 0, 10000000f, 1f, 0f), 0f, 1f)*7f;
 
-			if (dimmer > 0.01f) {
-				DrawLineBillboard (Material, theSettings.lineColor * GLOW * dimmer, start, Vector3D.Normalize (end - start), segmentLength, segmentThickness, blendType);
+			if (dimmer > 0.01f) 
+			{
+				DrawLineBillboard(Material, theSettings.lineColor * GLOW * dimmer, start, Vector3D.Normalize(end - start), segmentLength, segmentThickness, blendType);
 			}
 		}
 
@@ -2286,12 +2649,14 @@ namespace EliDangHUD
 			float lineThickness = 0.01f;        // Thickness of the lines
 
 			var cockpit = gridEntity as Sandbox.ModAPI.IMyCockpit;
-			if (cockpit == null || cockpit.CubeGrid == null || cockpit.CubeGrid.Physics == null) {
+			if (cockpit == null || cockpit.CubeGrid == null || cockpit.CubeGrid.Physics == null) 
+			{
 				return;
 			}
 
 			VRage.Game.ModAPI.IMyCubeGrid grid = cockpit.CubeGrid;
-			if (grid == null) {
+			if (grid == null) 
+			{
 				return;
 			}
 
@@ -2335,17 +2700,21 @@ namespace EliDangHUD
 			int totalNumLines = 10;				// Nmber of line segments active at a time.
 
 			var cockpit = gridEntity as Sandbox.ModAPI.IMyCockpit;
-			if (cockpit == null || cockpit.CubeGrid == null || cockpit.CubeGrid.Physics == null) {
+			if (cockpit == null || cockpit.CubeGrid == null || cockpit.CubeGrid.Physics == null) 
+			{
 				return;
 			}
 
 			VRage.Game.ModAPI.IMyCubeGrid grid = cockpit.CubeGrid;
-			if (grid == null) {
+			if (grid == null) 
+			{
 				return;
 			}
 
-			if (!scrollInit) {
-				for (int i = 0; i < totalNumLines; i++) {
+			if (!scrollInit) 
+			{
+				for (int i = 0; i < totalNumLines; i++) 
+				{
 					scrollOffsets.Add(totalLineLength - (totalLineLength / (float)totalNumLines) * (float)i);
 				}
 				scrollInit = true;
@@ -2380,10 +2749,11 @@ namespace EliDangHUD
 			List<Vector3D> verticalSegments = new List<Vector3D>();
 
 			// Calculate new positions for vertical segments
-			for (int i = 0; i < totalNumLines; i++) {
+			for (int i = 0; i < totalNumLines; i++) 
+			{
 
 				scrollOffsets[i] = (totalLineLength - (totalLineLength / (float)totalNumLines) * (float)i);
-				scrollOffsets [i] += scrollOffset;
+				scrollOffsets[i] += scrollOffset;
 				Vector3D segmentPosition = direction * scrollOffsets[i];
 				verticalSegments.Add(segmentPosition);
 			}
@@ -2402,7 +2772,7 @@ namespace EliDangHUD
 				// Calculate the segment brightness based on distance from camera.
 				float distanceToSegment = (float)segmentPosition.Length();
 				float segmentThickness = Remap(distanceToSegment, 0f, totalLineLength, 0f, 1f);
-				segmentThickness = Math.Abs ((segmentThickness - 0.5f) * 2f);
+				segmentThickness = Math.Abs((segmentThickness - 0.5f) * 2f);
 				float dimmer = Clamped(1-segmentThickness, 0f, 1f)*5f;
 				dimmer *= SpeedDimmer*0.5f;
 
@@ -2414,14 +2784,15 @@ namespace EliDangHUD
 				// Calculate the segment thickness based on distance from camera.
 				segmentThickness = Math.Max(Remap(distanceToSegment, 0f, 1000000f, 0f, 1000f) * lineThickness, 0f);
 
-				if (dimmer > 0.01f) {
+				if (dimmer > 0.01f) 
+				{
 					zeroBase = (leftBase + segmentPosition - direction * totalLineLength / 2);
 					zeroBase = (segmentLength * 0.5 * -segmentUp) + zeroBase;
-					DrawLineBillboard (Material, theSettings.lineColor*GLOW * dimmer, zeroBase, segmentUp, segmentLength, segmentThickness);
+					DrawLineBillboard(Material, theSettings.lineColor*GLOW * dimmer, zeroBase, segmentUp, segmentLength, segmentThickness);
 
 					zeroBase = (rightBase + segmentPosition - direction * totalLineLength / 2);
 					zeroBase = (segmentLength * 0.5 * -segmentUp) + zeroBase;
-					DrawLineBillboard (Material, theSettings.lineColor*GLOW * dimmer, zeroBase, segmentUp, segmentLength, segmentThickness);
+					DrawLineBillboard(Material, theSettings.lineColor*GLOW * dimmer, zeroBase, segmentUp, segmentLength, segmentThickness);
 				}
 			}
 		}
@@ -2437,19 +2808,17 @@ namespace EliDangHUD
 			up.Normalize();
 			left.Normalize();
 
-			if (GetRandomBoolean()) {
-				if (glitchAmount > 0.001) {
+			if (GetRandomBoolean()) 
+			{
+				if (glitchAmount > 0.001) 
+				{
 					float glitchValue = (float)glitchAmount;
 
-					Vector3D offsetRan = new Vector3D (
-						(GetRandomDouble () - 0.5) * 2,
-						(GetRandomDouble () - 0.5) * 2,
-						(GetRandomDouble () - 0.5) * 2
-					);
-					double dis2Cam = Vector3D.Distance (MyAPIGateway.Session.Camera.Position, position);
+					Vector3D offsetRan = new Vector3D((GetRandomDouble () - 0.5) * 2, (GetRandomDouble () - 0.5) * 2, (GetRandomDouble () - 0.5) * 2);
+					double dis2Cam = Vector3D.Distance(MyAPIGateway.Session.Camera.Position, position);
 
 					position += offsetRan * dis2Cam * glitchValue * 0.025;
-					color *= GetRandomFloat ();
+					color *= GetRandomFloat();
 				}
 			}
 
@@ -2467,10 +2836,13 @@ namespace EliDangHUD
 				Point2 = bottomRight,
 				Point3 = bottomLeft
 			};
-			if (!mode) {
-				MyTransparentGeometry.AddQuad (materialId, ref quad, color, ref position);
-			} else {
-				MyTransparentGeometry.AddQuad (materialId, ref quad, color, ref position, -1, MyBillboard.BlendTypeEnum.AdditiveTop);
+			if (!mode) 
+			{
+				MyTransparentGeometry.AddQuad(materialId, ref quad, color, ref position);
+			} 
+			else 
+			{
+				MyTransparentGeometry.AddQuad(materialId, ref quad, color, ref position, -1, MyBillboard.BlendTypeEnum.AdditiveTop);
 			}
 		}
 
@@ -2488,7 +2860,8 @@ namespace EliDangHUD
 			// Calculate perpendicular vectors to form the quad
 			Vector3D up = radarUp; //Vector3D.CalculatePerpendicularVector(normal);
 
-			if (upward) {
+			if (upward) 
+			{
 				up = radarForward;
 			}
 			Vector3D left = Vector3D.Cross(up, normal);
@@ -2501,11 +2874,7 @@ namespace EliDangHUD
 				{
 					float glitchValue = (float)glitchAmount;
 
-					Vector3D offsetRan = new Vector3D (
-						(GetRandomDouble() - 0.5) * 2,
-						(GetRandomDouble() - 0.5) * 2,
-						(GetRandomDouble() - 0.5) * 2
-					);
+					Vector3D offsetRan = new Vector3D ((GetRandomDouble() - 0.5) * 2, (GetRandomDouble() - 0.5) * 2, (GetRandomDouble() - 0.5) * 2);
 					double dis2Cam = Vector3D.Distance(MyAPIGateway.Session.Camera.Position, position);
 
 					position += offsetRan * dis2Cam * glitchValue * 0.025;
@@ -2547,8 +2916,8 @@ namespace EliDangHUD
 		{
 			List<PlanetInfo> dList = new List<PlanetInfo>();
 
-			dList = OrderPlanetsBySize (pList);
-			dList = DetermineParentChildRelationships (dList);
+			dList = OrderPlanetsBySize(pList);
+			dList = DetermineParentChildRelationships(dList);
 
 			return dList;
 		}
@@ -2757,16 +3126,18 @@ namespace EliDangHUD
 		public double radarScaleRange_GoalLogin = 1;
 		public double radarScaleRange_CurrentLogin = 0.01;
 
-		public float radarRadius = 0.125f;
-		public double radarScale = 0.000025;
-		public float targetHologramRadius = 0.125f;
+		public static float radarRadius = 0.125f; 
+		public static double radarScale = 0.000025;
+		public static float targetHologramRadius = 0.125f;
 		
-		private bool targetingFlipper = false; 
+		private bool targetingFlipper = false;
 
-		/// <summary>
-		/// The radarMatrix built from the cockpit block WorldMatrix, includes rotation so blips rotate relative to the way you are facing.
-		/// </summary>
-		private MatrixD radarMatrix;
+		
+
+        /// <summary>
+        /// The radarMatrix built from the cockpit block WorldMatrix, includes rotation so blips rotate relative to the way you are facing.
+        /// </summary>
+        private MatrixD radarMatrix;
 
 		/// <summary>
 		/// The position for the radar screen in world space, used as an offset to draw UI elements to this location. 
@@ -2843,8 +3214,6 @@ namespace EliDangHUD
 		private double rangeBracketBuffer = 500; // Meters to add to a distance as a buffer for purposes of determining bracket.
 		private int debugFrameCount = 0;
         private bool debug = false;
-        private readonly Stopwatch haloTimer = new Stopwatch();
-
 
 
 
@@ -2886,36 +3255,12 @@ namespace EliDangHUD
         // But for things like checking if an entity is within a certain distance etc. we can just use the squares and save CPU cycles. 
         /// <summary>
 		/// DrawRadar draws main UI elements of the radar, including the radar circle, holograms, and entities within radar range.
-		/// It also handles the targetting reticle and alignment of the radar screen based on the player's position and orientation.
+		/// It also handles the targetting reticle and alignment of the radar screen based on the player's position and orientation. FenixPK has modified this so it
+		/// only does rendering, calculating positions and what can/can't be detected is moved to the UpdateAfterSimulation function. 
 		/// </summary>
 		private void DrawRadar()
 		{
-			// Exit early if not in control or gHandler == null.
-            if (gHandler == null)
-            {
-                return;
-            }
-            if (gHandler.localGridEntity == null)
-            {
-                return;
-            }
-            bool IsPlayerControlling = gHandler.IsPlayerControlling;
-            if (!IsPlayerControlling)
-            {
-                return;
-            }
-
-			// Check timer is initialized, and start if not for some reason?
-            if (stopwatch == null)
-            {
-                stopwatch = new Stopwatch();
-                stopwatch.Start();
-            }
-
-            if (!stopwatch.IsRunning)
-            {
-                stopwatch.Start();
-            }
+			// We shouldn't be in here if we haven't already checked if gHandler is null, camera too far away etc. So we can skip more checks here. 
 
 			// Debug log writes every 360 frames to reduce log spam
 			if (debugFrameCount >= 360)
@@ -2932,40 +3277,19 @@ namespace EliDangHUD
             // So we will split this into three positions, three offsets. And it solves a request where users wanted to move all of this stuff around independently too. If I can finish it in time haha.
 
             // Fetch the player's cockpit entity and it's world position (ie. the block the player is controlling). 
-            Vector3D playerGridPos = gHandler.localGridEntity.GetPosition();
+            Vector3D playerGridPos = gHandler.localGridControlledEntityPosition;
 
             // CAMERA POSITION //
             // Get the camera's vectors
-            MatrixD cameraMatrix = MyAPIGateway.Session.Camera.WorldMatrix;
+            MatrixD cameraMatrix = _cameraMatrix;
             Vector3 viewUp = cameraMatrix.Up;
             Vector3 viewLeft = cameraMatrix.Left;
             Vector3 viewForward = cameraMatrix.Forward;
             Vector3 viewBackward = cameraMatrix.Backward;
             Vector3D viewBackwardD = cameraMatrix.Backward;
-            Vector3D cameraPos = MyAPIGateway.Session.Camera.Position;
+			Vector3D cameraPos = _cameraPosition;
 
-            //Head Location=================================================
-            // Get the player's character entity
-            Vector3D headPosition = Vector3D.Zero;
-            IMyCharacter character = MyAPIGateway.Session.Player.Character;
-
-            if (character != null)
-            {
-                // Extract the head matrix
-                MatrixD headMatrix = character.GetHeadMatrix(true);
-
-                // Get the head position from the head matrix
-                headPosition = headMatrix.Translation;
-                headPosition -= playerGridPos;
-            }
-            //==============================================================
-
-
-            // COCKPIT RADAR SCREEN POSITION AND OFFSET //
-            // Apply the radar offset to the ship's position
-            radarMatrix = gHandler.localGridEntity.WorldMatrix;
-            Vector3D radarPos = Vector3D.Transform(radarOffset, radarMatrix) + headPosition;
-            worldRadarPos = radarPos;
+            Vector3D radarPos = worldRadarPos;
 
             // Draw the radar circle
             Vector3D radarUp = radarMatrix.Up;
@@ -2974,159 +3298,55 @@ namespace EliDangHUD
             Vector3D radarForward = radarMatrix.Forward;
             Vector3D radarBackward = radarMatrix.Backward;
 
-			// COCKPIT TARGET HOLOGRAM SCREEN POSITION AND OFFSET //
-			cockpitMatrix = gHandler.localGridEntity.WorldMatrix;
-			// Now we want to discard yaw and keep pitch and roll. The holograms should not rotate as the ship rotates, they'll be displayed in a fixed space in front of you in your cockpit. But as the ship rolls
-			// around the forward axis or pitches nose up or down the position needs to stay relative to the forward of the ship (block) essentially. 
-			// As I typed that I already foresee an issue with ops stations that face left/right on your ship, will that affect things if we use the cockpit forward instead of grid forward? No... maybe?
-			cockpitForward = Vector3D.Normalize(new Vector3D(0, cockpitMatrix.Forward.Y, cockpitMatrix.Forward.Z)); // Remove X which is yaw.... I think? But we still need pitch right.
-			cockpitUp = cockpitMatrix.Up; // This preserves roll, up will orient based on the cockpits orientation. 
-			cockpitRight = Vector3D.Normalize(Vector3D.Cross(cockpitUp, cockpitForward));
-			cockpitUp = Vector3D.Normalize(Vector3D.Cross(cockpitForward, cockpitRight)); // re-orthagonalize up vector.
-
-			// Set the hologram matrix so it has roll and pitch but NOT yaw. Holograms don't need to spin around as your ship spins around, but do need to stay stable in front of you. 
-			targetHologramMatrix = MatrixD.CreateWorld(Vector3D.Zero, cockpitForward, cockpitUp);
-			localHologramMatrix = MatrixD.CreateWorld(Vector3D.Zero, cockpitForward, cockpitUp);
-
-            // Offsets for the local worldspace to set where these UI controls appear, should be configurable. 
-            targetHologramOffset = new Vector3D(-0.5, -0.2, -1.5);
-			localHologramOffset = new Vector3D(0.5, -0.2, -1.5);
-
-			// Set these offsets using the ORIGINAL cockpit matrix, so offset stays relative to cockpit.
-			targetHologramWorldPos = Vector3D.Transform(targetHologramOffset, cockpitMatrix);
-			localHologramWorldPos = Vector3D.Transform(localHologramOffset, cockpitMatrix);
-			targetHologramMatrix.Translation = targetHologramWorldPos;
-			localHologramMatrix.Translation = localHologramWorldPos;
-
-			
-
-
-
-
-
-			// Sanity check so we aren't drawing UI elements too out of bounds for display. 
-            if (Vector3D.DistanceSquared(cameraPos, targetHologramWorldPos) > 4) // 2^2 = 4
-            {
-                // If the camera is not positioned sensibly do not draw the UI. My understanding is this is if the radar screen is behind the players head etc. why waste time drawing any of the UI if it can't be seen. 
-                return;
-            }
-            if (Vector3D.DistanceSquared(cameraPos, localHologramWorldPos) > 4) // 2^2 = 4
-            {
-                // If the camera is not positioned sensibly do not draw the UI. My understanding is this is if the radar screen is behind the players head etc. why waste time drawing any of the UI if it can't be seen. 
-                return;
-            }
-            if (Vector3D.DistanceSquared(cameraPos, worldRadarPos) > 4) // 2^2 = 4
-            {
-                // If the camera is not positioned sensibly do not draw the UI. My understanding is this is if the radar screen is behind the players head etc. why waste time drawing any of the UI if it can't be seen. 
-                return;
-            }
-
             // Can always show our own hologram
             if (EnableHolograms && EnableHolograms_you)
             {
-                Vector3D hgPos = HG_Offset;
-                Vector3D hgPos_Right = radarPos + radarMatrix.Left * -radarRadius + radarMatrix.Left * HG_Offset.X + radarMatrix.Forward * HG_Offset.Z;
-                Vector3D hgPos_Left = radarPos + radarMatrix.Left * -radarRadius * -1 + radarMatrix.Left * HG_Offset.X * -1 + radarMatrix.Forward * HG_Offset.Z;
-
                 double lockInTime_Right = HG_activationTime;
                 lockInTime_Right = ClampedD(lockInTime_Right, 0, 1);
                 lockInTime_Right = Math.Pow(lockInTime_Right, 0.1);
 
-                DrawQuad(hgPos_Right + (radarUp * HG_Offset.Y * 0.5), viewBackward, 0.15, MaterialCircleSeeThroughAdd, theSettings.lineColor * 0.125f, true);
+                DrawQuad(_hologramPositionRight + (radarUp * _hologramRightOffset_HardCode.Y * 0.5), viewBackward, 0.15, MaterialCircleSeeThroughAdd, theSettings.lineColor * 0.125f, true);
 
-                DrawCircle(hgPos_Right, 0.04 * lockInTime_Right, radarUp, theSettings.lineColor, false, 0.5f, 0.00075f);
-                DrawCircle(hgPos_Right - (radarUp * 0.015), 0.045, radarUp, theSettings.lineColor, false, 0.25f, 0.00125f);
+                DrawCircle(_hologramPositionRight, 0.04 * lockInTime_Right, radarUp, theSettings.lineColor, false, 0.5f, 0.00075f);
+                DrawCircle(_hologramPositionRight - (radarUp * 0.015), 0.045, radarUp, theSettings.lineColor, false, 0.25f, 0.00125f);
 
-                DrawQuad(hgPos_Right + (radarUp * HG_Offset.Y), viewBackward, 0.1, MaterialCircleSeeThrough, new Vector4(0, 0, 0, 0.75f)); //Dim Backing
+                DrawQuad(_hologramPositionRight + (radarUp * _hologramRightOffset_HardCode.Y), viewBackward, 0.1, MaterialCircleSeeThrough, new Vector4(0, 0, 0, 0.75f)); //Dim Backing
             }
 
-            // Check radar active/passive status and broadcast range for player grid.
-            bool playerHasPassiveRadar;
-            bool playerHasActiveRadar;
-			double playerMaxPassiveRange;
-            double playerMaxActiveRange;
-
-            // playerGrid is set once earlier in the Draw() method when determining if cockpit is eligible, player controlled etc, and is used to get power draw among other things. Saved for re-use here and elsewhere.
-            EvaluateGridAntennaStatus(playerGrid, out playerHasPassiveRadar, out playerHasActiveRadar, out playerMaxPassiveRange, out playerMaxActiveRange);
-
-			// Radar distance/scale should be based on our highest functional, powered antenna (regardless of mode).
-			radarScaleRange = playerMaxPassiveRange; // Already limited to global max. Uses passive only because in active mode active and passive will be equal. 
-
-            Vector3D targetPosReturn = new Vector3D(); // Will reuse this.
+         
 			if (currentTarget != null && !currentTarget.Closed)
 			{
-				// In here we will check if the player can still actively or passively target the current target and release them if not, or adjust range brackets accordingly if still targetted. 
-				bool playerCanDetect = false;
-				double distanceToTargetSqr = 0;
-				bool entityHasActiveRadar = false;
-				double entityMaxActiveRange = 0;
-				CanGridRadarDetectEntity(playerHasPassiveRadar, playerHasActiveRadar, playerMaxPassiveRange, playerMaxActiveRange, playerGridPos, 
-					currentTarget, out playerCanDetect, out targetPosReturn, out distanceToTargetSqr, out entityHasActiveRadar, out entityMaxActiveRange);
-
-				if (playerCanDetect)
+				if (_playerCanDetectCurrentTarget)
 				{
                     if (debug)
                     {
                         //MyLog.Default.WriteLine($"FENIX_HUD: Target selected, and can detect");
                     }
-					double distToTarget = Math.Sqrt(distanceToTargetSqr);
-                    radarScaleRange_Goal = GetRadarScaleBracket(distToTarget);
-                    squishValue_Goal = 0.0;
 
 					// Handle target hologram here
 					if (EnableHolograms && EnableHolograms_them)
 					{
-						Vector3D hgPos = HG_Offset;
-						Vector3D hgPos_Right = radarPos + radarMatrix.Left * -radarRadius + radarMatrix.Left * HG_Offset.X + radarMatrix.Forward * HG_Offset.Z;
-						Vector3D hgPos_Left = radarPos + radarMatrix.Left * -radarRadius * -1 + radarMatrix.Left * HG_Offset.X * -1 + radarMatrix.Forward * HG_Offset.Z;
 
 						double lockInTime_Left = HG_activationTimeTarget;
 						lockInTime_Left = ClampedD(lockInTime_Left, 0, 1);
 						lockInTime_Left = Math.Pow(lockInTime_Left, 0.1);
 
-						DrawCircle(hgPos_Left, 0.04 * lockInTime_Left, radarUp, theSettings.lineColor, false, 0.5f, 0.00075f);
-						DrawCircle(hgPos_Left - (radarUp * 0.015), 0.045, radarUp, theSettings.lineColor, false, 0.25f, 0.00125f);
+						DrawCircle(_hologramPositionLeft, 0.04 * lockInTime_Left, radarUp, theSettings.lineColor, false, 0.5f, 0.00075f);
+						DrawCircle(_hologramPositionLeft - (radarUp * 0.015), 0.045, radarUp, theSettings.lineColor, false, 0.25f, 0.00125f);
 
 						// We will have cleared target lock earlier in loop if no longer able to target due to distance or lack of antenna etc.
 						if (isTargetLocked)
 						{
-							DrawQuad(hgPos_Left + (radarUp * HG_Offset.Y * 0.5), viewBackward, 0.15, MaterialCircleSeeThroughAdd, LINECOLOR_Comp * 0.125f, true);
-							DrawQuad(hgPos_Left + (radarUp * HG_Offset.Y), viewBackward, 0.1, MaterialCircleSeeThrough, new Vector4(0, 0, 0, 0.75f)); //Dim Backing
+							DrawQuad(_hologramPositionLeft + (radarUp * _hologramRightOffset_HardCode.Y * 0.5), viewBackward, 0.15, MaterialCircleSeeThroughAdd, LINECOLOR_Comp * 0.125f, true);
+							DrawQuad(_hologramPositionLeft + (radarUp * _hologramRightOffset_HardCode.Y), viewBackward, 0.1, MaterialCircleSeeThrough, new Vector4(0, 0, 0, 0.75f)); //Dim Backing
 						}
 						else
 						{
-							DrawQuad(hgPos_Left + (radarUp * HG_Offset.Y * 0.5), viewBackward, 0.15, MaterialCircleSeeThroughAdd, theSettings.lineColor * 0.125f, true);
+							DrawQuad(_hologramPositionLeft + (radarUp * _hologramRightOffset_HardCode.Y * 0.5), viewBackward, 0.15, MaterialCircleSeeThroughAdd, theSettings.lineColor * 0.125f, true);
 						}
 					}
 				}
-				else 
-				{
-                    if (debug)
-                    {
-                        //MyLog.Default.WriteLine($"FENIX_HUD: Target selected, but playerCanDetect is false - clearing target");
-                    }
-                    ReleaseTarget();
-                    radarScaleRange_Goal = GetRadarScaleBracket(radarScaleRange);
-                    squishValue_Goal = 0.75;
-                }
 			}
-			else
-			{
-                if (debug)
-                {
-                    //MyLog.Default.WriteLine($"FENIX_HUD: No Target found");
-                }
-                radarScaleRange_Goal = GetRadarScaleBracket(radarScaleRange);
-				squishValue_Goal = 0.75;
-			}
-			squishValue = LerpD(squishValue, squishValue_Goal, 0.1);
-
-			// Handle smooth animation when first starting up or sitting in seat, along with smooth animation for switching range bracket due to targetting. 
-			radarScaleRange_CurrentLogin = LerpD(radarScaleRange_CurrentLogin, radarScaleRange_GoalLogin, 0.01);
-			radarScaleRange_Current = LerpD(radarScaleRange_Current, radarScaleRange_Goal, 0.1);
-            radarScaleRange = radarScaleRange_Current*radarScaleRange_CurrentLogin;
-
-			radarScale = (radarRadius / radarScaleRange);
 
 			// Draw the current range bracket on screen. 
 			// This does a lot. It shows the player if they are in active or passive mode or off.
@@ -3136,39 +3356,30 @@ namespace EliDangHUD
 			// This means the radar would be zoomed out to show 8k worth of space, despite only detecting objects passively up to 5512 meters and actively up to 4123 meters.
 			// Because active mode takes priority I show it's range instead of passive. When active mode off passive will show. Passive's range if different than active can be inferred a bit from scale.
 			// Additionally if the radar scale is overriden by having a Target selected a T is show, as scale might be lower than expected. When you select a target nearby it "zooms" the radar scale in. 
-            Vector3D textPos = radarPos + radarUp * -0.1 + radarLeft * 0.3; 
             Vector3D textDir = -radarMatrix.Backward; // text faces the player/camera
-			double activeRangeDisp = Math.Round(playerMaxActiveRange/1000, 1);
-			double passiveRangeDisp = Math.Round(playerMaxPassiveRange/1000, 1);
+			double activeRangeDisp = Math.Round(_playerMaxActiveRange/1000, 1);
+			double passiveRangeDisp = Math.Round(_playerMaxPassiveRange/1000, 1);
 			double radarScaleDisp = Math.Round(radarScaleRange / 1000, 1);
-            string rangeText = $"RDR{(playerHasActiveRadar ? $"[ACT]:{activeRangeDisp}" : playerHasPassiveRadar ? $"[PAS]:{passiveRangeDisp}" : "[OFF]:0")}KM [SCL]:{radarScaleDisp}KM {(currentTarget != null ? "(T)" : "")}";
-            DrawText(rangeText, 0.0045, textPos, textDir, theSettings.lineColor);
+            string rangeText = $"RDR{(_playerHasActiveRadar ? $"[ACT]:{activeRangeDisp}" : _playerHasPassiveRadar ? $"[PAS]:{passiveRangeDisp}" : "[OFF]:0")}KM [SCL]:{radarScaleDisp}KM {(currentTarget != null ? "(T)" : "")}";
+            DrawText(rangeText, 0.0045, _radarCurrentRangeTextPosition, textDir, theSettings.lineColor);
 
-			if (!playerHasActiveRadar && !playerHasPassiveRadar) 
-			{
-                if (debug)
-                {
-                    //MyLog.Default.WriteLine($"FENIX_HUD: Player has no active or passive radar, exiting DrawRadar()");
-                }
-            }
-            if (debug)
-            {
-                //MyLog.Default.WriteLine($"FENIX_HUD: playerHasActiveRadar={playerHasActiveRadar}, playerHasPassiveRadar={playerHasPassiveRadar} - continuing to draw.");
-            }
 
 			Vector4 color_Current = color_VoxelBase; // Default to voxelbase color
 			float scale_Current = 1.0f;
 
 			// Radar Pulse Timer for the pulse animation
-            double radarTimer = stopwatch.Elapsed.TotalSeconds / 3;
-			radarTimer = 1 - (radarTimer - Math.Truncate (radarTimer))*2;
+            double radarPulseTime = this.timerRadarElapsedTimeTotal.Elapsed.TotalSeconds / 3;
+			radarPulseTime = 1 - (radarPulseTime - Math.Truncate (radarPulseTime))*2;
 
 			// Radar attack timer to flip the blips and make them pulsate. Goal is to tie this to being targetted by those grids rather than by distance to them.
-			double attackTimer = stopwatch.Elapsed.TotalSeconds*4;
+			double attackTimer = this.timerRadarElapsedTimeTotal.Elapsed.TotalSeconds*4;
 			attackTimer = (attackTimer - Math.Truncate (attackTimer));
-			if (attackTimer > 0.5) {
+			if (attackTimer > 0.5) 
+			{
 				targetingFlipper = true;
-			} else {
+			} 
+			else 
+			{
 				targetingFlipper = false;
 			}
 			// Draw Rings
@@ -3179,10 +3390,12 @@ namespace EliDangHUD
 			DrawLineBillboard (Material, theSettings.lineColor*GLOW*0.4f, radarPos, Vector3D.Lerp(radarMatrix.Forward,radarMatrix.Right,radarFov), radarRadius*1.45f, 0.0005f);
 
 			// Animate radar pulse
-			for (int i = 1; i < 11; i++) {
-				int radarPulseTime = (int)Math.Truncate (10 * radarTimer);
+			for (int i = 1; i < 11; i++) 
+			{
+				int radarPulseSteps = (int)Math.Truncate (10 * radarPulseTime);
 				float radarPulse = 1;
-				if (radarPulseTime == i) {
+				if (radarPulseSteps == i) 
+				{
 					radarPulse = 2;
 				}
 				DrawCircle(radarPos-(radarUp*0.003), (radarRadius*0.95)-(radarRadius*0.95)*(Math.Pow((float)i/10, 4)), radarUp, theSettings.lineColor, false, 0.25f*radarPulse, 0.00035f);
@@ -3192,22 +3405,18 @@ namespace EliDangHUD
             DrawQuadRigid(radarPos, radarUp, (double)radarRadius*1.18, MaterialBorder, theSettings.lineColor, true); //Border
 
 			// Draw compass
-			if(EnableGauges){
+			if(EnableGauges)
+			{
 				DrawQuadRigid(radarPos-(radarUp*0.005), -radarUp, (double)radarRadius*1.5, MaterialCompass, theSettings.lineColor, true); //Compass
 			}
 			DrawQuad(radarPos-(radarUp*0.010), radarUp, (double)radarRadius*2.25, MaterialCircleSeeThrough, new Vector4(0, 0, 0, 0.75f)); //Dim Backing
 			DrawQuad(radarPos + (radarUp*0.025), viewBackward, 0.25, MaterialCircleSeeThroughAdd, theSettings.lineColor*0.075f, true);
 
-            updateRadarAnimations(playerGridPos);
-
-            double fadeDistance = radarScaleRange * (1-theSettings.fadeThreshhold); // Eg at 0.01 would be 0.99%. For a radar distance of 20,000m this means the last 19800-19999 becomes fuzzy/dims the blip.
-            double fadeDistanceSqr = fadeDistance * fadeDistance; // Sqr for fade distance in comparisons.
-            double radarShownRangeSqr = radarScaleRange * radarScaleRange; // Anything over this range, even if within sensor range, can't be drawn on screen. 
+            UpdateRadarAnimations(playerGridPos);
 
             // Okay I had to do some research on this. The way this works is Math.Sin() returns a value between -1 and 1, so we add 1 to it to get a value between 0 and 2, then divide by 2 to get a value between 0 and 1.
 			// Basically shifting the wave up so we are into positive value only territory, and then scaling it to a 0-1 range where 0 is completely invisible and 1 is fully visible. Neat.
-            float haloPulse = (float)((Math.Sin(haloTimer.Elapsed.TotalSeconds * (4*Math.PI)) + 1.0) * 0.5); // 0 -> 1 -> 0 smoothly. Should give 2 second pulses. Could do (2*Math.PI) for 1 second pulses
-			
+            float haloPulse = (float)((Math.Sin(timerRadarElapsedTimeTotal.Elapsed.TotalSeconds * (4*Math.PI)) + 1.0) * 0.5); // 0 -> 1 -> 0 smoothly. Should give 2 second pulses. Could do (2*Math.PI) for 1 second pulses
 
             for (int i = 0; i < radarPings.Count; i++)
 			{
@@ -3221,20 +3430,12 @@ namespace EliDangHUD
 				{
                     continue; // Skip voxels if not set to show them. 
 				}
-				if (entity.GetTopMostParent() == gHandler.localGridEntity.GetTopMostParent()) 
+				if (entity.GetTopMostParent() == gHandler.localGridControlledEntity.GetTopMostParent()) 
 				{
 					continue; // Skip drawing yourself on the radar.
 				}
 
-				bool playerCanDetect = false;
-				Vector3D entityPos;
-				double entityDistanceSqr;
-				bool entityHasActiveRadar = false;
-				double entityMaxActiveRange = 0;
-
-				CanGridRadarDetectEntity(playerHasPassiveRadar, playerHasActiveRadar, playerMaxPassiveRange, playerMaxActiveRange, playerGridPos, 
-					entity, out playerCanDetect, out entityPos, out entityDistanceSqr, out entityHasActiveRadar, out entityMaxActiveRange);
-				if (!playerCanDetect || entityDistanceSqr > radarShownRangeSqr) // If can't detect it, or the radar scale prevents showing it move on.
+				if (!radarPings[i].PlayerCanDetect || radarPings[i].RadarPingDistanceSqr > _radarShownRangeSqr) // If can't detect it, or the radar scale prevents showing it move on.
 				{
 					continue;
 				}
@@ -3244,11 +3445,11 @@ namespace EliDangHUD
                 // Have to invert old logic, original author made this extend radar range past configured limit. 
 				// I am having the limit as a hard limit be it global config or antenna broadcast range, so we instead make a small range before that "fuzzy" instead. 
 				// If it was outside max range it wouldn't have been detected by the player actively or passively, so we skipped it already. Meaning all we have to do is check if it is in the fade region and fade it or draw it regularly. 
-                if (entityDistanceSqr >= fadeDistanceSqr) 	
+                if (radarPings[i].RadarPingDistanceSqr >= _fadeDistanceSqr) 	
 				{
-                    fadeDimmer = 1 - Clamped(1 - (float)((fadeDistanceSqr - entityDistanceSqr) / (fadeDistanceSqr - radarShownRangeSqr)), 0, 1);
+                    fadeDimmer = 1 - Clamped(1 - (float)((_fadeDistanceSqr - radarPings[i].RadarPingDistanceSqr) / (_fadeDistanceSqr - _radarShownRangeSqr)), 0, 1);
                 }
-                Vector3D scaledPos = ApplyLogarithmicScaling(entityPos, playerGridPos); // Apply radar scaling
+                Vector3D scaledPos = ApplyLogarithmicScaling(radarPings[i].RadarPingPosition, playerGridPos); // Apply radar scaling
 
                 // Position on the radar
                 Vector3D radarEntityPos = radarPos + scaledPos;
@@ -3289,40 +3490,6 @@ namespace EliDangHUD
                     continue;
                 }
 
-				// Check if relationship status has changed and update ping (eg. if a ship flipped from neutral to hostile or hostile to friendly via capture). 
-				RadarPing currentPing = radarPings[i];
-                UpdateExistingRadarPingStatus(ref currentPing);
-				radarPings[i] = currentPing;
-
-                if (entityDistanceSqr < radarShownRangeSqr * (1-theSettings.fadeThreshhold)) // Once we pass the fade threshold an auidible and visual cue should be applied. 
-                {
-                    if (!radarPings[i].Announced)
-                    {
-                        radarPings[i].Announced = true;
-                        if (radarPings[i].Status == RelationshipStatus.Hostile && entityDistanceSqr > 250000) //500^2 = 250,000
-                        {
-                            PlayCustomSound(SP_ENEMY, worldRadarPos);
-                            newAlertAnim(entity);
-                        }
-                        else if (radarPings[i].Status == RelationshipStatus.Friendly && entityDistanceSqr > 250000)
-                        {
-                            PlayCustomSound(SP_NEUTRAL, worldRadarPos);
-                            newBlipAnim(entity);
-                        }
-                        else if (radarPings[i].Status == RelationshipStatus.Neutral && entityDistanceSqr > 250000)
-                        {
-                            // No Sound
-                        }
-                    }
-                }
-                else
-                {
-                    if (radarPings[i].Announced)
-                    {
-                        radarPings[i].Announced = false;
-                    }
-                }
-
 				// Do color of blip based on relationship to player
                 color_Current = radarPings[i].Color;
                 if (debug)
@@ -3342,7 +3509,7 @@ namespace EliDangHUD
 				// Pulse timers for animation
                 Vector3D pulsePos = radarEntityPos + (lineDir * vertDistance);
                 double pulseDistance = Vector3D.Distance(pulsePos, radarPos);
-                float pulseTimer = (float)(ClampedD(radarTimer, 0, 1) + 0.5 + Math.Min(pulseDistance, radarRadius) / radarRadius);
+                float pulseTimer = (float)(ClampedD(radarPulseTime, 0, 1) + 0.5 + Math.Min(pulseDistance, radarRadius) / radarRadius);
                 if (pulseTimer > 1)
                 {
                     pulseTimer = pulseTimer - 1;//(float)Math.Truncate (pulseTimer);
@@ -3389,7 +3556,7 @@ namespace EliDangHUD
 
                 // DONE UNTESTED: need to check that they have it AND it can reach us, if we aren't being painted by it don't show it. For situations where our active radar is set far enough to pickup grids
 				// that also have active radar and thus the bool would be true but it's range is low enough they can't reach us (see us). As in only show grids that can see us. 
-                if (entityHasActiveRadar && entityDistanceSqr <= entityMaxActiveRange*entityMaxActiveRange) 
+                if (radarPings[i].RadarPingHasActiveRadar && radarPings[i].RadarPingDistanceSqr <= (radarPings[i].RadarPingMaxActiveRange*radarPings[i].RadarPingMaxActiveRange)) 
                 {
                     float pulseScale = 1.0f + (haloPulse * 0.20f); // Scale the halo by 15% at max pulse
                     float pulseAlpha = 1.0f * (1.0f - haloPulse); // Alpha goes from 0.25 to 0 at max pulse, so it fades out as pulse increases.
@@ -3417,8 +3584,6 @@ namespace EliDangHUD
                         outlineSize        
                     );
                 }
-
-                
             }
 
             // Targeting CrossHair
@@ -3427,76 +3592,78 @@ namespace EliDangHUD
 			Vector3D crossOffset = radarMatrix.Left*radarRadius*1.65 + radarMatrix.Up*radarRadius*crossSize + radarMatrix.Forward*radarRadius*0.35;
 			Vector4 crossColor = theSettings.lineColor;
 
-			if (currentTarget != null) {
-				double dis2Cam1 = Vector3D.Distance(cameraPos, targetPosReturn);
-				if (dis2Cam1 > 50000) 
-				{
-					ReleaseTarget();
-				} 
-				else 
-				{
-					targettingLerp_goal = 1;
-					targettingLerp = LerpD (targettingLerp, targettingLerp_goal, deltaTime*10);
+			if (currentTarget != null) 
+			{
+                targettingLerp_goal = 1;
+                targettingLerp = LerpD(targettingLerp, targettingLerp_goal, deltaTimeSinceLastTick * 10);
 
-					Vector3D targetDir = Vector3D.Normalize(currentTarget.WorldVolume.Center - cameraPos) * 0.5;
-					double dis2Cam = Vector3D.Distance(cameraPos, cameraPos + targetDir);
-					DrawQuadRigid(cameraPos + targetDir, cameraMatrix.Forward, dis2Cam * 0.125 * targettingLerp, theSettings.useHollowReticle ? MaterialLockOnHollow : MaterialLockOn, theSettings.lineColor*(float)targettingLerp, false);
-					DrawText(currentTarget.DisplayName, dis2Cam * 0.01, cameraPos + targetDir + (cameraMatrix.Up * dis2Cam * 0.02) + (cameraMatrix.Right * dis2Cam * 0.10 * targettingLerp), cameraMatrix.Forward, theSettings.lineColor);
+                Vector3D targetDir = Vector3D.Normalize(currentTarget.WorldVolume.Center - cameraPos) * 0.5;
+                double dis2Cam = Vector3D.Distance(cameraPos, cameraPos + targetDir);
+                DrawQuadRigid(cameraPos + targetDir, cameraMatrix.Forward, dis2Cam * 0.125 * targettingLerp, theSettings.useHollowReticle ? MaterialLockOnHollow : MaterialLockOn, theSettings.lineColor * (float)targettingLerp, false);
+                DrawText(currentTarget.DisplayName, dis2Cam * 0.01, cameraPos + targetDir + (cameraMatrix.Up * dis2Cam * 0.02) + (cameraMatrix.Right * dis2Cam * 0.10 * targettingLerp), cameraMatrix.Forward, theSettings.lineColor);
 
-					string disUnits = "m";
-					double dis2CamDisplay = dis2Cam1;
-					if (dis2Cam1 > 1500) 
-					{
-						disUnits = "km";
-						dis2CamDisplay = dis2CamDisplay / 1000;
-					}
-					DrawText(Convert.ToString(Math.Round(dis2CamDisplay)) + " " + disUnits, dis2Cam * 0.01, cameraPos + targetDir + (cameraMatrix.Up * dis2Cam * -0.02) + (cameraMatrix.Right * dis2Cam * 0.11 * targettingLerp), cameraMatrix.Forward, theSettings.lineColor);
+                string disUnits = "m";
+                double distanceToTargetFromLocalGrid = _distanceToCurrentTarget;
+                if (_distanceToCurrentTarget > 1500)
+                {
+                    disUnits = "km";
+                    distanceToTargetFromLocalGrid = distanceToTargetFromLocalGrid / 1000;
+                }
+                DrawText(Convert.ToString(Math.Round(distanceToTargetFromLocalGrid)) + " " + disUnits, dis2Cam * 0.01, cameraPos + targetDir + (cameraMatrix.Up * dis2Cam * -0.02) + (cameraMatrix.Right * dis2Cam * 0.11 * targettingLerp), cameraMatrix.Forward, theSettings.lineColor);
 
-					double dotProduct = Vector3D.Dot(radarMatrix.Forward, targetDir);
+                double dotProduct = Vector3D.Dot(radarMatrix.Forward, targetDir);
 
-					Vector3D targetPipPos = radarPos;
-					Vector3D targetPipDir = Vector3D.Normalize(currentTarget.WorldVolume.Center - playerGridPos) * ((double)radarRadius * crossSize * 0.55);
+                Vector3D targetPipPos = radarPos;
+                Vector3D targetPipDir = Vector3D.Normalize(currentTarget.WorldVolume.Center - playerGridPos) * ((double)radarRadius * crossSize * 0.55);
 
-					// Calculate the component of the position along the forward vector
-					Vector3D forwardComponent = Vector3D.Dot(targetPipDir, radarMatrix.Forward) * radarMatrix.Forward;
+                // Calculate the component of the position along the forward vector
+                Vector3D forwardComponent = Vector3D.Dot(targetPipDir, radarMatrix.Forward) * radarMatrix.Forward;
 
-					// Subtract the forward component from the original position to remove the forward/backward contribution
-					targetPipDir = targetPipDir - forwardComponent;
+                // Subtract the forward component from the original position to remove the forward/backward contribution
+                targetPipDir = targetPipDir - forwardComponent;
 
-					targetPipPos += targetPipDir;
-					targetPipPos += crossOffset;
+                targetPipPos += targetPipDir;
+                targetPipPos += crossOffset;
 
-					if (dotProduct > 0.49) {
-						crossColor = LINECOLOR_Comp;
-						alignLerp_goal = 0.8;
+                if (dotProduct > 0.49)
+                {
+                    crossColor = LINECOLOR_Comp;
+                    alignLerp_goal = 0.8;
 
-						if (gHandler.localGridSpeed > 0.1 && dis2Cam1 > 100) {
-							double arivalTime = dis2Cam1 / gHandler.localGridSpeed;
-							string unitsTime = "sec";
-							if (arivalTime > 120) {
-								arivalTime /= 60;
-								unitsTime = "min";
+                    if (gHandler.localGridSpeed > 0.1 && _distanceToCurrentTarget > 100)
+                    {
+                        double arivalTime = _distanceToCurrentTarget / gHandler.localGridSpeed;
+                        string unitsTime = "sec";
+                        if (arivalTime > 120)
+                        {
+                            arivalTime /= 60;
+                            unitsTime = "min";
 
-								if (arivalTime > 60) {
-									arivalTime /= 60;
-									unitsTime = "hrs";
-								}
-							}
+                            if (arivalTime > 60)
+                            {
+                                arivalTime /= 60;
+                                unitsTime = "hrs";
+                            }
+                        }
 
-							DrawText(Convert.ToString(Math.Round(arivalTime)) + " " + unitsTime, dis2Cam * 0.01, cameraPos + targetDir + (cameraMatrix.Up * dis2Cam * -0.05) + (cameraMatrix.Right * dis2Cam * 0.11 * targettingLerp), cameraMatrix.Forward, LINECOLOR_Comp);
-						}
-					} else {
-						alignLerp_goal = 1;
-					}
-					alignLerp = LerpD (alignLerp, alignLerp_goal, deltaTime * 20);
+                        DrawText(Convert.ToString(Math.Round(arivalTime)) + " " + unitsTime, dis2Cam * 0.01, cameraPos + targetDir + (cameraMatrix.Up * dis2Cam * -0.05) + (cameraMatrix.Right * dis2Cam * 0.11 * targettingLerp), cameraMatrix.Forward, LINECOLOR_Comp);
+                    }
+                }
+                else
+                {
+                    alignLerp_goal = 1;
+                }
+                alignLerp = LerpD(alignLerp, alignLerp_goal, deltaTimeSinceLastTick * 20);
 
-					if (dotProduct > 0) {
-						DrawQuadRigid(targetPipPos, radarMatrix.Backward, crossSize * 0.125 * 0.125, MaterialCircle, LINECOLOR_Comp, false); //LockOn
-					} else {
-						DrawQuadRigid(targetPipPos, radarMatrix.Backward, crossSize * 0.125 * 0.125, MaterialCircleHollow, LINECOLOR_Comp, false); //LockOn
-					}
-				}
-			} 
+                if (dotProduct > 0)
+                {
+                    DrawQuadRigid(targetPipPos, radarMatrix.Backward, crossSize * 0.125 * 0.125, MaterialCircle, LINECOLOR_Comp, false); //LockOn
+                }
+                else
+                {
+                    DrawQuadRigid(targetPipPos, radarMatrix.Backward, crossSize * 0.125 * 0.125, MaterialCircleHollow, LINECOLOR_Comp, false); //LockOn
+                }
+            } 
 			else 
 			{
 				targettingLerp = 1.5;
@@ -3760,7 +3927,7 @@ namespace EliDangHUD
             turrets = grid.GetFatBlocks<Sandbox.ModAPI.IMyLargeTurretBase>().ToList();
 
 			// We store playerGrid for re-use. 
-            long playerShipId = playerGrid?.EntityId ?? 0;
+            long playerShipId = gHandler.localGrid?.EntityId ?? 0;
 
             foreach (Sandbox.ModAPI.IMyLargeTurretBase turret in turrets)
             {
@@ -3803,6 +3970,13 @@ namespace EliDangHUD
 		//All sounds stolen from Parag Oswal.
 		//https://www.youtube.com/watch?v=mFNvL8ruDbg
 		//Sorry.
+		// 2025-07-24 FenixPK - Well that sucks... If these are using stolen sounds from a sound pack that is copyrighted, and for sale, we should rectify this.
+		// Way too expensive to buy I suspect... I could reach out to the author and ask if we can get a special license that is available for open source usage in a mod like this without paying the $500+ PER SOUND for team license.
+		// Will table this for now, and return to it later after I'm done working on what I am capable of fixing. 
+		// As of this writing I have reached out to the youtube video creator via Gmail they linked in comments asking for official permission. But I have also noted via screenshot that he has granted
+		// non-commercial use permission via replying to youtube comments to multiple people already, so if he isn't active or doesn't reply I'd assume the precedent is set that we can use sounds from that youtube video for free so 
+		// long as it is non-commercial. 
+
 
 		private static string SOUND_DAMAGE = "ED_warbleStatic";
 		private static string SOUND_BROKEN = "ED_flubStatic";
@@ -3834,7 +4008,10 @@ namespace EliDangHUD
 		private static MySoundPair SP_BOOTUP;
 		private static MySoundPair SP_MONEY;
 
-		private Stopwatch timeSinceSound = new Stopwatch();
+		/// <summary>
+		/// Timer used to ensure sounds are played too often. Will re-set to 0 when a sound plays, and should get checked before playing a new sound to ensure it hasn't been too recent. 
+		/// </summary>
+		private Stopwatch timerElapsedTimeSinceLastSound = new Stopwatch();
 
 		private VRage.ModAPI.IMyEntity soundEntity;
 		private MyEntity3DSoundEmitter ED_soundEmitter;
@@ -3850,27 +4027,31 @@ namespace EliDangHUD
 		public void PlayCustomSound(MySoundPair soundId, Vector3D position)
 		{
 
-			if (!timeSinceSound.IsRunning) {
-				timeSinceSound.Start ();
+			if (timerElapsedTimeSinceLastSound != null && !timerElapsedTimeSinceLastSound.IsRunning) 
+			{
+				timerElapsedTimeSinceLastSound.Start();
 			}
 
-			if (timeSinceSound.Elapsed.TotalSeconds > 0.05) {
+			// Only play one sound per 0.05 seconds.
+			if (timerElapsedTimeSinceLastSound.Elapsed.TotalSeconds > 0.05) 
+			{
 
 //				queuedSound qs = new queuedSound ();
 //				qs.soundId = soundId;
 //				qs.position = position;
 //				queuedSounds.Add (qs);
 //
-				ED_soundEmitter.SetPosition (position);
-				ED_soundEmitter.PlaySound (soundId);
+				ED_soundEmitter.SetPosition(position);
+				ED_soundEmitter.PlaySound(soundId);
 
-				timeSinceSound.Restart ();
+				timerElapsedTimeSinceLastSound.Restart();
 			}
 		}
 
 		public void PlayQueuedSounds()
 		{
-			foreach(var qs in queuedSounds){
+			foreach(var qs in queuedSounds)
+			{
 
 				if (ED_soundEmitter != null && qs.soundId != null && soundEntity != null)
 				{
@@ -4042,16 +4223,16 @@ namespace EliDangHUD
 			ping.Color  = color_GridNeutral;
 			ping.Status = RelationshipStatus.Neutral;
 
-			ping.Time = new Stopwatch ();
-			ping.Time.Start ();
+			ping.Time = new Stopwatch();
+			ping.Time.Start();
 
 			UpdateNewRadarPingStatus(ref ping);
 
 			return ping;
 		}
 
-		public void newRadarAnimation(VRage.ModAPI.IMyEntity entity, int loops, double lifeTime, double sizeStart, double sizeStop, float fadeStart, float fadeStop, MyStringId material, Vector4 colorStart, Vector4 colorStop, Vector3D offsetStart, Vector3D offsetStop){
-			RadarAnimation r = new RadarAnimation ();
+		public void NewRadarAnimation(VRage.ModAPI.IMyEntity entity, int loops, double lifeTime, double sizeStart, double sizeStop, float fadeStart, float fadeStop, MyStringId material, Vector4 colorStart, Vector4 colorStop, Vector3D offsetStart, Vector3D offsetStop){
+			RadarAnimation r = new RadarAnimation();
 			r.Entity = entity;
 			r.Loops = loops;
 			r.LifeTime = lifeTime;
@@ -4065,66 +4246,70 @@ namespace EliDangHUD
 			r.OffsetStart = offsetStart;
 			r.OffsetStop = offsetStop;
 
-			r.Time = new Stopwatch ();
-			r.Time.Start ();
+			r.Time = new Stopwatch();
+			r.Time.Start();
 
-			RadarAnimations.Add (r);
+			RadarAnimations.Add(r);
 		}
 			
-		public void newAlertAnim(VRage.ModAPI.IMyEntity entity){
-			if (entity == null) {
-				return;
-			}
-
-			Vector4 color = new Vector4 (Color.Red, 1);
-			Vector3D zero = new Vector3D (0, 0, 0);
-
-			newRadarAnimation (entity, 4, 0.20, 0.02, 0.002, 5, 1, MaterialTarget, color, color, zero, zero);
-		}
-
-		public void newBlipAnim(VRage.ModAPI.IMyEntity entity)
+		public void NewAlertAnim(VRage.ModAPI.IMyEntity entity)
 		{
 			if (entity == null) 
 			{
 				return;
 			}
 
-			Vector4 color = new Vector4 (Color.Yellow, 1);
-			Vector3D zero = new Vector3D (0, 0, 0);
+			Vector4 color = new Vector4(Color.Red, 1);
+			Vector3D zero = new Vector3D(0, 0, 0);
 
-			newRadarAnimation (entity, 1, 0.25, 0.02, 0.002, 3, 1, MaterialTarget, color, color, zero, zero);
+			NewRadarAnimation(entity, 4, 0.20, 0.02, 0.002, 5, 1, MaterialTarget, color, color, zero, zero);
 		}
 
-		public void updateRadarAnimations(Vector3D shipPos){
+		public void NewBlipAnim(VRage.ModAPI.IMyEntity entity)
+		{
+			if (entity == null) 
+			{
+				return;
+			}
+
+			Vector4 color = new Vector4(Color.Yellow, 1);
+			Vector3D zero = new Vector3D(0, 0, 0);
+
+			NewRadarAnimation(entity, 1, 0.25, 0.02, 0.002, 3, 1, MaterialTarget, color, color, zero, zero);
+		}
+
+		public void UpdateRadarAnimations(Vector3D shipPos)
+		{
 			List<RadarAnimation> deleteList = new List<RadarAnimation>();
 
 			MatrixD cameraMatrix = MyAPIGateway.Session.Camera.WorldMatrix;
 			Vector3 viewUp = cameraMatrix.Up;
 			Vector3 viewLeft = cameraMatrix.Left;
 
-			for (int i = 0; i < RadarAnimations.Count; i++){
-				if (RadarAnimations [i].Time.Elapsed.TotalSeconds > (RadarAnimations [i].LifeTime * RadarAnimations [i].Loops)) 
+			for (int i = 0; i < RadarAnimations.Count; i++)
+			{
+				if (RadarAnimations[i].Time.Elapsed.TotalSeconds > (RadarAnimations[i].LifeTime * RadarAnimations[i].Loops)) 
 				{
 					//If time is greater than length of animation, add to the deletion list and skip rendering.
-					deleteList.Add (RadarAnimations [i]); // Why was this commented out?
+					deleteList.Add(RadarAnimations[i]); // Why was this commented out?
 				}
 				else
 				{
-					VRage.ModAPI.IMyEntity entity = 	RadarAnimations[i].Entity;
+					VRage.ModAPI.IMyEntity entity = RadarAnimations[i].Entity;
 
 					//Calculate time scaling
-					double cTime = 		RadarAnimations [i].Time.Elapsed.TotalSeconds / RadarAnimations [i].LifeTime;
-					cTime = 			cTime - Math.Truncate (cTime);
-					cTime = 			MathHelperD.Clamp (cTime, 0, 1);
+					double cTime = RadarAnimations[i].Time.Elapsed.TotalSeconds / RadarAnimations[i].LifeTime;
+					cTime = cTime - Math.Truncate(cTime);
+					cTime = MathHelperD.Clamp(cTime, 0, 1);
 
 					//Lerp Attributes based on time scaling
-					Vector4 color = 	Vector4.Lerp (RadarAnimations [i].ColorStart, RadarAnimations [i].ColorStop, (float)cTime);
-					Vector3D offset = 	Vector3D.Lerp (RadarAnimations [i].OffsetStart, RadarAnimations [i].OffsetStop, (float)cTime);
-					float fade =  		LerpF (RadarAnimations [i].FadeStart, RadarAnimations [i].FadeStop, (float)cTime);
-					double size = 		LerpD (RadarAnimations [i].SizeStart, RadarAnimations [i].SizeStop, cTime);
+					Vector4 color = Vector4.Lerp(RadarAnimations[i].ColorStart, RadarAnimations[i].ColorStop, (float)cTime);
+					Vector3D offset = Vector3D.Lerp(RadarAnimations[i].OffsetStart, RadarAnimations[i].OffsetStop, (float)cTime);
+					float fade = LerpF(RadarAnimations[i].FadeStart, RadarAnimations[i].FadeStop, (float)cTime);
+					double size = LerpD(RadarAnimations[i].SizeStart, RadarAnimations[i].SizeStop, cTime);
 
-					Vector3D entityPos = entity.GetPosition ();
-					Vector3D upSquish = Vector3D.Dot (entityPos, radarMatrix.Up) * radarMatrix.Up;
+					Vector3D entityPos = entity.GetPosition();
+					Vector3D upSquish = Vector3D.Dot(entityPos, radarMatrix.Up) * radarMatrix.Up;
 					//entityPos -= (upSquish*squishValue); //------Squishing the vertical axis on the radar to make it easier to read... but less vertically accurate.
 
 					// Apply radar scaling
@@ -4133,16 +4318,16 @@ namespace EliDangHUD
 					// Position on the radar
 					Vector3D radarEntityPos = worldRadarPos + scaledPos + offset;
 
-					MyTransparentGeometry.AddBillboardOriented (RadarAnimations[i].Material, color*fade, radarEntityPos, viewLeft, viewUp, (float)size);
+					MyTransparentGeometry.AddBillboardOriented(RadarAnimations[i].Material, color*fade, radarEntityPos, viewLeft, viewUp, (float)size);
 				}
 			}
 
 			//Delete all animations that were flagged in the prior step.
 			foreach(var d in deleteList)
 			{
-				if (RadarAnimations.Contains (d)) 
+				if (RadarAnimations.Contains(d)) 
 				{
-					d.Time.Stop ();
+					d.Time.Stop();
 					RadarAnimations.Remove(d);
 				}
 			}
@@ -4195,25 +4380,22 @@ namespace EliDangHUD
 
 					Vector3D position = orbitPoints [i];
 					Vector4 color = colorr;
-					if (GetRandomBoolean()) {
+					if (GetRandomBoolean()) 
+					{
 						if (glitchAmount > 0.001) {
 							float glitchValue = (float)glitchAmount;
 
-							Vector3D offsetRan = new Vector3D (
-								(GetRandomDouble () - 0.5) * 2,
-								(GetRandomDouble () - 0.5) * 2,
-								(GetRandomDouble () - 0.5) * 2
-							);
+							Vector3D offsetRan = new Vector3D ((GetRandomDouble () - 0.5) * 2, (GetRandomDouble () - 0.5) * 2, (GetRandomDouble () - 0.5) * 2);
 							double dis2Cam = Vector3D.Distance (MyAPIGateway.Session.Camera.Position, position);
 
 							position += offsetRan * dis2Cam * glitchValue * 0.005;
-							color *= GetRandomFloat ();
+							color *= GetRandomFloat();
 						}
 					}
 
 
 
-					double dis = Vector3D.Distance (position, orbitPoints [(i + 1) % segments]);
+					double dis = Vector3D.Distance(position, orbitPoints [(i + 1) % segments]);
 					Vector3D dir = Vector3D.Normalize(orbitPoints [(i + 1) % segments] - position);
 					MyTransparentGeometry.AddBillboardOriented(MaterialSquare,color, position,dir,left,(float)dis*gap,width);
 				}
@@ -4389,11 +4571,11 @@ namespace EliDangHUD
                         double relativeDistanceSqr;
 						bool entityHasActiveRadar;
 						double entityMaxActiveRange;
-                        EvaluateGridAntennaStatus(playerGrid, out playerHasPassiveRadar, out playerHasActiveRadar, out playerMaxPassiveRange, out playerMaxActiveRange);
+                        EvaluateGridAntennaStatus(gHandler.localGrid, out playerHasPassiveRadar, out playerHasActiveRadar, out playerMaxPassiveRange, out playerMaxActiveRange);
 
                         bool canPlayerDetect = false;
                         Vector3D entityPos = new Vector3D();
-                        CanGridRadarDetectEntity(playerHasPassiveRadar, playerHasActiveRadar, playerMaxPassiveRange, playerMaxActiveRange, gHandler.localGridEntity.GetPosition(), newTarget, out canPlayerDetect, out entityPos, out relativeDistanceSqr, out entityHasActiveRadar, out entityMaxActiveRange);
+                        CanGridRadarDetectEntity(playerHasPassiveRadar, playerHasActiveRadar, playerMaxPassiveRange, playerMaxActiveRange, gHandler.localGridControlledEntity.GetPosition(), newTarget, out canPlayerDetect, out entityPos, out relativeDistanceSqr, out entityHasActiveRadar, out entityMaxActiveRange);
 
                         if (canPlayerDetect)
                         {
@@ -4720,7 +4902,7 @@ namespace EliDangHUD
 		{
             currentTarget = newTarget;
             isTargetLocked = true;
-            newBlipAnim(newTarget);
+            NewBlipAnim(newTarget);
             PlayCustomSound(SP_ZOOMOUT, worldRadarPos);
         }
 
@@ -4777,11 +4959,13 @@ namespace EliDangHUD
 		private void Echo(string message)
 		{
 			bool isGuiVisible = MyAPIGateway.Gui.IsCursorVisible;
-			if (isGuiVisible) {
+			if (isGuiVisible) 
+			{
 				return;
 			}
 
-			if (message != Echo_String_Prev) {
+			if (message != Echo_String_Prev) 
+			{
 				// This method should be replaced with your actual logging or display method
 				MyAPIGateway.Utilities.ShowMessage ("Echo", message);
 			}
@@ -4795,6 +4979,7 @@ namespace EliDangHUD
 			public VRage.Game.ModAPI.IMySlimBlock Block;
 			public Vector3D Position;
 			public Vector3D WorldRelativePosition;
+			public Vector3D HologramDrawPosition;
 			public double HealthMax;
 			public double HealthCurrent;
 			public double HealthLast;
@@ -4839,8 +5024,9 @@ namespace EliDangHUD
 		private bool HG_initialized = false;
 		private bool HG_initializedTarget = false;
 		private double HG_Scale = 0.0075;//0.0125;
-		private Vector3D HG_Offset = new Vector3D(-0.2,0.075,0);
-		private double HG_scaleFactor = 10;
+		private Vector3D _hologramRightOffset_HardCode = new Vector3D(-0.2, 0.075, 0); 
+        private Vector3D _hologramOffsetLeft_HardCode = new Vector3D(0.2, 0.075, 0);
+        private double HG_scaleFactor = 10;
 		private double HG_activationTime = 0;
 		private double HG_activationTimeTarget = 0;
 
@@ -4894,6 +5080,13 @@ namespace EliDangHUD
             string hitPointsString = Convert.ToString(Math.Ceiling(healthCurrent / 100 * bootUpAlpha));
             Vector3D textPos = hgPos + (radarMatrix.Left * (hitPointsString.Length * fontSize)) + (radarMatrix.Up * fontSize) + (radarMatrix.Forward * fontSize * 0.5) + textPosOffset;
             DrawText(hitPointsString, fontSize, textPos, radarMatrix.Forward, theSettings.lineColor);
+        }
+
+
+        private void UpdateHologramStatus(ref double activationTime, ref double shieldLast, ref double shieldCurrent, ref double shieldMax, ref double healthCurrent,
+            double deltaTime, List<BlockTracker> drives, List<BlockTracker> blocks, ref double timeToReady, ref int blockCount)
+        {
+           
 
             activationTime += deltaTime * 0.667;
 
@@ -4908,11 +5101,11 @@ namespace EliDangHUD
 
 
 
-
-        public void HG_Update()
+        // Currently handles both rendering and update, need to separate out this logic...
+        public void HG_Update_OLD()
 		{
 			if (!Drives_deltaTimer.IsRunning) {
-				Drives_deltaTimer.Start ();
+				Drives_deltaTimer.Start();
 			}
 
 			Drives_deltaTime = Drives_deltaTimer.Elapsed.TotalSeconds;
@@ -4940,11 +5133,11 @@ namespace EliDangHUD
 			{
 
 				HG_DrawHologramLocal(hologramLocalGrid, localGridBlocks);
-				Vector3D hgPos_Right = worldRadarPos + radarMatrix.Right * radarRadius + radarMatrix.Left * HG_Offset.X + radarMatrix.Down * 0.0075 + (radarMatrix.Forward * fontSize * 2);
+				Vector3D hgPos_Right = worldRadarPos + radarMatrix.Right * radarRadius + radarMatrix.Left * _hologramRightOffset_HardCode.X + radarMatrix.Down * 0.0075 + (radarMatrix.Forward * fontSize * 2);
 				Vector3D textPos_Offset = (radarMatrix.Left * 0.065);
-				Vector3D shieldPos_Right = worldRadarPos + radarMatrix.Left * -radarRadius + radarMatrix.Left * HG_Offset.X + radarMatrix.Up * HG_Offset.Y + radarMatrix.Forward * HG_Offset.Z;
+				Vector3D shieldPos_Right = worldRadarPos + radarMatrix.Left * -radarRadius + radarMatrix.Left * _hologramRightOffset_HardCode.X + radarMatrix.Up * _hologramRightOffset_HardCode.Y + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
 				DrawHologramStatus(hgPos_Right, shieldPos_Right, textPos_Offset, ref HG_activationTime, ref localGridShieldsLast, ref localGridShieldsCurrent,
-					ref localGridShieldsMax, ref localGridHealthCurrent, localGridHealthMax, deltaTime, localGridDrives, localGridBlocks, ref localGridTimeToReady, fontSize, ref localGridBlockCounter);
+					ref localGridShieldsMax, ref localGridHealthCurrent, localGridHealthMax, deltaTimeSinceLastTick, localGridDrives, localGridBlocks, ref localGridTimeToReady, fontSize, ref localGridBlockCounter);
 			}
 
 
@@ -4964,18 +5157,114 @@ namespace EliDangHUD
 				if (HG_initializedTarget) 
 				{
                     HG_DrawHologramTarget(hologramTargetGrid, targetGridBlocks);
-                    Vector3D hgPos_Left = worldRadarPos + radarMatrix.Left * radarRadius + radarMatrix.Right * HG_Offset.X + radarMatrix.Down * 0.0075 + (radarMatrix.Forward * fontSize * 2);
+                    Vector3D hgPos_Left = worldRadarPos + radarMatrix.Left * radarRadius + radarMatrix.Right * _hologramRightOffset_HardCode.X + radarMatrix.Down * 0.0075 + (radarMatrix.Forward * fontSize * 2);
                     Vector3D textPos_Offset = (radarMatrix.Right * 0.065);
-                    Vector3D shieldPos_Left = worldRadarPos + radarMatrix.Right * -radarRadius + radarMatrix.Right * HG_Offset.X + radarMatrix.Up * HG_Offset.Y + radarMatrix.Forward * HG_Offset.Z;
+                    Vector3D shieldPos_Left = worldRadarPos + radarMatrix.Right * -radarRadius + radarMatrix.Right * _hologramRightOffset_HardCode.X + radarMatrix.Up * _hologramRightOffset_HardCode.Y + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
                     DrawHologramStatus(hgPos_Left, shieldPos_Left, textPos_Offset, ref HG_activationTimeTarget, ref targetShieldsLast, ref targetShieldsCurrent,
-                        ref targetShieldsMax, ref targetGridHealthCurrent, targetGridHealthMax, deltaTime, targetGridDrives, targetGridBlocks, ref targetTimeToReady, fontSize, ref targetBlockCounter);
+                        ref targetShieldsMax, ref targetGridHealthCurrent, targetGridHealthMax, deltaTimeSinceLastTick, targetGridDrives, targetGridBlocks, ref targetTimeToReady, fontSize, ref targetBlockCounter);
 				}
 			} else {
 				HG_initializedTarget = false;
 			}
 		}
 
-		private void drawShields(Vector3D pos, double sp_cur, double sp_max, double bootTime, double time2ready){
+        public void HG_Update()
+        {
+            if (!Drives_deltaTimer.IsRunning)
+            {
+                Drives_deltaTimer.Start();
+            }
+
+            Drives_deltaTime = Drives_deltaTimer.Elapsed.TotalSeconds;
+            Drives_deltaTimer.Restart();
+            //Drives_deltaTimer.Start ();
+
+            if (!HG_initialized)
+            {
+                localGridHealthMax = 0;
+                localGridHealthCurrent = 0;
+                localGridBlockCounter = 0;
+                localGridShieldsMax = 0;
+                localGridShieldsCurrent = 0;
+
+                HG_InitializeLocalGrid();
+                HG_initialized = true;
+                HG_activationTime = 0;
+
+                
+            }
+            if (hologramLocalGrid != null && theSettings.enableHologramsGlobal && EnableHolograms_you) //God, I really should have made this far more generic so I don't have to manage the same code for the player and the target seperately...
+                                                                                                       // No problem, FenixPK has your got your back jack. Standardized this 2025-07-14. 
+            {
+                HG_UpdateHologramLocal(hologramLocalGrid, localGridBlocks);
+                UpdateHologramStatus(ref HG_activationTime, ref localGridShieldsLast, ref localGridShieldsCurrent,
+                        ref localGridShieldsMax, ref localGridHealthCurrent, deltaTimeSinceLastTick, localGridDrives, localGridBlocks, ref localGridTimeToReady,  ref localGridBlockCounter);
+            }
+
+
+
+            if (isTargetLocked && currentTarget != null && theSettings.enableHologramsGlobal && EnableHolograms_them)
+            {
+                if (!HG_initializedTarget)
+                {
+                    targetGridHealthMax = 0;
+                    targetGridHealthCurrent = 0;
+                    targetBlockCounter = 0;
+                    targetShieldsMax = 0;
+                    targetShieldsCurrent = 0;
+
+                    HG_InitializeTargetGrid(currentTarget);
+                    HG_initializedTarget = true;
+                    HG_activationTimeTarget = 0;
+                }
+                if (HG_initializedTarget)
+                {
+                    HG_UpdateHologramTarget(hologramTargetGrid, targetGridBlocks);
+                    UpdateHologramStatus(ref HG_activationTimeTarget, ref targetShieldsLast, ref targetShieldsCurrent,
+                        ref targetShieldsMax, ref targetGridHealthCurrent, deltaTimeSinceLastTick, targetGridDrives, targetGridBlocks, ref targetTimeToReady, ref targetBlockCounter);
+                }
+            }
+            else
+            {
+                HG_initializedTarget = false;
+            }
+        }
+
+        /// <summary>
+        /// Just the Drawing/Rendering logic for the local grid and target grid holograms.
+        /// </summary>
+        public void HG_Draw()
+        {
+            double fontSize = 0.005;
+            
+            if (hologramLocalGrid != null && theSettings.enableHologramsGlobal && EnableHolograms_you) //God, I really should have made this far more generic so I don't have to manage the same code for the player and the target seperately...                                                                                     // No problem, FenixPK has your got your back jack. Standardized this 2025-07-14. 
+            {
+                if (HG_initialized)
+                {
+                    HG_DrawHologramLocal(hologramLocalGrid, localGridBlocks);
+                    Vector3D hgPos_Right = worldRadarPos + radarMatrix.Right * radarRadius + radarMatrix.Left * _hologramRightOffset_HardCode.X + radarMatrix.Down * 0.0075 + (radarMatrix.Forward * fontSize * 2);
+                    Vector3D textPos_Offset = (radarMatrix.Left * 0.065);
+                    Vector3D shieldPos_Right = worldRadarPos + radarMatrix.Left * -radarRadius + radarMatrix.Left * _hologramRightOffset_HardCode.X + radarMatrix.Up * _hologramRightOffset_HardCode.Y + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
+                    DrawHologramStatus(hgPos_Right, shieldPos_Right, textPos_Offset, ref HG_activationTime, ref localGridShieldsLast, ref localGridShieldsCurrent,
+                        ref localGridShieldsMax, ref localGridHealthCurrent, localGridHealthMax, deltaTimeSinceLastTick, localGridDrives, localGridBlocks, ref localGridTimeToReady, fontSize, ref localGridBlockCounter);
+                }
+            }
+            if (isTargetLocked && currentTarget != null && theSettings.enableHologramsGlobal && EnableHolograms_them)
+            {
+                if (HG_initializedTarget)
+                {
+                    HG_DrawHologramTarget(hologramTargetGrid, targetGridBlocks);
+                    Vector3D hgPos_Left = worldRadarPos + radarMatrix.Left * radarRadius + radarMatrix.Right * _hologramRightOffset_HardCode.X + radarMatrix.Down * 0.0075 + (radarMatrix.Forward * fontSize * 2);
+                    Vector3D textPos_Offset = (radarMatrix.Right * 0.065);
+                    Vector3D shieldPos_Left = worldRadarPos + radarMatrix.Right * -radarRadius + radarMatrix.Right * _hologramRightOffset_HardCode.X + radarMatrix.Up * _hologramRightOffset_HardCode.Y + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
+                    DrawHologramStatus(hgPos_Left, shieldPos_Left, textPos_Offset, ref HG_activationTimeTarget, ref targetShieldsLast, ref targetShieldsCurrent,
+                        ref targetShieldsMax, ref targetGridHealthCurrent, targetGridHealthMax, deltaTimeSinceLastTick, targetGridDrives, targetGridBlocks, ref targetTimeToReady, fontSize, ref targetBlockCounter);
+                }
+            }
+        }
+
+        private void drawShields(Vector3D pos, double sp_cur, double sp_max, double bootTime, double time2ready)
+		{
 
 			double sp = sp_cur/sp_max;
 
@@ -4987,38 +5276,45 @@ namespace EliDangHUD
 			double yShieldPer2 = ClampedD(RemapD(sp, 0.333, 0.667, 0, 1), 0, 1);
 			double yShieldPer3 = ClampedD(RemapD(sp, 0.667, 1, 0, 1), 0, 1);
 
-			Vector3D dir = Vector3D.Normalize ((radarMatrix.Up * 2 + radarMatrix.Backward) / 3);
+			Vector3D dir = Vector3D.Normalize((radarMatrix.Up * 2 + radarMatrix.Backward) / 3);
 
-			if (sp > 0.01) {
+			if (sp > 0.01) 
+			{
 				bool dotty = false;
-				if (yShieldPer1 > 0.01) {
+				if (yShieldPer1 > 0.01) 
+				{
 					dotty = yShieldPer1 < 0.25;
-					DrawCircle (pos, 0.08 - (1 - boot3) * 0.08, dir, LINECOLOR_Comp * (float)Math.Ceiling (boot3), dotty, 1, 0.001f * (float)yShieldPer1);
+					DrawCircle(pos, 0.08 - (1 - boot3) * 0.08, dir, LINECOLOR_Comp * (float)Math.Ceiling (boot3), dotty, 1, 0.001f * (float)yShieldPer1);
 				}
-				if (yShieldPer2 > 0.01) {
+				if (yShieldPer2 > 0.01) 
+				{
 					dotty = yShieldPer2 < 0.25;
-					DrawCircle (pos, 0.085 - (1-boot2)*0.085, dir, LINECOLOR_Comp * (float)Math.Ceiling(boot2), dotty, 1, 0.001f * (float)yShieldPer2);
+					DrawCircle(pos, 0.085 - (1-boot2)*0.085, dir, LINECOLOR_Comp * (float)Math.Ceiling(boot2), dotty, 1, 0.001f * (float)yShieldPer2);
 				}
-				if (yShieldPer3 > 0.01) {
+				if (yShieldPer3 > 0.01) 
+				{
 					dotty = yShieldPer3 < 0.25;
-					DrawCircle (pos, 0.09 - (1-boot1)*0.09, dir, LINECOLOR_Comp * (float)Math.Ceiling(boot1), dotty, 1, 0.001f * (float)yShieldPer3);
+					DrawCircle(pos, 0.09 - (1-boot1)*0.09, dir, LINECOLOR_Comp * (float)Math.Ceiling(boot1), dotty, 1, 0.001f * (float)yShieldPer3);
 				}
-			}else{
-				DrawCircle (pos, 0.08, dir, new Vector4(1,0,0,1), true, 0.5f, 0.001f);
+			}
+			else
+			{
+				DrawCircle(pos, 0.08, dir, new Vector4(1,0,0,1), true, 0.5f, 0.001f);
 			}
 
 			double fontSize = 0.005;
-			string ShieldValueS = Convert.ToString (Math.Round(sp_cur * bootTime * 1000));
+			string ShieldValueS = Convert.ToString(Math.Round(sp_cur * bootTime * 1000));
 			Vector4 ShieldValueC = LINECOLOR_Comp;
 
-			if (sp < 0.01) {
+			if (sp < 0.01) 
+			{
 				ShieldValueS = "SHIELDS DOWN";
-				ShieldValueC = new Vector4 (1, 0, 0, 1);
+				ShieldValueC = new Vector4(1, 0, 0, 1);
 
-				string time2readyS = FormatSecondsToReadableTime (time2ready);
+				string time2readyS = FormatSecondsToReadableTime(time2ready);
 
 				Vector3D timePos = pos + (radarMatrix.Backward * 0.065) + (radarMatrix.Down * fontSize * 8) + (radarMatrix.Left * time2readyS.Length * fontSize);
-				DrawText (time2readyS, fontSize, timePos, radarMatrix.Forward, ShieldValueC, 1);
+				DrawText(time2readyS, fontSize, timePos, radarMatrix.Forward, ShieldValueC, 1);
 			}
 			Vector3D textPos = pos + (radarMatrix.Backward * 0.065) + (radarMatrix.Down * fontSize * 4) + (radarMatrix.Left * ShieldValueS.Length * fontSize);
 			DrawText (ShieldValueS, fontSize, textPos, radarMatrix.Forward, ShieldValueC, 1);
@@ -5032,13 +5328,14 @@ namespace EliDangHUD
 				return "Invalid time"; // Handle invalid input appropriately
 			}
 
-			if (seconds > 86400) {
+			if (seconds > 86400) 
+			{
 				seconds /= 86400;
-				seconds = Math.Round (seconds);
+				seconds = Math.Round(seconds);
 				string days = $"{seconds} Days";
 				return days;
 			}
-			seconds = ClampedD (seconds, 0.001, double.MaxValue);
+			seconds = ClampedD(seconds, 0.001, double.MaxValue);
 
 			if (double.IsNaN(seconds) || double.IsInfinity(seconds))
 			{
@@ -5066,22 +5363,25 @@ namespace EliDangHUD
 		private void HG_UpdateBlockStatus (ref int blockCount, List<BlockTracker> blocksList, ref double hitPoints)
 		{
 			int tempCount = blockCount;
-			if (tempCount >= 0 && tempCount < blocksList.Count) {
+			if (tempCount >= 0 && tempCount < blocksList.Count) 
+			{
 
-				if (blocksList [tempCount].Block != null) {
-					VRage.Game.ModAPI.IMySlimBlock block = blocksList [tempCount].Block;
-					blocksList [tempCount].HealthCurrent = block.Integrity;
-					blocksList [tempCount].HealthMax = block.MaxIntegrity;
+				if (blocksList[tempCount].Block != null) 
+				{
+					VRage.Game.ModAPI.IMySlimBlock block = blocksList[tempCount].Block;
+					blocksList[tempCount].HealthCurrent = block.Integrity;
+					blocksList[tempCount].HealthMax = block.MaxIntegrity;
 
-					hitPoints -= blocksList [tempCount].HealthLast - blocksList [tempCount].HealthCurrent;
+					hitPoints -= blocksList[tempCount].HealthLast - blocksList[tempCount].HealthCurrent;
 
-					blocksList [tempCount].HealthLast = blocksList [tempCount].HealthCurrent;
+					blocksList[tempCount].HealthLast = blocksList[tempCount].HealthCurrent;
 
 					//DAMAGE EVENT if Last is more than Current
 				}
 
                 tempCount += 1;
-				if (tempCount >= blocksList.Count) {
+				if (tempCount >= blocksList.Count) 
+				{
                     tempCount = 0;
 				}
 
@@ -5091,7 +5391,7 @@ namespace EliDangHUD
 			blockCount = tempCount;
 		}
 
-		private Stopwatch Drives_deltaTimer = new Stopwatch ();
+		private Stopwatch Drives_deltaTimer = new Stopwatch();
 		private double Drives_deltaTime = 0;
 
 		private void HG_UpdateDriveStatus(List<BlockTracker> BT, ref double hitPointsCurrent, ref double hitPointsMax, out double time2ready)
@@ -5112,18 +5412,22 @@ namespace EliDangHUD
 					}
 					hitPointsMax += block.JumpDrive.MaxStoredPower;
 
-					if (hitPointsMax != hitPointsCurrent) {
-						double currentStoredPower = 	block.JumpDrive.CurrentStoredPower;
-						double lastStoredPower = 		block.JumpDriveLastStoredPower;
-						double difPower = 				(currentStoredPower - lastStoredPower);
+					if (hitPointsMax != hitPointsCurrent) 
+					{
+						double currentStoredPower = block.JumpDrive.CurrentStoredPower;
+						double lastStoredPower = block.JumpDriveLastStoredPower;
+						double difPower = (currentStoredPower - lastStoredPower);
 
-						if( difPower > 0){
-							double powerPerSecond = 	(currentStoredPower-lastStoredPower) / Drives_deltaTime;
+						if( difPower > 0)
+						{
+							double powerPerSecond = (currentStoredPower-lastStoredPower) / Drives_deltaTime;
 
-							if (powerPerSecond > 0) {
+							if (powerPerSecond > 0) 
+							{
 								double timeRemaining = ((block.JumpDrive.MaxStoredPower - currentStoredPower) / powerPerSecond)*100;
 
-								if (timeRemaining < minTime) {
+								if (timeRemaining < minTime) 
+								{
 									minTime = timeRemaining;
 								}
 
@@ -5187,7 +5491,8 @@ namespace EliDangHUD
 
 		private void HG_InitializeTargetGrid(VRage.ModAPI.IMyEntity target)
 		{
-			if (target == null) {
+			if (target == null) 
+			{
 				return;
 			}
 			hologramTargetGrid = target as VRage.Game.ModAPI.IMyCubeGrid;
@@ -5235,7 +5540,7 @@ namespace EliDangHUD
 				double Health_Cur = block.Integrity;
 
 				// Store block related info in the BlockTracker
-				BlockTracker BT = new BlockTracker ();
+				BlockTracker BT = new BlockTracker();
 				BT.Position = Position; // Okay my understanding of this is limited at best.
 										// I believe what BT.Position actually contains is "where this block would be if the grid was at origin (0, 0, 0), facing forward, and normalized to unit size." 
 				BT.WorldRelativePosition = worldRelativePosition; 
@@ -5278,15 +5583,16 @@ namespace EliDangHUD
 		{
 			var blockPositions = new List<Vector3D>();
 
-			if (grid == null) {
+			if (grid == null) 
+			{
 				return blockPositions;
 			}
 
 			var center = grid.WorldVolume.Center;
-			var pos = grid.GetPosition ();
+			var pos = grid.GetPosition();
 
-			MatrixD inverseMatrix = GetRotationMatrix (grid.WorldMatrix);
-			inverseMatrix = MatrixD.Invert (inverseMatrix);
+			MatrixD inverseMatrix = GetRotationMatrix(grid.WorldMatrix);
+			inverseMatrix = MatrixD.Invert(inverseMatrix);
 
 
 			var blocks = new List<VRage.Game.ModAPI.IMySlimBlock>();
@@ -5296,9 +5602,9 @@ namespace EliDangHUD
 			{
 				Vector3D sc;
 				//block.ComputeScaledCenter(out sc);
-				block.ComputeWorldCenter (out sc);
+				block.ComputeWorldCenter(out sc);
 				sc -= center;
-				sc = Vector3D.Transform (sc, inverseMatrix);
+				sc = Vector3D.Transform(sc, inverseMatrix);
 				sc /= grid.GridSize;
 				blockPositions.Add(sc);
 			}
@@ -5325,22 +5631,65 @@ namespace EliDangHUD
 			return rotationMatrix;
 		}
 
-		private void HG_DrawHologramLocal(VRage.Game.ModAPI.IMyCubeGrid localGrid, List<BlockTracker> blockInfo)
+        private void HG_UpdateHologramLocal(VRage.Game.ModAPI.IMyCubeGrid localGrid, List<BlockTracker> blockInfo)
+        {
+            // TODO this method needs rework to be like target, BUT only in the sense of the transformations/code improvements. It should be using block Tracker. And block tracker should be modified to 
+            // store UNSCALED blocks only so it can work with transformations/rotations. And also update in the UpdateBeforeSimulation not in the Draw
+            if (localGrid != null)
+            {
+                bool isEntityTarget = false;
+                MatrixD angularRotationWiggle = MatrixD.Identity;
+                MatrixD rotationOnlyGridMatrix = localGrid.WorldMatrix;
+                rotationOnlyGridMatrix.Translation = Vector3D.Zero; // Set the translation to zero to get only the rotation component.
+
+                // This uses the cockpit controlled by the player and gets the angular velocity of the cubeblock.
+                if (HologramView_AngularWiggle)
+                {
+                    angularRotationWiggle = CreateNormalizedLocalGridRotationMatrix();  // Used to apply a "wiggle" effect to the hologram based on the angular velocity of the grid.
+                }
+
+                foreach (var BT in blockInfo)
+                {
+                    // FenixPK Woohoo! as of 2025-07-17 I have figured this out, it now shows the local grid from the back, and wiggles it left/right, up/down, or rolls it based on the angular velocity of the grid. It recenters on the rear view when you come to a rest.
+                    // Fantastic. Next step is to allow the user to change the angle of the hologram on demand with keybinds, AND code something to detect damage and weight it so we can flip the hologram to show the side taking damage mwahahaha. 
+
+                    //Tests
+                    //So if I were to create a fake MatrixD I could do whatever I want to the view...
+                    //MatrixD rotate180X = MatrixD.CreateRotationX(MathHelper.ToRadians(180)); // This rotates the position 180 degrees around the X axis. Was math.pi in radians?
+                    //Vector3D positionTest = Vector3D.Rotate(BT.Position, rotate180X);
+                    //positionTest = Vector3D.Transform(positionTest, targetGrid.WorldMatrix);
+                    // YES! The above did exactly what I expected, it rotated the position of the hologram 180 degrees around the X axis. So it was upside down. 
+                    // HOWEVER it still rotates based on how the player rotates likely because HG_DrawBillboard uses the camera's position to draw the hologram...
+
+                    // Note to self, we can create MatrixD's that have various rotational transformations and then use them here on a period so we get it to rotate through top, bottom, left, right, front, back etc. 
+                    // Or make it a toggle with a keybind? So many ideas. 
+
+                    Vector3D blockPositionToTransform = BT.Position;
+                    Vector3D blockPositionTransformed = Vector3D.Zero;
+                    Vector3D finalBlockPositionToDraw = Vector3D.Zero;
+
+                    if (HologramView_AngularWiggle)
+                    {
+                        // This is to give a "wiggle" effect to a fixed hologram if you are rotating to represent how quickly you are rotating. For eg. if viewed from the back and you pitch nose up
+                        // the hologram will have the nose pitch up based on how fast you are rotating. The faster you are rotating in the upward direction, the more the nose of the hologram will pitch up.
+                        Vector3D blockPositionWiggled = Vector3D.Rotate(blockPositionToTransform, angularRotationWiggle); // This applies the angular rotation based on the angular velocity of the grid.
+                        blockPositionTransformed = blockPositionWiggled; // Wiggle it first for angular velocity if enabled.
+                    }
+
+                    Vector3D blockPositionRotated = Vector3D.Transform(blockPositionTransformed, rotationOnlyGridMatrix);
+                    finalBlockPositionToDraw = blockPositionRotated;
+					BT.HologramDrawPosition = finalBlockPositionToDraw;
+                }
+            }
+        }
+
+        private void HG_DrawHologramLocal(VRage.Game.ModAPI.IMyCubeGrid localGrid, List<BlockTracker> blockInfo)
 		{
 			// TODO this method needs rework to be like target, BUT only in the sense of the transformations/code improvements. It should be using block Tracker. And block tracker should be modified to 
 			// store UNSCALED blocks only so it can work with transformations/rotations. And also update in the UpdateBeforeSimulation not in the Draw
 			if (localGrid != null)
 			{
 				bool isEntityTarget = false;
-				MatrixD angularRotationWiggle = MatrixD.Identity;
-                MatrixD rotationOnlyGridMatrix = localGrid.WorldMatrix;
-                rotationOnlyGridMatrix.Translation = Vector3D.Zero; // Set the translation to zero to get only the rotation component.
-
-                // This uses the cockpit controlled by the player and gets the angular velocity of the cubeblock.
-                if (HologramView_AngularWiggle) 
-				{
-                    angularRotationWiggle = CreateNormalizedLocalGridRotationMatrix();  // Used to apply a "wiggle" effect to the hologram based on the angular velocity of the grid.
-                }
 
                 foreach (var BT in blockInfo)
                 {
@@ -5358,23 +5707,8 @@ namespace EliDangHUD
 					// Note to self, we can create MatrixD's that have various rotational transformations and then use them here on a period so we get it to rotate through top, bottom, left, right, front, back etc. 
 					// Or make it a toggle with a keybind? So many ideas. 
 
-					Vector3D blockPositionToTransform = BT.Position;
-					Vector3D blockPositionTransformed = Vector3D.Zero;
-					Vector3D finalBlockPositionToDraw = Vector3D.Zero;
-
-                    if (HologramView_AngularWiggle) 
-					{
-                        // This is to give a "wiggle" effect to a fixed hologram if you are rotating to represent how quickly you are rotating. For eg. if viewed from the back and you pitch nose up
-                        // the hologram will have the nose pitch up based on how fast you are rotating. The faster you are rotating in the upward direction, the more the nose of the hologram will pitch up.
-                        Vector3D blockPositionWiggled = Vector3D.Rotate(blockPositionToTransform, angularRotationWiggle); // This applies the angular rotation based on the angular velocity of the grid.
-						blockPositionTransformed = blockPositionWiggled; // Wiggle it first for angular velocity if enabled.
-                    }
-
-                    Vector3D blockPositionRotated = Vector3D.Transform(blockPositionTransformed, rotationOnlyGridMatrix);
-					finalBlockPositionToDraw = blockPositionRotated;
-
                     double HealthPercent = ClampedD(BT.HealthCurrent / BT.HealthMax, 0, 1);
-                    HG_DrawBillboardLocal(finalBlockPositionToDraw, localGrid, isEntityTarget, HealthPercent);
+                    HG_DrawBillboardLocal(BT.HologramDrawPosition, localGrid, isEntityTarget, HealthPercent);
                 }
             }
         }
@@ -5467,7 +5801,7 @@ namespace EliDangHUD
             }
 
             double gridThicc = grid.WorldVolume.Radius;
-            Vector3D HG_Offset_tran = radarMatrix.Left * -radarRadius * flipperAxis + radarMatrix.Left * HG_Offset.X * flipperAxis + radarMatrix.Up * HG_Offset.Y + radarMatrix.Forward * HG_Offset.Z;
+            Vector3D HG_Offset_tran = radarMatrix.Left * -radarRadius * flipperAxis + radarMatrix.Left * _hologramRightOffset_HardCode.X * flipperAxis + radarMatrix.Up * _hologramRightOffset_HardCode.Y + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
 
             if (randoTime)
             {
@@ -5500,7 +5834,7 @@ namespace EliDangHUD
 
             if (GetRandomFloat() > 0.9f)
             {
-                Vector3D holoCenter = radarMatrix.Left * -radarRadius * flipperAxis + radarMatrix.Left * HG_Offset.X * flipperAxis + radarMatrix.Forward * HG_Offset.Z;
+                Vector3D holoCenter = radarMatrix.Left * -radarRadius * flipperAxis + radarMatrix.Left * _hologramRightOffset_HardCode.X * flipperAxis + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
                 holoCenter += worldRadarPos;
                 Vector3D holoDir = Vector3D.Normalize(position - holoCenter);
                 double holoLength = Vector3D.Distance(holoCenter, position);
@@ -5509,9 +5843,8 @@ namespace EliDangHUD
             }
         }
 
-        private void HG_DrawHologramTarget(VRage.Game.ModAPI.IMyCubeGrid targetGrid, List<BlockTracker> blockInfo)
+        private void HG_DrawHologramTarget_OLD(VRage.Game.ModAPI.IMyCubeGrid targetGrid, List<BlockTracker> blockInfo)
 		{
-
 
             if (targetGrid != null)
 			{
@@ -5570,7 +5903,7 @@ namespace EliDangHUD
                         // If I comment out the Vector3d.transform then we can at least get a decent view of the ship.... but it rotates as we rotate, not ideal 
 
                         Vector3D blockWorldRelativePosition = BT.WorldRelativePosition; // Get the blocks relative world position
-                        Vector3D localGridWorldPosition = gHandler.localGridEntity.WorldMatrix.Translation;
+                        Vector3D localGridWorldPosition = gHandler.localGridControlledEntity.WorldMatrix.Translation;
                         Vector3D targetGridWorldPosition = targetGrid.WorldMatrix.Translation;
 
                         Vector3D worldSpaceOffset = targetGridWorldPosition - localGridWorldPosition;
@@ -5586,7 +5919,7 @@ namespace EliDangHUD
                 double hologramScale = 0.0075; 
                 double hologramScaleFactor = 10; 
 
-                VRage.Game.ModAPI.IMyCubeGrid gridA = playerGrid; // Observer grid, position matters rotation does not
+                VRage.Game.ModAPI.IMyCubeGrid gridA = gHandler.localGrid; // Observer grid, position matters rotation does not
                 VRage.Game.ModAPI.IMyCubeGrid gridB = targetGrid; // Observed grid, position and rotation matters.
 
                 List<VRage.Game.ModAPI.IMySlimBlock> blocks = new List<VRage.Game.ModAPI.IMySlimBlock>();
@@ -5627,7 +5960,7 @@ namespace EliDangHUD
                     float hologramSize = (float)hologramScale * 0.65f * (float)thickness;
 
 					// Apply the offsets for where the hologram "emitter" is versus the radar center.
-                    HG_Offset_transformation = radarMatrix.Left * -radarRadius * flipAxisForTarget + radarMatrix.Left * HG_Offset.X * flipAxisForTarget + radarMatrix.Up * HG_Offset.Y + radarMatrix.Forward * HG_Offset.Z;
+                    HG_Offset_transformation = radarMatrix.Left * -radarRadius * flipAxisForTarget + radarMatrix.Left * _hologramRightOffset_HardCode.X * flipAxisForTarget + radarMatrix.Up * _hologramRightOffset_HardCode.Y + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
                     hologramConsoleLocation = worldRadarPos + HG_Offset_transformation; // Set the position to draw the hologram based on where the radar center is, + the offsets. This is where in the world the hologram appears.
 					// When we draw the blocks relative to the targetGrid's center we will essentially be scaling them down and then drawing them as if the center was this emitter point. 
 
@@ -6009,7 +6342,7 @@ namespace EliDangHUD
                     if (GetRandomFloat() > 0.9f)
 					{
                         // Aha so this is the shimmery holographic effect under it.
-                        Vector3D holoCenter = radarMatrix.Left * -radarRadius * flipAxisForTarget + radarMatrix.Left * HG_Offset.X * flipAxisForTarget + radarMatrix.Forward * HG_Offset.Z;
+                        Vector3D holoCenter = radarMatrix.Left * -radarRadius * flipAxisForTarget + radarMatrix.Left * _hologramRightOffset_HardCode.X * flipAxisForTarget + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
                         holoCenter += worldRadarPos;
 						Vector3D holoDir = Vector3D.Normalize(finalBlockPositionToDraw - holoCenter);
 						double holoLength = Vector3D.Distance(holoCenter, finalBlockPositionToDraw);
@@ -6017,6 +6350,366 @@ namespace EliDangHUD
 					}
 				}
             }
+        }
+
+        private void HG_DrawHologramTarget(VRage.Game.ModAPI.IMyCubeGrid targetGrid, List<BlockTracker> blockInfo)
+        {
+
+            if (targetGrid != null)
+            {
+               
+
+                // Alright, let's roll our own and see what the F is going on here, talk about "out of your depth" holy moly here I am:
+                double hologramScale = 0.0075;
+                double hologramScaleFactor = 10;
+
+                VRage.Game.ModAPI.IMyCubeGrid gridA = gHandler.localGrid; // Observer grid, position matters rotation does not
+                VRage.Game.ModAPI.IMyCubeGrid gridB = targetGrid; // Observed grid, position and rotation matters.
+
+                List<VRage.Game.ModAPI.IMySlimBlock> blocks = new List<VRage.Game.ModAPI.IMySlimBlock>();
+                targetGrid.GetBlocks(blocks);
+                double flipAxisForTarget = -1; // An inversion factor so it draws on the left holographic display
+
+                // Color to use and re-use
+                Vector4 color = LINECOLOR_Comp * 0.5f;
+                color.W = 1;
+
+                MatrixD angularRotationWiggle = CreateNormalizedTargetGridRotationMatrix(gridB); // Could apply wiggle for angular velocity like localGrid view if in fixed frame mode. So you get a fixed view but see which way it is rotating.
+                double thickness = hologramScaleFactor / (gridB.WorldVolume.Radius / gridB.GridSize);
+                MatrixD scalingMatrix = MatrixD.CreateScale(hologramScale * thickness);
+                float hologramSize = (float)hologramScale * 0.65f * (float)thickness;
+                foreach (BlockTracker block in blockInfo) 
+				{
+                    // Get health of block
+                    double HealthPercent = ClampedD(block.HealthCurrent / block.HealthMax, 0, 1);
+
+                    // Do we even draw it on screen?
+                    if (HealthPercent < 0.01)
+                    {
+                        continue; // Do not draw destroyed blocks. 
+                    }
+
+                    // Draw on screen.
+                    MyTransparentGeometry.AddBillboardOriented(
+                        MaterialSquare,
+                        color,
+                        block.HologramDrawPosition,
+                        MyAPIGateway.Session.Camera.WorldMatrix.Left, // Orient billboard drawn toward camera so we can see the square. 
+                        MyAPIGateway.Session.Camera.WorldMatrix.Up,
+                        hologramSize,
+                        MyBillboard.BlendTypeEnum.AdditiveTop);
+
+                    if (GetRandomFloat() > 0.9f)
+                    {
+                        // Aha so this is the shimmery holographic effect under it.
+                        Vector3D holoCenter = radarMatrix.Left * -radarRadius * flipAxisForTarget + radarMatrix.Left * _hologramRightOffset_HardCode.X * flipAxisForTarget + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
+                        holoCenter += worldRadarPos;
+                        Vector3D holoDir = Vector3D.Normalize(block.HologramDrawPosition - holoCenter);
+                        double holoLength = Vector3D.Distance(holoCenter, block.HologramDrawPosition);
+                        DrawLineBillboard(MaterialSquare, color * 0.15f, holoCenter, holoDir, (float)holoLength, 0.0025f, BlendTypeEnum.AdditiveTop);
+                    }
+
+                }
+			}
+        }
+        private void HG_UpdateHologramTarget(VRage.Game.ModAPI.IMyCubeGrid targetGrid, List<BlockTracker> blockInfo)
+        {
+            if (targetGrid != null)
+            {
+                // New, updated by FenixPK 2025-07-25 after a boatload of research and fighting with this. Will likely leave the original author's code with my various attempts in as an _OLD method that is never used, just for
+				// reference in the future. 
+
+                // Alright, let's roll our own and see what the F is going on here, talk about "out of your depth" holy moly here I am:
+                double hologramScale = 0.0075;
+                double hologramScaleFactor = 10;
+
+                VRage.Game.ModAPI.IMyCubeGrid gridA = gHandler.localGrid; // Observer grid, position matters rotation does not
+                VRage.Game.ModAPI.IMyCubeGrid gridB = targetGrid; // Observed grid, position and rotation matters.
+
+                List<VRage.Game.ModAPI.IMySlimBlock> blocks = new List<VRage.Game.ModAPI.IMySlimBlock>();
+                targetGrid.GetBlocks(blocks);
+                double flipAxisForTarget = -1; // An inversion factor so it draws on the left holographic display
+
+                // Color to use and re-use
+                Vector4 color = LINECOLOR_Comp * 0.5f;
+                color.W = 1;
+
+                MatrixD angularRotationWiggle = CreateNormalizedTargetGridRotationMatrix(gridB); // Could apply wiggle for angular velocity like localGrid view if in fixed frame mode. So you get a fixed view but see which way it is rotating.
+				foreach (BlockTracker block in blockInfo) 
+				{
+                    // Get health of block
+                    double HealthPercent = ClampedD(block.HealthCurrent / block.HealthMax, 0, 1);
+
+                    // Do we even draw it on screen?
+                    if (HealthPercent < 0.01)
+                    {
+                        continue; // Do not draw destroyed blocks. 
+                    }
+
+                    // Let's store some variables here for easier pathing below.
+                    Vector3D HG_Offset_transformation = Vector3D.Zero; // Offset for location to draw "on screen" (technically relative to the cockpit block not camera/screen but eh)
+                    Vector3D hologramConsoleLocation = Vector3D.Zero;
+                    Vector3D finalBlockPositionToDraw = Vector3D.Zero; // Final block position to draw with ALL transformations done.
+                    Vector3D blockPositionInWorld = block.WorldRelativePosition; // Block tracker stores world relative position, and grid relative too. 
+                    Vector3D blockPositionRelativeToGridCenter = blockPositionInWorld - gridB.WorldVolume.Center; // Get the blocks positions in meters relative to the grid's center. As if center of grid world volume is center
+                    Vector3D blockPositionToTransform = Vector3D.Zero;
+                    Vector3D blockPositionTransformed = Vector3D.Zero;
+                    Vector3D blockPositionConvertedFromMetersToBlocks = Vector3D.Zero;
+                    Vector3D blockPositionInBlocksScaledForHologram = Vector3D.Zero;
+                    Vector3D blockPositionInHologram = Vector3D.Zero;
+                    double thickness = hologramScaleFactor / (gridB.WorldVolume.Radius / gridB.GridSize);
+                    MatrixD scalingMatrix = MatrixD.CreateScale(hologramScale * thickness);
+                    float hologramSize = (float)hologramScale * 0.65f * (float)thickness;
+
+                    // Apply the offsets for where the hologram "emitter" is versus the radar center.
+                    HG_Offset_transformation = radarMatrix.Left * -radarRadius * flipAxisForTarget + radarMatrix.Left * _hologramRightOffset_HardCode.X * flipAxisForTarget + radarMatrix.Up * _hologramRightOffset_HardCode.Y + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
+                    hologramConsoleLocation = worldRadarPos + HG_Offset_transformation; // Set the position to draw the hologram based on where the radar center is, + the offsets. This is where in the world the hologram appears.
+                                                                                        // When we draw the blocks relative to the targetGrid's center we will essentially be scaling them down and then drawing them as if the center was this emitter point. 
+
+                    // Original author had the block position divided by gridSize, So instead of working with positions in meters we work with position in blocks and the actual size in game might be different if small grid vs big grid ship. 
+                    // This allows the hologram to display a 20x20x20 small block ship the same as a 20x20x20 large block ship.
+                    // HOWEVER.... This means when we do anything fun like Inverse matrix of gridA to get gridB into gridA's frame of reference we are using blocks as UoM in gridB's matrix and meters as UoM in gridA's matrix.
+                    // This is like mixing Tons and Metric Board Feet in a subtotal and then wondering why your average is wrong. It doesn't work xD
+
+
+                    // FLAT VIEW MODE: 
+                    // This mode cancels out all rotational elements from localGrid or taretGrid to display a static view. By default this is from behind because everything is relative to gridA pointing forward and all rotation is removed.
+                    // With toggles/keybinds this would allow us to take this static view and rotate it as desired. Ie. press left arrow to rotate 90 to the left
+                    // Currently I am seeking a radar imager approach, which is where the perspective view above comes in, and you can only see the side facing you.
+                    // But this view would be cool for magic space technology that can scan an entire grid and present a hologram of it viewed from any angle.
+                    // Maybe we can even do floor plans someday by color coding empty space vs armor/structure blocks vs functional blocks xD
+
+                    MatrixD rotationOnlyGridAMatrix = gridA.WorldMatrix;
+                    rotationOnlyGridAMatrix.Translation = Vector3D.Zero;
+
+                    MatrixD rotationOnlyGridBMatrix = gridB.WorldMatrix;
+                    rotationOnlyGridBMatrix.Translation = Vector3D.Zero;
+
+                    // Do we wiggle?
+                    if (HologramView_AngularWiggleTarget)
+                    {
+                        blockPositionToTransform = Vector3D.Rotate(blockPositionRelativeToGridCenter, angularRotationWiggle);
+                    }
+                    else
+                    {
+                        blockPositionToTransform = blockPositionRelativeToGridCenter;
+                    }
+
+                    MatrixD rotationMatrixCancelGridAB = MatrixD.Invert(rotationOnlyGridBMatrix) * rotationOnlyGridAMatrix;
+                    Vector3D blockPositionOrientationNeutral = Vector3D.Transform(blockPositionToTransform, rotationMatrixCancelGridAB);
+
+
+                    blockPositionTransformed = blockPositionOrientationNeutral;
+
+                    // Do scaling into block unit of measure from meters (so small grid and large grid are drawn the same size in the hologram) HERE, not earlier. Just before we draw this. 
+                    // Or better yet move all of this to BeforeUpdateSimulation and just store them until we do the draw call but that re-write is waaaay down the road at this point. 
+                    // Calculate an offset transformation so it draws on the left or right holographic display based on settings, flipAxisForTarget = -1 causes it to draw on the left
+                    blockPositionConvertedFromMetersToBlocks = blockPositionTransformed / gridB.GridSize; // Convert from meters UoM to blocks UoM independent of large vs small grid ship.
+                    blockPositionInBlocksScaledForHologram = Vector3D.Transform(blockPositionConvertedFromMetersToBlocks, scalingMatrix);
+
+                    if (!HologramView_PerspectiveAttemptOne)
+                    {
+                        MatrixD rotationMatrixForView = MatrixD.Identity; // new matrixD.
+
+                        // Can use MatrixD.slerp to smoothly transition between a current matrix and a target matrix for rotation...
+
+                        // I actually think instead of just CreateRotationY/X/Z I need to do this relative to my cockpit blocks "up" direction, or it doesn't make any sense.
+                        switch (HologramView_Current)
+                        {
+                            case HologramView_Side.Rear:
+                                // Rear (default - no rotation needed)
+                                rotationMatrixForView = MatrixD.Identity;
+                                break;
+                            case HologramView_Side.Left:
+                                // Left side (90° yaw left)
+                                rotationMatrixForView = MatrixD.CreateFromAxisAngle(gridA.WorldMatrix.Up, MathHelper.ToRadians(90)); // Use up so we pivot around that axis.
+                                break;
+                            case HologramView_Side.Front:
+                                // Front (180° yaw)
+                                rotationMatrixForView = MatrixD.CreateFromAxisAngle(gridA.WorldMatrix.Up, MathHelper.ToRadians(180)); // Use up so we pivot around that axis.
+                                break;
+                            case HologramView_Side.Right:
+                                // Right side (90° yaw right / 270° left)
+                                rotationMatrixForView = MatrixD.CreateFromAxisAngle(gridA.WorldMatrix.Up, MathHelper.ToRadians(-90)); // Use up so we pivot around that axis.
+                                break;
+                            case HologramView_Side.Top:
+                                // Top view (90° pitch down)
+                                rotationMatrixForView = MatrixD.CreateFromAxisAngle(gridA.WorldMatrix.Right, MathHelper.ToRadians(-90)); // Use right so we pivot around that axis.
+                                break;
+                            case HologramView_Side.Bottom:
+                                // Bottom view (90° pitch up)
+                                rotationMatrixForView = MatrixD.CreateFromAxisAngle(gridA.WorldMatrix.Right, MathHelper.ToRadians(90)); // Use right so we pivot around that axis.
+                                break;
+                            case HologramView_Side.Orbit:
+
+                                // This is technically an "Orbit" cam... It will show a hologram of the target grid EXACTLY as it appears in world space relative to your orientation
+                                // but not your translation/position in the world. So you can rotate your ship around and see all sides of gridB from anywhere in the world.
+                                // if you are facing a direction and the target is also facing the same direction you see it's backside, even if it is behind you lol.
+
+                                // What transformation gets us from gridA's coordinate system to gridB's?
+                                MatrixD gridAToGridB = MatrixD.Invert(gridA.WorldMatrix) * gridB.WorldMatrix;
+
+                                //// Use this as the rotation (this naturally includes both position and orientation differences)
+                                rotationMatrixForView = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(gridAToGridB));
+                                break;
+                            case HologramView_Side.Perspective:
+                                // Round 1 works great unless you roll.
+                                //// Create proxy matrix: gridB's orientation at gridA's position
+                                //MatrixD proxyMatrix = gridB.WorldMatrix;
+                                //proxyMatrix.Translation = gridA.WorldMatrix.Translation;
+
+                                //MatrixD relativeOrientation = gridB.WorldMatrix * MatrixD.Invert(proxyMatrix);
+                                //// Extract just the rotation part (remove any translation)
+                                //rotationMatrixForView = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(relativeOrientation));
+                                //// Create a "should be looking at gridB" orientation using gridA's up
+                                //Vector3D directionToGridB = Vector3D.Normalize(gridB.WorldMatrix.Translation - proxyMatrix.Translation);
+                                //Vector3D gridAUp = proxyMatrix.Up;
+                                //// Handle parallel case
+                                //double dotProduct = Math.Abs(Vector3D.Dot(directionToGridB, gridAUp));
+                                //if (Math.Abs(dotProduct) > 0.999)
+                                //{
+                                //	// Choose Right or Forward, whichever is more perpendicular to the direction
+                                //	Vector3D rightCandidate = proxyMatrix.Right;
+                                //	Vector3D forwardCandidate = proxyMatrix.Forward;
+
+                                //	double rightDot = Math.Abs(Vector3D.Dot(directionToGridB, rightCandidate));
+                                //	double forwardDot = Math.Abs(Vector3D.Dot(directionToGridB, forwardCandidate));
+
+                                //	gridAUp = (rightDot < forwardDot) ? rightCandidate : forwardCandidate;
+                                //}
+                                //Vector3D shouldBeRight = Vector3D.Normalize(Vector3D.Cross(directionToGridB, gridAUp));
+                                //Vector3D shouldBeUp = Vector3D.Cross(shouldBeRight, directionToGridB);
+                                //MatrixD shouldBeLookingAt = MatrixD.CreateWorld(Vector3D.Zero, directionToGridB, shouldBeUp);
+                                //// Get gridA's actual orientation (no translation)
+                                //MatrixD gridAActualOrientation = proxyMatrix;
+                                //gridAActualOrientation.Translation = Vector3D.Zero;
+                                //// Calculate the differential rotation (flip the order)
+                                //MatrixD differential = MatrixD.Invert(shouldBeLookingAt) * gridAActualOrientation;
+                                //MatrixD differentialRotation = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(differential));
+                                //// Apply the compensation
+                                //rotationMatrixForView = rotationMatrixForView * differentialRotation;
+
+
+
+
+                                // Round 2 seems to work great even rolled unless to left or right of gridB.
+                                // Create proxy matrix: gridB's orientation at gridA's position
+                                //MatrixD proxyMatrix = gridB.WorldMatrix;
+                                //proxyMatrix.Translation = gridA.WorldMatrix.Translation;
+                                //MatrixD relativeOrientation = gridB.WorldMatrix * MatrixD.Invert(proxyMatrix);
+                                //rotationMatrixForView = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(relativeOrientation));
+
+                                //// Create a "should be looking at" orientation, but use gridA's roll relative to gridB
+                                //Vector3D directionToGridB = Vector3D.Normalize(gridB.WorldMatrix.Translation - proxyMatrix.Translation);
+
+                                //// Calculate how much gridA is rolled relative to gridB
+                                //Vector3D gridAUpInWorldSpace = gridA.WorldMatrix.Up;
+                                //Vector3D gridBUpInWorldSpace = gridB.WorldMatrix.Up;
+                                //Vector3D gridBForwardInWorldSpace = gridB.WorldMatrix.Forward;
+
+                                //// Project gridA's up vector onto the plane perpendicular to gridB's forward
+                                //Vector3D projectedGridAUp = gridAUpInWorldSpace - Vector3D.Dot(gridAUpInWorldSpace, gridBForwardInWorldSpace) * gridBForwardInWorldSpace;
+                                //projectedGridAUp = Vector3D.Normalize(projectedGridAUp);
+
+                                //// Use this roll-adjusted up vector
+                                //Vector3D gridAUp = projectedGridAUp;
+
+                                //// Handle parallel case (same as before)
+                                //double dotProduct = Math.Abs(Vector3D.Dot(directionToGridB, gridAUp));
+                                //if (dotProduct > 0.999)
+                                //{
+                                //    Vector3D rightCandidate = proxyMatrix.Right;
+                                //    Vector3D forwardCandidate = proxyMatrix.Forward;
+                                //    double rightDot = Math.Abs(Vector3D.Dot(directionToGridB, rightCandidate));
+                                //    double forwardDot = Math.Abs(Vector3D.Dot(directionToGridB, forwardCandidate));
+                                //    gridAUp = (rightDot < forwardDot) ? rightCandidate : forwardCandidate;
+                                //}
+
+                                //Vector3D shouldBeRight = Vector3D.Normalize(Vector3D.Cross(directionToGridB, gridAUp));
+                                //Vector3D shouldBeUp = Vector3D.Cross(shouldBeRight, directionToGridB);
+                                //MatrixD shouldBeLookingAt = MatrixD.CreateWorld(Vector3D.Zero, directionToGridB, shouldBeUp);
+                                //// Get gridA's actual orientation (no translation)
+                                //MatrixD gridAActualOrientation = proxyMatrix;
+                                //gridAActualOrientation.Translation = Vector3D.Zero;
+                                //// Calculate the differential rotation (flip the order)
+                                //MatrixD differential = MatrixD.Invert(shouldBeLookingAt) * gridAActualOrientation;
+                                //MatrixD differentialRotation = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(differential));
+                                //// Apply the compensation
+                                //rotationMatrixForView = rotationMatrixForView * differentialRotation;
+
+
+                                // Round 3, the winner, this perpendicular on the left/right being handled made all the difference. It has the effect I was hoping for. 
+                                // Create proxy matrix: gridB's orientation at gridA's position
+                                MatrixD proxyMatrix = gridB.WorldMatrix;
+                                proxyMatrix.Translation = gridA.WorldMatrix.Translation;
+                                MatrixD relativeOrientation = gridB.WorldMatrix * MatrixD.Invert(proxyMatrix);
+                                // Extract just the rotation part (remove any translation)
+                                rotationMatrixForView = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(relativeOrientation));
+
+                                // Create a "should be looking at" orientation
+                                Vector3D directionToGridB = Vector3D.Normalize(gridB.WorldMatrix.Translation - proxyMatrix.Translation);
+
+                                // Project gridA's up vector onto the plane perpendicular to the direction vector
+                                Vector3D gridAUpInWorldSpace = gridA.WorldMatrix.Up;
+                                Vector3D projectedGridAUp = gridAUpInWorldSpace - Vector3D.Dot(gridAUpInWorldSpace, directionToGridB) * directionToGridB;
+
+                                Vector3D gridAUp;
+                                // Check if the projection is valid (not too small)
+                                if (projectedGridAUp.LengthSquared() > 0.001)
+                                {
+                                    gridAUp = Vector3D.Normalize(projectedGridAUp);
+                                }
+                                else
+                                {
+                                    // Fallback when projection fails (gridA's up is parallel to direction)
+                                    Vector3D rightCandidate = gridA.WorldMatrix.Right;
+                                    Vector3D forwardCandidate = gridA.WorldMatrix.Forward;
+                                    double rightDot = Math.Abs(Vector3D.Dot(directionToGridB, rightCandidate));
+                                    double forwardDot = Math.Abs(Vector3D.Dot(directionToGridB, forwardCandidate));
+                                    gridAUp = (rightDot < forwardDot) ? rightCandidate : forwardCandidate;
+                                }
+
+                                // Handle parallel case (though this should be rare now)
+                                double dotProduct = Math.Abs(Vector3D.Dot(directionToGridB, gridAUp));
+                                if (dotProduct > 0.999)
+                                {
+                                    Vector3D rightCandidate = proxyMatrix.Right;
+                                    Vector3D forwardCandidate = proxyMatrix.Forward;
+                                    double rightDot = Math.Abs(Vector3D.Dot(directionToGridB, rightCandidate));
+                                    double forwardDot = Math.Abs(Vector3D.Dot(directionToGridB, forwardCandidate));
+                                    gridAUp = (rightDot < forwardDot) ? rightCandidate : forwardCandidate;
+                                }
+
+                                Vector3D shouldBeRight = Vector3D.Normalize(Vector3D.Cross(directionToGridB, gridAUp));
+                                Vector3D shouldBeUp = Vector3D.Cross(shouldBeRight, directionToGridB);
+                                MatrixD shouldBeLookingAt = MatrixD.CreateWorld(Vector3D.Zero, directionToGridB, shouldBeUp);
+
+                                // Get gridA's actual orientation (no translation)
+                                MatrixD gridAActualOrientation = proxyMatrix;
+                                gridAActualOrientation.Translation = Vector3D.Zero;
+
+                                // Calculate the differential rotation (flip the order)
+                                MatrixD differential = MatrixD.Invert(shouldBeLookingAt) * gridAActualOrientation;
+                                MatrixD differentialRotation = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(differential));
+
+                                // Apply the compensation
+                                rotationMatrixForView = rotationMatrixForView * differentialRotation;
+                                break;
+
+                            default:
+                                rotationMatrixForView = MatrixD.Identity;
+                                break;
+                        }
+
+                        // Rotate around a center point
+                        Vector3D rotatedRelativePosition = Vector3D.Transform(blockPositionInBlocksScaledForHologram, rotationMatrixForView);
+                        blockPositionInHologram = rotatedRelativePosition + hologramConsoleLocation; // Position it in the hologram console
+                    }
+
+                    finalBlockPositionToDraw = blockPositionInHologram;
+					block.HologramDrawPosition = finalBlockPositionToDraw; // Will be used by render pipeline.
+                }
+			}
         }
 
         Vector3D SnapDirectionTo45Degrees(Vector3D dir)
@@ -6580,11 +7273,13 @@ namespace EliDangHUD
 
 		private void HG_DrawBillboardTarget(Vector3D position, VRage.Game.ModAPI.IMyCubeGrid grid, double HP = 1)
 		{
-			if (HP < 0.01) {
+			if (HP < 0.01) 
+			{
 				return; // Do not draw destroyed blocks. 
 			}
 			bool randoTime = false;
-			if (GetRandomFloat() > 0.95f || glitchAmount > 0.5) {
+			if (GetRandomFloat() > 0.95f || glitchAmount > 0.5) 
+			{
 				randoTime = true; // If we are at high power draw and the glitchEffect should be on then we set randoTime to true so further effects can be altered by it.
 			}
 
@@ -6594,11 +7289,13 @@ namespace EliDangHUD
 			bootUpAlpha = ClampedD(bootUpAlpha, 0, 1); // Clamp bootUpAlpha to be between 0 and 1. 
 			bootUpAlpha = Math.Pow(bootUpAlpha, 0.25); // bootUpAlpha^(1/4)?
 
-            if (GetRandomDouble () > bootUpAlpha) {
+            if (GetRandomDouble() > bootUpAlpha) 
+			{
 				position *= bootUpAlpha; // I assume this is what gives the hologram the booting up effect, it scales the position of blocks drawn by the bootUpAlpha.
 										 // But only randomly when the double is >, so as bootUpAlpha approaches 1, the hologram will be drawn at full position.
             }
-			if (GetRandomDouble () > bootUpAlpha) {
+			if (GetRandomDouble() > bootUpAlpha) 
+			{
 				randoTime = true; // If we haven't yet booted up then we also apply the randomEffect to the hologram.
 								  // So the same glitch effect is also applied at boot up BUT it's also scaled during boot up, not during just a glitch.
 			}
@@ -6616,8 +7313,8 @@ namespace EliDangHUD
 
             Vector3D billDir = Vector3D.Normalize(position);
 			double dotProd = 1 - (Vector3D.Dot(position, AxisForward) + 1)/2; // With the change above this dotProduct should now calculate how much the target block is facing toward or away from the local grid's forward direction. That might not be exactly it.. but for now.
-			dotProd = RemapD (dotProd, -0.5, 1, 0.25, 1);
-			dotProd = ClampedD (dotProd, 0.25, 1);
+			dotProd = RemapD(dotProd, -0.5, 1, 0.25, 1);
+			dotProd = ClampedD(dotProd, 0.25, 1);
 
 			var color = LINECOLOR_Comp * 0.5f; // This is the color of the hologram for the target. I assume comp means competition, as the alternative is the line color from the settings for local grid drawing?
 			color.W = 1;
@@ -6625,23 +7322,23 @@ namespace EliDangHUD
 				color *= Clamped(GetRandomFloat(), 0.25f, 1); // If the effect is being applied then we randomize the color brightness between 0.25 and 1.
             }
 
-			Vector4 cRed = new Vector4 (1, 0, 0, 1); // Colors for damanged blocks.
-			Vector4 cYel = new Vector4 (1, 1, 0, 1); // Colors for damaged blocks. Red is more damaged than yellow.
+			Vector4 cRed = new Vector4(1, 0, 0, 1); // Colors for damanged blocks.
+			Vector4 cYel = new Vector4(1, 1, 0, 1); // Colors for damaged blocks. Red is more damaged than yellow.
 
 			// Interesting, we split this into two ranges. White color that LerpFs to yellow. Then yellow color that LerpFs to red. Essentially two ranges of color, White->Yellow and Yellow->Red. Neat.
 			if (HP > 0.5) {
 				HP -= 0.5;
 				HP *= 2;
-				color.X = LerpF (cYel.X, color.X, (float)HP);
-				color.Y = LerpF (cYel.Y, color.Y, (float)HP);
-				color.Z = LerpF (cYel.Z, color.Z, (float)HP);
-				color.W = LerpF (cYel.W, color.W, (float)HP);
+				color.X = LerpF(cYel.X, color.X, (float)HP);
+				color.Y = LerpF(cYel.Y, color.Y, (float)HP);
+				color.Z = LerpF(cYel.Z, color.Z, (float)HP);
+				color.W = LerpF(cYel.W, color.W, (float)HP);
 			} else {
 				HP *= 2;
-				color.X = LerpF (cRed.X, cYel.X, (float)HP);
-				color.Y = LerpF (cRed.Y, cYel.Y, (float)HP);
-				color.Z = LerpF (cRed.Z, cYel.Z, (float)HP);
-				color.W = LerpF (cRed.W, cYel.W, (float)HP);
+				color.X = LerpF(cRed.X, cYel.X, (float)HP);
+				color.Y = LerpF(cRed.Y, cYel.Y, (float)HP);
+				color.Z = LerpF(cRed.Z, cYel.Z, (float)HP);
+				color.W = LerpF(cRed.W, cYel.W, (float)HP);
 			}
 
 			double thicc = HG_scaleFactor / (grid.WorldVolume.Radius / grid.GridSize); // I can only assume thicc is thickness, it appears relative to the grids bounding box radius in meters over its size in meters. 
@@ -6653,11 +7350,11 @@ namespace EliDangHUD
 										   // We could repurpose this so a player could choose which hologram appears on which side if they prefer target on the right for eg. 
 
 			//double gridThicc = grid.WorldVolume.Radius; // Grid thickness is not used.
-			Vector3D HG_Offset_tran = radarMatrix.Left*-radarRadius*flipAxisForTarget + radarMatrix.Left*HG_Offset.X*flipAxisForTarget + radarMatrix.Up*HG_Offset.Y + radarMatrix.Forward*HG_Offset.Z;
+			Vector3D HG_Offset_tran = radarMatrix.Left*-radarRadius*flipAxisForTarget + radarMatrix.Left*_hologramRightOffset_HardCode.X*flipAxisForTarget + radarMatrix.Up*_hologramRightOffset_HardCode.Y + radarMatrix.Forward*_hologramRightOffset_HardCode.Z;
 
 			if (randoTime) {
 				// Offset the position by a random amount to give a "glitch" effect, also used for booting up. 
-				Vector3D randOffset = new Vector3D ((GetRandomDouble () - 0.5) * 2, (GetRandomDouble () - 0.5) * 2, (GetRandomDouble () - 0.5) * 2);
+				Vector3D randOffset = new Vector3D((GetRandomDouble() - 0.5) * 2, (GetRandomDouble() - 0.5) * 2, (GetRandomDouble() - 0.5) * 2);
 				randOffset *= 0.333;
 				position += position * randOffset;
 			}
@@ -6679,9 +7376,10 @@ namespace EliDangHUD
 				size,
 				MyBillboard.BlendTypeEnum.AdditiveTop);
 
-			if (GetRandomFloat () > 0.9f) {
+			if (GetRandomFloat() > 0.9f) 
+			{
 				// Aha so this is the shimmery holographic effect under it.
-				Vector3D holoCenter = radarMatrix.Left * -radarRadius * flipAxisForTarget + radarMatrix.Left * HG_Offset.X * flipAxisForTarget + radarMatrix.Forward * HG_Offset.Z;
+				Vector3D holoCenter = radarMatrix.Left * -radarRadius * flipAxisForTarget + radarMatrix.Left * _hologramRightOffset_HardCode.X * flipAxisForTarget + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
 				holoCenter += worldRadarPos;
 				Vector3D holoDir = Vector3D.Normalize(position - holoCenter);
 				double holoLength = Vector3D.Distance(holoCenter, position);
@@ -6830,7 +7528,7 @@ namespace EliDangHUD
 
         private MatrixD CreateNormalizedLocalGridRotationMatrix()
 		{
-            Sandbox.ModAPI.IMyCockpit cockpit = gHandler.localGridEntity as Sandbox.ModAPI.IMyCockpit;
+            Sandbox.ModAPI.IMyCockpit cockpit = gHandler.localGridControlledEntity as Sandbox.ModAPI.IMyCockpit;
 			
             if (cockpit == null)
             {
@@ -7003,7 +7701,7 @@ namespace EliDangHUD
             // Mind melting. I dislike magic numbers. 
 
             // Create the rotation angle vector (angular velocity * deltaTime)
-            Vector3D rotationAngle = angularVelocity * deltaTime * amplificationFactor; // the * 10 here is likely a scaling factor? I'm honestly not sure? FenixPK replaced a magic number of "10" with a variable so this makes sense. 
+            Vector3D rotationAngle = angularVelocity * deltaTimeSinceLastTick * amplificationFactor; // the * 10 here is likely a scaling factor? I'm honestly not sure? FenixPK replaced a magic number of "10" with a variable so this makes sense. 
 			// Removing * 10 made no visible difference to me, however setting it to 100 made it obvious what it did.
 			// As of current original author code where target hologram takes LOCAL GRID angular velicity and passes it to this function and transforms positionR by applying this
 			// matrix. If I pass in 100, it is obvious the target hologram block positions get rotated/wobbled a bit based on my current angular velocity before resetting back to original view...
@@ -7066,20 +7764,30 @@ namespace EliDangHUD
 			else
 				return value.ToString("0", culture); 
         }
+
         public void UpdateCredits()
+        {
+            // Example usage: Get credits for the local player
+            if (MyAPIGateway.Session?.Player != null)
+            {
+                IMyPlayer localPlayer = MyAPIGateway.Session.Player;
+                string balance = Convert.ToString(GetPlayerCredits(localPlayer));
+                double balance_double = Convert2Credits(balance);
+                //Echo($"You have ${balance_double} space credits.");
+
+                creditBalance = balance_double;
+                creditBalance_fake = LerpD(creditBalance_fake, creditBalance, deltaTimeSinceLastTick * 2);
+
+                UpdateCreditBalance(creditBalance_fake, creditBalance);
+            }
+        }
+
+        public void DrawCredits()
 		{
 			// Example usage: Get credits for the local player
 			if (MyAPIGateway.Session?.Player != null)
 			{
-				IMyPlayer localPlayer = MyAPIGateway.Session.Player;
-				string balance = Convert.ToString(GetPlayerCredits(localPlayer));
-				double balance_double = Convert2Credits (balance);
-				//Echo($"You have ${balance_double} space credits.");
-
-				creditBalance = balance_double;
-				creditBalance_fake = LerpD (creditBalance_fake, creditBalance, deltaTime * 2);
-
-                drawCreditBalance (creditBalance_fake, creditBalance);
+                DrawCreditBalance(creditBalance_fake, creditBalance);
 			}
 		}
 
@@ -7106,21 +7814,60 @@ namespace EliDangHUD
 
 		private double Convert2Credits(string cr)
 		{
-			double cr_d = Convert.ToDouble (cr);
+			double cr_d = Convert.ToDouble(cr);
 
 			return cr_d;
 		}
 
-		private void drawCreditBalance(double cr, double new_cr)
+        private void UpdateCreditBalance(double cr, double new_cr)
+        {
+            cr = Math.Round(cr);
+            new_cr = Math.Round(new_cr);
+            double cr_dif = new_cr - cr;
+
+            if (cr_dif != 0)
+            {
+                if (!credit_counting)
+                {
+                    PlayCustomSound(SP_MONEY, worldRadarPos);
+                    credit_counting = true;
+                }
+
+
+                if (cr_dif < 0)
+                {
+                    if (cr_dif > creditBalance_dif)
+                    {
+                        cr_dif = creditBalance_dif;
+                    }
+                }
+                else if (cr_dif > 0)
+                {
+                    if (cr_dif < creditBalance_dif)
+                    {
+                        cr_dif = creditBalance_dif;
+                    }
+                }
+                creditBalance_dif = cr_dif;
+            }
+            else
+            {
+                creditBalance_dif = 0;
+                credit_counting = false;
+            }
+        }
+
+        private void DrawCreditBalance(double cr, double new_cr)
 		{
-			cr = Math.Round (cr);
-			new_cr = Math.Round (new_cr);
+			cr = Math.Round(cr);
+			new_cr = Math.Round(new_cr);
 			double cr_dif = new_cr - cr;
 
 			Vector4 color = theSettings.lineColor;
 			double fontSize = 0.005;
 
-			if (cr != new_cr) {
+			if (cr != new_cr) 
+			{
 				color *= 2;
 				fontSize = 0.006;
 			}
@@ -7131,40 +7878,34 @@ namespace EliDangHUD
 			Vector3D dir = Vector3D.Normalize((radarMatrix.Forward*4 + radarMatrix.Right)/5);
 			DrawText(crs, fontSize, pos, dir, color);
 
-			if (cr_dif != 0) {
-				if (!credit_counting) {
-					PlayCustomSound (SP_MONEY, worldRadarPos);
-					credit_counting = true;
-				}
-
-
-				if (cr_dif < 0) {
-					if (cr_dif > creditBalance_dif) {
+			if (cr_dif != 0) 
+			{
+				if (cr_dif < 0) 
+				{
+					if (cr_dif > creditBalance_dif) 
+					{
 						cr_dif = creditBalance_dif;
 					}
-				} else if (cr_dif > 0) {
-					if (cr_dif < creditBalance_dif) {
+				} else if (cr_dif > 0) 
+				{
+					if (cr_dif < creditBalance_dif) 
+					{
 						cr_dif = creditBalance_dif;
 					}
 				}
 
-
-				string cr_difs = Convert.ToString (cr_dif);
+				string cr_difs = Convert.ToString(cr_dif);
 				double lengthDif = crs.Length - cr_difs.Length;
-				if (lengthDif > 0) {
-					for (int i = 1; i <= lengthDif; i++) {
+				if (lengthDif > 0) 
+				{
+					for (int i = 1; i <= lengthDif; i++) 
+					{
 						cr_difs = " " + cr_difs;
 					}
 				}
 				pos += radarMatrix.Up * fontSize * 2;
-				DrawText (cr_difs, fontSize, pos, dir, LINECOLOR_Comp);
-
-				creditBalance_dif = cr_dif;
-
-			} else {
-				creditBalance_dif = 0;
-				credit_counting = false;
-			}
+				DrawText(cr_difs, fontSize, pos, dir, LINECOLOR_Comp);
+			} 
 		}
 		//------------------------------------------------------------------------------------------------------------
 
@@ -7185,36 +7926,52 @@ namespace EliDangHUD
 
 		private void UpdateToolbars()
 		{
-			DrawToolbars ();
-		}
+            if (gHandler.localGridControlledEntity == null)
+            {
+                return;
+            }
+
+            var cockpit = gHandler.localGridControlledEntity as Sandbox.ModAPI.IMyCockpit;
+            var grid = cockpit.CubeGrid;
+            if (grid != null)
+            {
+            }
+            else
+            {
+                return;
+            }
+            ammoInfos = GetAmmoInfos(grid);
+
+            TB_activationTime += deltaTimeSinceLastTick * 0.1;
+            TB_activationTime = ClampedD(TB_activationTime, 0, 1);
+            TB_activationTime = Math.Pow(TB_activationTime, 0.9);
+        }
+
+
 
 		private void DrawToolbars()
 		{
-			if (gHandler.localGridEntity == null) {
+			if (gHandler.localGridControlledEntity == null) {
 				return;
 			}
 
-			var cockpit = gHandler.localGridEntity as Sandbox.ModAPI.IMyCockpit;
+			var cockpit = gHandler.localGridControlledEntity as Sandbox.ModAPI.IMyCockpit;
 			var grid = cockpit.CubeGrid;
-			if (grid != null) {
+			if (grid != null) 
+			{
 			} else {
 				return;
 			}
 
-			Vector3D pos = getToolbarPos ();
+			Vector3D pos = getToolbarPos();
 			//two arcs
 
-			DrawCircle (pos, 0.01, radarMatrix.Forward, theSettings.lineColor, false, 0.25f, 0.001f); // Center Dot
-
-			ammoInfos = GetAmmoInfos(grid);
-
-			DrawToolbarBack (pos);			// Left
-			DrawToolbarBack (pos, true);	// Right
-
-			TB_activationTime += deltaTime*0.1;
-			TB_activationTime = ClampedD (TB_activationTime, 0, 1);
-			TB_activationTime = Math.Pow (TB_activationTime, 0.9);
+			DrawCircle(pos, 0.01, radarMatrix.Forward, theSettings.lineColor, false, 0.25f, 0.001f); // Center Dot
+			DrawToolbarBack(pos);			// Left
+			DrawToolbarBack(pos, true);	// Right
 		}
+
+
 
 		public void DrawToolbarBack(Vector3D position, bool flippit = false)
 		{
@@ -7226,16 +7983,19 @@ namespace EliDangHUD
 			Vector4 color = theSettings.lineColor;
 
 
-			double TB_bootUp = LerpD (12, 4, TB_activationTime);
+			double TB_bootUp = LerpD(12, 4, TB_activationTime);
 
 
 			double scale = 1.75;
 			double height = 0.1024 * scale;
 			double width = 0.0256 * scale;
 
-			if (flippit) {
+			if (flippit) 
+			{
 				position += (radarMatrix.Right * radarRadius * 2) + (radarMatrix.Right * width * TB_bootUp);
-			} else {
+			} 
+			else 
+			{
 				position += (radarMatrix.Left * radarRadius * 2) + (radarMatrix.Left * width * TB_bootUp);
 			}
 
@@ -7249,19 +8009,17 @@ namespace EliDangHUD
 			up.Normalize();
 			left.Normalize();
 
-			if (GetRandomBoolean()) {
-				if (glitchAmount > 0.001) {
+			if (GetRandomBoolean()) 
+			{
+				if (glitchAmount > 0.001) 
+				{
 					float glitchValue = (float)glitchAmount;
 
-					Vector3D offsetRan = new Vector3D (
-						(GetRandomDouble () - 0.5) * 2,
-						(GetRandomDouble () - 0.5) * 2,
-						(GetRandomDouble () - 0.5) * 2
-					);
-					double dis2Cam = Vector3D.Distance (MyAPIGateway.Session.Camera.Position, position);
+					Vector3D offsetRan = new Vector3D ((GetRandomDouble() - 0.5) * 2, (GetRandomDouble() - 0.5) * 2, (GetRandomDouble() - 0.5) * 2);
+					double dis2Cam = Vector3D.Distance(MyAPIGateway.Session.Camera.Position, position);
 
 					position += offsetRan * dis2Cam * glitchValue * 0.025;
-					color *= GetRandomFloat ();
+					color *= GetRandomFloat();
 				}
 			}
 
@@ -7271,7 +8029,8 @@ namespace EliDangHUD
 			Vector3D bottomLeft = position + left * width - up * height;
 			Vector3D bottomRight = position - left * width - up * height;
 
-			if (flippit) {
+			if (flippit) 
+			{
 				Vector3D tempCorner = topLeft;
 				topLeft = topRight;
 				topRight = tempCorner;
@@ -7294,17 +8053,18 @@ namespace EliDangHUD
 
 			//DrawActionSlot (0, "Weapon", "Ammo: 999", position, height, flippit);
 
-			for (int am = 0; am < ammoInfos.Count && am < 7; am++) {
-				DrawActionSlot (am, ammoInfos [am].AmmoType, Convert.ToString(ammoInfos [am].AmmoCount), position, height, flippit);
+			for (int am = 0; am < ammoInfos.Count && am < 7; am++) 
+			{
+				DrawActionSlot(am, ammoInfos [am].AmmoType, Convert.ToString(ammoInfos [am].AmmoCount), position, height, flippit);
 			}
 
 			//-------------------COCKPIT----------------------------------
 			string cockPitName;
 			float cockPitCur;
 			float cockPitMax;
-			GetCockpitInfo (out cockPitName, out cockPitCur, out cockPitMax);
+			GetCockpitInfo(out cockPitName, out cockPitCur, out cockPitMax);
 
-			DrawActionSlot (7, cockPitName +" Integrity", Convert.ToString(cockPitCur) + " / " + Convert.ToString(cockPitMax), position, height, flippit);
+			DrawActionSlot(7, cockPitName +" Integrity", Convert.ToString(cockPitCur) + " / " + Convert.ToString(cockPitMax), position, height, flippit);
 			//--------------------COCKPIT----------------------------------
 
 
@@ -7315,11 +8075,12 @@ namespace EliDangHUD
 		{
 			double fontSize = 0.0075;
 
-			if (!flippit) {
+			if (!flippit) 
+			{
 				pos += (radarMatrix.Left * fontSize * 1.8 * name.Length) - (radarMatrix.Left * fontSize * 1.8);
 			}
 			//DrawCircle (pos, 0.005, radarMatrix.Forward, LINECOLOR_Comp, false, 1f, 0.001f);
-			DrawText (name, fontSize, pos, radarMatrix.Forward, theSettings.lineColor, 1f);
+			DrawText(name, fontSize, pos, radarMatrix.Forward, theSettings.lineColor, 1f);
 		}
 
 		private Vector3D getToolbarPos()
@@ -7328,7 +8089,7 @@ namespace EliDangHUD
 
 			Vector3D cameraPos = MyAPIGateway.Session.Camera.Position;
 
-			double elevation = GetHeadElevation (worldRadarPos, radarMatrix);
+			double elevation = GetHeadElevation(worldRadarPos, radarMatrix);
 
 			pos = worldRadarPos + (radarRadius * 1.5 * radarMatrix.Forward) + (elevation * radarMatrix.Up) +  (radarMatrix.Up * 0.05);
 
@@ -7340,7 +8101,8 @@ namespace EliDangHUD
 			// Get the player's character entity
 			IMyCharacter character = MyAPIGateway.Session?.Player?.Character;
 
-			if (character == null) {
+			if (character == null) 
+			{
 				return 0.0;
 			}
 
@@ -7364,31 +8126,36 @@ namespace EliDangHUD
 		{
 			double fontSize = 0.005;
 
-			slot = (int)MathHelper.Clamp ((double)slot, 0, 7);
+			slot = (int)MathHelper.Clamp((double)slot, 0, 7);
 
-			if(slot <= 3 && flippit){
+			if(slot <= 3 && flippit)
+			{
 				return;
 			}
 
-			if(slot >= 4 && !flippit){
+			if(slot >= 4 && !flippit)
+			{
 				return;
 			}
 
-			if (flippit) {
+			if (flippit) 
+			{
 				slot -= 4;
 			}
 
 			int actionCount = 4;
 			int actionStart = 0;
 
-			slot = (int)MathHelper.Clamp ((double)slot, 0, 7);
+			slot = (int)MathHelper.Clamp((double)slot, 0, 7);
 
-			if (flippit) {
+			if (flippit) 
+			{
 				actionStart = 4;
 			}
 
 			Vector3D actionDirection = radarMatrix.Left;
-			if (flippit) {
+			if (flippit) 
+			{
 				actionDirection = radarMatrix.Right;
 			}
 
@@ -7396,24 +8163,28 @@ namespace EliDangHUD
 
 
 			double bootOffset = -((height*2) / actionCount) * (actionCount-slot);
-			double TB_bootUp2 = LerpD (bootOffset, 0, TB_activationTime);
+			double TB_bootUp2 = LerpD(bootOffset, 0, TB_activationTime);
 			aPos += radarMatrix.Up * TB_bootUp2;
 
-			if (slot == 0) {
+			if (slot == 0) 
+			{
 				aPos += (actionDirection * ((height * 2) / 24));
-			}else if(slot == 1){
+			}else if(slot == 1)
+			{
 				aPos += (actionDirection * ((height * 2) / 24))*2;
-			}else if(slot == 2){
+			}else if(slot == 2)
+			{
 				aPos += (actionDirection * ((height * 2) / 24))*1.75;
 			}
 
 			string theAction = value;
-			DrawAction (theAction, aPos, flippit);
+			DrawAction(theAction, aPos, flippit);
 
-			if (!flippit) {
+			if (!flippit) 
+			{
 				aPos += (radarMatrix.Left * fontSize * 1.8 * name.Length) - (radarMatrix.Left * fontSize * 1.8);
 			}
-			DrawText (Convert.ToString (name), 0.005, aPos + (radarMatrix.Up * 0.005 * 3), radarMatrix.Forward, theSettings.lineColor, 0.75f);
+			DrawText(Convert.ToString(name), 0.005, aPos + (radarMatrix.Up * 0.005 * 3), radarMatrix.Forward, theSettings.lineColor, 0.75f);
 		}
 
 		private List<string> GetHotbarItems(Sandbox.ModAPI.IMyCockpit cockpit)
@@ -7446,7 +8217,8 @@ namespace EliDangHUD
 			current = 0;
 			max = 1;
 
-			if (controlledEntity == null) {
+			if (controlledEntity == null) 
+			{
 				return;
 			}
 
@@ -7503,17 +8275,19 @@ namespace EliDangHUD
 
 					if (weaponDef != null)
 					{
-						MyDefinitionId ammoTypeId = weaponDef.AmmoMagazinesId [0];
+						MyDefinitionId ammoTypeId = weaponDef.AmmoMagazinesId[0];
 
 						MyAmmoMagazineDefinition ammoData = MyDefinitionManager.Static.GetAmmoMagazineDefinition(ammoTypeId);
 						MyAmmoMagazineDefinition ammoDefinition = ammoData;
 
-						if (ammoDefinition != null) {
+						if (ammoDefinition != null) 
+						{
 							string ammoType = ammoDefinition.Id.SubtypeName;
-							if (!ammoTypes.Contains (ammoType)) {
-								ammoTypes.Add (ammoType);
-								int count = GetAmmoCount (grid, ammoType);
-								ammoCounts [ammoType] = count;
+							if (!ammoTypes.Contains(ammoType)) 
+							{
+								ammoTypes.Add(ammoType);
+								int count = GetAmmoCount(grid, ammoType);
+								ammoCounts[ammoType] = count;
 							}
 						}
 						
