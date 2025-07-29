@@ -1818,14 +1818,12 @@ namespace EliDangHUD
 
 				DrawSpeedLinesAndPlanetOrbits();
 
-				// Check for camera distance, so we do not draw close up hud elements if position would prevent their viewing anyway.
+                UpdateCameraPosition();
+                // Check for camera distance, so we do not draw close up hud elements if position would prevent their viewing anyway.
                 if (_distanceToCameraSqr > 4) // 2^2 = 4
                 {
                     return;
                 }
-
-				UpdateCameraPosition();
-
                 DrawRadar();
 
                 //if dust ----------------------------------------------------------------------------------
