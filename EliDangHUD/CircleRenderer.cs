@@ -5261,6 +5261,7 @@ namespace EliDangHUD
                 if (HG_initializedTarget)
                 {
                     HG_DrawHologramTarget(hologramTargetGrid, targetGridBlocks);
+                    //HG_DrawHologramTarget_OLD(hologramTargetGrid, targetGridBlocks);
                     Vector3D hgPos_Left = worldRadarPos + radarMatrix.Left * radarRadius + radarMatrix.Right * _hologramRightOffset_HardCode.X + radarMatrix.Down * 0.0075 + (radarMatrix.Forward * fontSize * 2);
                     Vector3D textPos_Offset = (radarMatrix.Right * 0.065);
                     Vector3D shieldPos_Left = worldRadarPos + radarMatrix.Right * -radarRadius + radarMatrix.Right * _hologramRightOffset_HardCode.X + radarMatrix.Up * _hologramRightOffset_HardCode.Y + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
@@ -6560,148 +6561,64 @@ namespace EliDangHUD
                                 rotationMatrixForView = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(gridAToGridB));
                                 break;
                             case HologramView_Side.Perspective:
-                                // Round 1 works great unless you roll.
-                                //// Create proxy matrix: gridB's orientation at gridA's position
-                                //MatrixD proxyMatrix = gridB.WorldMatrix;
-                                //proxyMatrix.Translation = gridA.WorldMatrix.Translation;
+								// FenixPK 2025-07-28 there are still problems with this when gridA is rolled but this is sooo beyond my understanding at this point I give up haha. 
+								// Round 3, the winner, this perpendicular on the left/right being handled made all the difference. It has the effect I was hoping for. 
+								// Create proxy matrix: gridB's orientation at gridA's position
+								MatrixD proxyMatrix = gridB.WorldMatrix;
+								proxyMatrix.Translation = gridA.WorldMatrix.Translation;
+								MatrixD relativeOrientation = gridB.WorldMatrix * MatrixD.Invert(proxyMatrix);
+								// Extract just the rotation part (remove any translation)
+								rotationMatrixForView = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(relativeOrientation));
 
-                                //MatrixD relativeOrientation = gridB.WorldMatrix * MatrixD.Invert(proxyMatrix);
-                                //// Extract just the rotation part (remove any translation)
-                                //rotationMatrixForView = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(relativeOrientation));
-                                //// Create a "should be looking at gridB" orientation using gridA's up
-                                //Vector3D directionToGridB = Vector3D.Normalize(gridB.WorldMatrix.Translation - proxyMatrix.Translation);
-                                //Vector3D gridAUp = proxyMatrix.Up;
-                                //// Handle parallel case
-                                //double dotProduct = Math.Abs(Vector3D.Dot(directionToGridB, gridAUp));
-                                //if (Math.Abs(dotProduct) > 0.999)
-                                //{
-                                //	// Choose Right or Forward, whichever is more perpendicular to the direction
-                                //	Vector3D rightCandidate = proxyMatrix.Right;
-                                //	Vector3D forwardCandidate = proxyMatrix.Forward;
+								// Create a "should be looking at" orientation
+								Vector3D directionToGridB = Vector3D.Normalize(gridB.WorldMatrix.Translation - proxyMatrix.Translation);
 
-                                //	double rightDot = Math.Abs(Vector3D.Dot(directionToGridB, rightCandidate));
-                                //	double forwardDot = Math.Abs(Vector3D.Dot(directionToGridB, forwardCandidate));
+								// Project gridA's up vector onto the plane perpendicular to the direction vector
+								Vector3D gridAUpInWorldSpace = gridA.WorldMatrix.Up;  //gridA.WorldMatrix.Up;
+								Vector3D projectedGridAUp = gridAUpInWorldSpace - Vector3D.Dot(gridAUpInWorldSpace, directionToGridB) * directionToGridB;
 
-                                //	gridAUp = (rightDot < forwardDot) ? rightCandidate : forwardCandidate;
-                                //}
-                                //Vector3D shouldBeRight = Vector3D.Normalize(Vector3D.Cross(directionToGridB, gridAUp));
-                                //Vector3D shouldBeUp = Vector3D.Cross(shouldBeRight, directionToGridB);
-                                //MatrixD shouldBeLookingAt = MatrixD.CreateWorld(Vector3D.Zero, directionToGridB, shouldBeUp);
-                                //// Get gridA's actual orientation (no translation)
-                                //MatrixD gridAActualOrientation = proxyMatrix;
-                                //gridAActualOrientation.Translation = Vector3D.Zero;
-                                //// Calculate the differential rotation (flip the order)
-                                //MatrixD differential = MatrixD.Invert(shouldBeLookingAt) * gridAActualOrientation;
-                                //MatrixD differentialRotation = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(differential));
-                                //// Apply the compensation
-                                //rotationMatrixForView = rotationMatrixForView * differentialRotation;
+								Vector3D gridAUp;
+								// Check if the projection is valid (not too small)
+								if (projectedGridAUp.LengthSquared() > 0.001)
+								{
+									gridAUp = Vector3D.Normalize(projectedGridAUp);
+								}
+								else
+								{
+									// Fallback when projection fails (gridA's up is parallel to direction)
+									Vector3D rightCandidate = gridA.WorldMatrix.Right;
+									Vector3D forwardCandidate = gridA.WorldMatrix.Forward;
+									double rightDot = Math.Abs(Vector3D.Dot(directionToGridB, rightCandidate));
+									double forwardDot = Math.Abs(Vector3D.Dot(directionToGridB, forwardCandidate));
+									gridAUp = (rightDot < forwardDot) ? rightCandidate : forwardCandidate;
+								}
 
+								// Handle parallel case (though this should be rare now)
+								double dotProduct = Math.Abs(Vector3D.Dot(directionToGridB, gridAUp));
+								if (dotProduct > 0.999)
+								{
+									Vector3D rightCandidate = proxyMatrix.Right;
+									Vector3D forwardCandidate = proxyMatrix.Forward;
+									double rightDot = Math.Abs(Vector3D.Dot(directionToGridB, rightCandidate));
+									double forwardDot = Math.Abs(Vector3D.Dot(directionToGridB, forwardCandidate));
+									gridAUp = (rightDot < forwardDot) ? rightCandidate : forwardCandidate;
+								}
 
+								Vector3D shouldBeRight = Vector3D.Normalize(Vector3D.Cross(directionToGridB, gridAUp));
+								Vector3D shouldBeUp = Vector3D.Cross(shouldBeRight, directionToGridB);
+								MatrixD shouldBeLookingAt = MatrixD.CreateWorld(Vector3D.Zero, directionToGridB, shouldBeUp);
 
+								// Get gridA's actual orientation (no translation)
+								MatrixD gridAActualOrientation = proxyMatrix;
+								gridAActualOrientation.Translation = Vector3D.Zero;
 
-                                // Round 2 seems to work great even rolled unless to left or right of gridB.
-                                // Create proxy matrix: gridB's orientation at gridA's position
-                                //MatrixD proxyMatrix = gridB.WorldMatrix;
-                                //proxyMatrix.Translation = gridA.WorldMatrix.Translation;
-                                //MatrixD relativeOrientation = gridB.WorldMatrix * MatrixD.Invert(proxyMatrix);
-                                //rotationMatrixForView = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(relativeOrientation));
+								// Calculate the differential rotation (flip the order)
+								MatrixD differential = MatrixD.Invert(shouldBeLookingAt) * gridAActualOrientation;
+								MatrixD differentialRotation = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(differential));
 
-                                //// Create a "should be looking at" orientation, but use gridA's roll relative to gridB
-                                //Vector3D directionToGridB = Vector3D.Normalize(gridB.WorldMatrix.Translation - proxyMatrix.Translation);
-
-                                //// Calculate how much gridA is rolled relative to gridB
-                                //Vector3D gridAUpInWorldSpace = gridA.WorldMatrix.Up;
-                                //Vector3D gridBUpInWorldSpace = gridB.WorldMatrix.Up;
-                                //Vector3D gridBForwardInWorldSpace = gridB.WorldMatrix.Forward;
-
-                                //// Project gridA's up vector onto the plane perpendicular to gridB's forward
-                                //Vector3D projectedGridAUp = gridAUpInWorldSpace - Vector3D.Dot(gridAUpInWorldSpace, gridBForwardInWorldSpace) * gridBForwardInWorldSpace;
-                                //projectedGridAUp = Vector3D.Normalize(projectedGridAUp);
-
-                                //// Use this roll-adjusted up vector
-                                //Vector3D gridAUp = projectedGridAUp;
-
-                                //// Handle parallel case (same as before)
-                                //double dotProduct = Math.Abs(Vector3D.Dot(directionToGridB, gridAUp));
-                                //if (dotProduct > 0.999)
-                                //{
-                                //    Vector3D rightCandidate = proxyMatrix.Right;
-                                //    Vector3D forwardCandidate = proxyMatrix.Forward;
-                                //    double rightDot = Math.Abs(Vector3D.Dot(directionToGridB, rightCandidate));
-                                //    double forwardDot = Math.Abs(Vector3D.Dot(directionToGridB, forwardCandidate));
-                                //    gridAUp = (rightDot < forwardDot) ? rightCandidate : forwardCandidate;
-                                //}
-
-                                //Vector3D shouldBeRight = Vector3D.Normalize(Vector3D.Cross(directionToGridB, gridAUp));
-                                //Vector3D shouldBeUp = Vector3D.Cross(shouldBeRight, directionToGridB);
-                                //MatrixD shouldBeLookingAt = MatrixD.CreateWorld(Vector3D.Zero, directionToGridB, shouldBeUp);
-                                //// Get gridA's actual orientation (no translation)
-                                //MatrixD gridAActualOrientation = proxyMatrix;
-                                //gridAActualOrientation.Translation = Vector3D.Zero;
-                                //// Calculate the differential rotation (flip the order)
-                                //MatrixD differential = MatrixD.Invert(shouldBeLookingAt) * gridAActualOrientation;
-                                //MatrixD differentialRotation = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(differential));
-                                //// Apply the compensation
-                                //rotationMatrixForView = rotationMatrixForView * differentialRotation;
-
-
-                                // Round 3, the winner, this perpendicular on the left/right being handled made all the difference. It has the effect I was hoping for. 
-                                // Create proxy matrix: gridB's orientation at gridA's position
-                                MatrixD proxyMatrix = gridB.WorldMatrix;
-                                proxyMatrix.Translation = gridA.WorldMatrix.Translation;
-                                MatrixD relativeOrientation = gridB.WorldMatrix * MatrixD.Invert(proxyMatrix);
-                                // Extract just the rotation part (remove any translation)
-                                rotationMatrixForView = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(relativeOrientation));
-
-                                // Create a "should be looking at" orientation
-                                Vector3D directionToGridB = Vector3D.Normalize(gridB.WorldMatrix.Translation - proxyMatrix.Translation);
-
-                                // Project gridA's up vector onto the plane perpendicular to the direction vector
-                                Vector3D gridAUpInWorldSpace = gridA.WorldMatrix.Up;
-                                Vector3D projectedGridAUp = gridAUpInWorldSpace - Vector3D.Dot(gridAUpInWorldSpace, directionToGridB) * directionToGridB;
-
-                                Vector3D gridAUp;
-                                // Check if the projection is valid (not too small)
-                                if (projectedGridAUp.LengthSquared() > 0.001)
-                                {
-                                    gridAUp = Vector3D.Normalize(projectedGridAUp);
-                                }
-                                else
-                                {
-                                    // Fallback when projection fails (gridA's up is parallel to direction)
-                                    Vector3D rightCandidate = gridA.WorldMatrix.Right;
-                                    Vector3D forwardCandidate = gridA.WorldMatrix.Forward;
-                                    double rightDot = Math.Abs(Vector3D.Dot(directionToGridB, rightCandidate));
-                                    double forwardDot = Math.Abs(Vector3D.Dot(directionToGridB, forwardCandidate));
-                                    gridAUp = (rightDot < forwardDot) ? rightCandidate : forwardCandidate;
-                                }
-
-                                // Handle parallel case (though this should be rare now)
-                                double dotProduct = Math.Abs(Vector3D.Dot(directionToGridB, gridAUp));
-                                if (dotProduct > 0.999)
-                                {
-                                    Vector3D rightCandidate = proxyMatrix.Right;
-                                    Vector3D forwardCandidate = proxyMatrix.Forward;
-                                    double rightDot = Math.Abs(Vector3D.Dot(directionToGridB, rightCandidate));
-                                    double forwardDot = Math.Abs(Vector3D.Dot(directionToGridB, forwardCandidate));
-                                    gridAUp = (rightDot < forwardDot) ? rightCandidate : forwardCandidate;
-                                }
-
-                                Vector3D shouldBeRight = Vector3D.Normalize(Vector3D.Cross(directionToGridB, gridAUp));
-                                Vector3D shouldBeUp = Vector3D.Cross(shouldBeRight, directionToGridB);
-                                MatrixD shouldBeLookingAt = MatrixD.CreateWorld(Vector3D.Zero, directionToGridB, shouldBeUp);
-
-                                // Get gridA's actual orientation (no translation)
-                                MatrixD gridAActualOrientation = proxyMatrix;
-                                gridAActualOrientation.Translation = Vector3D.Zero;
-
-                                // Calculate the differential rotation (flip the order)
-                                MatrixD differential = MatrixD.Invert(shouldBeLookingAt) * gridAActualOrientation;
-                                MatrixD differentialRotation = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(differential));
-
-                                // Apply the compensation
-                                rotationMatrixForView = rotationMatrixForView * differentialRotation;
-                                break;
+								// Apply the compensation
+								rotationMatrixForView = rotationMatrixForView * differentialRotation;
+								break;
 
                             default:
                                 rotationMatrixForView = MatrixD.Identity;
