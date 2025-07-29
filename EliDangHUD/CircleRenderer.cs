@@ -1315,16 +1315,22 @@ namespace EliDangHUD
         public double _fadeDistanceSqr; 
 		public double _radarShownRangeSqr;
 
-
-		/// <summary>
-		/// Updates the positions of UI elements based on the current camera and player head position. These values are stored in class variables that can be used later by the render pipeline in Draw() 
-		/// </summary>
-        public void UpdateUIPositions() 
-		{
+        /// <summary>
+        /// Gets the camera matrix and position in the world and stores them to class variables. This should be called in Draw() for best results. 
+        /// </summary>
+        public void UpdateCameraPosition()
+        {
             // CAMERA POSITION //
             // Get the camera's vectors
             _cameraMatrix = MyAPIGateway.Session.Camera.WorldMatrix;
             _cameraPosition = MyAPIGateway.Session.Camera.Position;
+        }
+
+        /// <summary>
+        /// Updates the positions of UI elements based on the current camera and player head position. These values are stored in class variables that can be used later by the render pipeline in Draw() 
+        /// </summary>
+        public void UpdateUIPositions() 
+		{
 
             //Head Location=================================================
             // Get the player's character entity
@@ -1817,6 +1823,8 @@ namespace EliDangHUD
                 {
                     return;
                 }
+
+				UpdateCameraPosition();
 
                 DrawRadar();
 
