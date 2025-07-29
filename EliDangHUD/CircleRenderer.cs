@@ -1617,12 +1617,7 @@ namespace EliDangHUD
         public override void UpdateAfterSimulation()
 		{
 
-            if (MyAPIGateway.Gui.IsCursorVisible || !_customDataInitialized)
-            {
-				// Always check if not initialized, and if cursor is visible (ie. we are possibly editing the custom data). 
-				// This should ensure differences in ship setup apply (so long as we re-set this bool to false when we get up from the seat). 
-                CheckCustomData();
-            }
+            
 
             if (!EnableMASTER)
             {
@@ -1679,7 +1674,13 @@ namespace EliDangHUD
 			// If player is controlling we perform an OnSitDown event, or if we aren't seated we perform an OnStandUp event.
             if (IsPlayerControlling)
             {
-				// localGrid will be null if we aren't in a cockpit block and that block doesn't have a grid initialized, localGridEntity will be null if we aren't controlling a seat of some kind. 
+                if (MyAPIGateway.Gui.IsCursorVisible || !_customDataInitialized)
+                {
+                    // Always check if not initialized, and if cursor is visible (ie. we are possibly editing the custom data). 
+                    // This should ensure differences in ship setup apply (so long as we re-set this bool to false when we get up from the seat). 
+                    CheckCustomData();
+                }
+                // localGrid will be null if we aren't in a cockpit block and that block doesn't have a grid initialized, localGridEntity will be null if we aren't controlling a seat of some kind. 
 
                 if (!gHandler.localGridControlledEntityCustomName.Contains("[ELI_HUD]"))
                 {
