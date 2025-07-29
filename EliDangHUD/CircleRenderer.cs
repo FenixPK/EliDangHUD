@@ -5531,8 +5531,8 @@ namespace EliDangHUD
 				block.ComputeWorldCenter(out localPosition); // Gets world position for the center of the block
 				scaledPosition = localPosition; // Copy the world position to sc
                 scaledPosition -= gridCenter; // set scaledPosition to be relative to the center of the grid
-				worldRelativePosition = scaledPosition;
-				worldRelativePosition /= grid.GridSize;
+				worldRelativePosition = localPosition;
+				//worldRelativePosition /= grid.GridSize;
                 scaledPosition = Vector3D.Transform(scaledPosition, inverseMatrix); // Transform by the inverseMatrix
 				scaledPosition /= grid.GridSize; // Divide vector by grid size to get scaled coordinates, I guess this is what makes a large ship still fit on screen
 				// Yes my updated understanding of the above is we are normalizing the block position. So we normalize it a position relative to the grid position
