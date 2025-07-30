@@ -64,10 +64,15 @@ namespace EliDangHUD
         /// </summary>
         public double localGridSpeed;
 
-		/// <summary>
-		/// Stores whether the player is in control of a grid (cockpit/seat)
-		/// </summary>
-		public bool IsPlayerControlling;
+        /// <summary>
+        /// Stores the altitude of the CubeGrid belonging to the controlled entity (seat/cockpit) derived from linear velocity, only if in planet gravity
+        /// </summary>
+        public double localGridAltitude;
+
+        /// <summary>
+        /// Stores whether the player is in control of a grid (cockpit/seat)
+        /// </summary>
+        public bool IsPlayerControlling;
 
 		//----THE GRID ITSELF----//
         /// <summary>

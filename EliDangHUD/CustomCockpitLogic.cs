@@ -1,4 +1,4 @@
-﻿using Sandbox.Common.ObjectBuilders;
+using Sandbox.Common.ObjectBuilders;
 using Sandbox.ModAPI;
 using Sandbox.ModAPI.Interfaces.Terminal;
 using VRage.Game.Components;
@@ -10,6 +10,7 @@ using VRageMath;
 using System;
 using VRage.Game.ModAPI.Ingame.Utilities;
 using System.Text.RegularExpressions;
+using System.Text;
 
 [MyEntityComponentDescriptor(typeof(MyObjectBuilder_Cockpit), false)]
 public class CustomCockpitLogic : MyGameLogicComponent
@@ -168,7 +169,24 @@ public class CustomCockpitLogic : MyGameLogicComponent
 				SetParameter(block, "ScannerEnable", value.ToString());
 			};
 			MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(c);
-		}
+
+            var action = MyAPIGateway.TerminalControls.CreateAction<IMyCockpit>("ToggleHoloHud");
+            action.Name = new StringBuilder("Toggle Holo HUD");
+            action.Icon = "Textures\\GUI\\Icons\\Actions\\Toggle.dds";
+            action.Enabled = block => IsEligibleCockpit(block);
+            action.Action = block => {
+				bool result;
+                var val = !bool.TryParse(GetParameter(block, "ScannerEnable"), out result) || !result;
+                SetParameter(block, "ScannerEnable", val.ToString());
+            };
+            action.Writer = (block, sb) => {
+				bool result;
+                bool val = bool.TryParse(GetParameter(block, "ScannerEnable"), out result) && result;
+                sb.Append(val ? "On" : "Off");
+            };
+
+            MyAPIGateway.TerminalControls.AddAction<IMyCockpit>(action);
+        }
 		{
 			var sliderY = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSlider, IMyCockpit>("SliderY");
 			sliderY.Title = MyStringId.GetOrCompute("Offset Y");
