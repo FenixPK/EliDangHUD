@@ -494,6 +494,8 @@ namespace EliDangHUD
 		// Track the radar animations
 		private List<RadarAnimation> RadarAnimations = new List<RadarAnimation>();
 
+		private string _lastCustomData = null;
+
         // The radar variables
         private float min_blip_scale = 0.05f;
 
@@ -1657,14 +1659,6 @@ namespace EliDangHUD
 		/// </summary>
         public override void UpdateAfterSimulation()
 		{
-
-            
-
-            if (!EnableMASTER)
-            {
-                return;
-            }
-
             // Delta timer is used to track the number of seconds between game ticks by storing the elapsed seconds and then re-starting the timer back to 0 each call of AfterUpdateSimulation. 
             if (timerGameTickDelta != null)
             {
@@ -1718,14 +1712,20 @@ namespace EliDangHUD
 
 			// If player is controlling we perform an OnSitDown event, or if we aren't seated we perform an OnStandUp event.
             if (IsPlayerControlling)
-            {
-                if (MyAPIGateway.Gui.IsCursorVisible || !_customDataInitialized)
-                {
-                    // Always check if not initialized, and if cursor is visible (ie. we are possibly editing the custom data). 
-                    // This should ensure differences in ship setup apply (so long as we re-set this bool to false when we get up from the seat). 
-                    CheckCustomData();
-                }
+			{
+                if (!_customDataInitialized || _lastCustomData == null || (_lastCustomData != null && !_lastCustomData.Equals(gHandler.localGridControlledEntityCustomData)))
+				{
+					// Modified this so we CheckCustomData and parse the CustomData of the block once to initialize, if for some reason _lastCustomData is null (which it should only be prior to initialization),
+					// or if not null AND the current CustomData doesn't match what we last parsed (ie. it changed and we need to re-parse it).
+					CheckCustomData();
+				}
                 // localGrid will be null if we aren't in a cockpit block and that block doesn't have a grid initialized, localGridEntity will be null if we aren't controlling a seat of some kind. 
+
+                if (!EnableMASTER)
+                {
+					// Don't process the rest if mod is disabled for this block. This always occurs after checking CustomData in case the status of EnableMASTER has changed.
+                    return;
+                }
 
                 if (!gHandler.localGridControlledEntityCustomName.Contains("[ELI_HUD]"))
                 {
@@ -2032,7 +2032,7 @@ namespace EliDangHUD
 			radarScaleRange_CurrentLogin = 0.001;
 				
 			//Check for CustomData variables in cockpit and register.
-			CheckCustomData();
+			//CheckCustomData();
 			glitchAmount_overload = 0.25;
 
 			PlayCustomSound(SP_BOOTUP, worldRadarPos);
@@ -2057,6 +2057,7 @@ namespace EliDangHUD
 			HG_activationTime = 0;
 			HG_activationTimeTarget = 0;
             _customDataInitialized = false; // Re-set custom data if we get out of the grid control seat.
+			_lastCustomData = null;
 			_localGridWCWeapons.Clear();
 			_weaponCoreWeaponsInitialized = false;
 
@@ -2081,13 +2082,14 @@ namespace EliDangHUD
 
 			// Ensure CustomData is parsed
 			string customData = block.CustomData;
+			_lastCustomData = block.CustomData; // Store global version for comparison later.
 			MyIni ini = new MyIni();
 			MyIniParseResult result;
 
 			// Parse the entire CustomData
 			if (ini.TryParse(customData, out result))
 			{
-				ReadCustomData(ini);
+                ReadCustomData(ini);
                 _customDataInitialized = true;
                 return;
 			}
@@ -2102,20 +2104,20 @@ namespace EliDangHUD
 
 				if (ini.TryParse(sectionData, out result))
 				{
-					ReadCustomData(ini);
+                    ReadCustomData(ini);
                     _customDataInitialized = true;
                     return;
 				}
 				else
 				{
-					// Section not found
-					return;
+                    // Section not found
+                    return;
 				}
 			}
 			else
 			{
-				// Section not found
-				return;
+                // Section not found
+                return;
 			}
 		}
 
@@ -2131,8 +2133,8 @@ namespace EliDangHUD
 			// Master
 			EnableMASTER = ini.Get(mySection, "ScannerEnable").ToBoolean(true);
 
-			// Holograms
-			EnableHolograms = !theSettings.enableHologramsGlobal ? false : ini.Get(mySection, "ScannerHolo").ToBoolean(true); // If disabled at global level don't even check just default to false.
+            // Holograms
+            EnableHolograms = !theSettings.enableHologramsGlobal ? false : ini.Get(mySection, "ScannerHolo").ToBoolean(true); // If disabled at global level don't even check just default to false.
 			EnableHolograms_them = !theSettings.enableHologramsGlobal ? false : ini.Get(mySection, "ScannerHoloThem").ToBoolean(true); // If disabled at global level don't even check just default to false.
             EnableHolograms_you = !theSettings.enableHologramsGlobal ? false : ini.Get(mySection, "ScannerHoloYou").ToBoolean(true); // If disabled at global level don't even check just default to false.
 
@@ -5375,12 +5377,6 @@ namespace EliDangHUD
 
             if (!HG_initialized)
             {
-                localGridHealthMax = 0;
-                localGridHealthCurrent = 0;
-                localGridBlockCounter = 0;
-                localGridShieldsMax = 0;
-                localGridShieldsCurrent = 0;
-
                 HG_InitializeLocalGrid();
                 HG_initialized = true;
                 HG_activationTime = 0;
@@ -5390,6 +5386,7 @@ namespace EliDangHUD
             if (hologramLocalGrid != null && theSettings.enableHologramsGlobal && EnableHolograms_you) //God, I really should have made this far more generic so I don't have to manage the same code for the player and the target seperately...
                                                                                                        // No problem, FenixPK has your got your back jack. Standardized this 2025-07-14. 
             {
+				HG_UpdateLocalGrid();
                 HG_UpdateHologramLocal(hologramLocalGrid, localGridBlocks);
                 UpdateHologramStatus(ref HG_activationTime, ref localGridShieldsLast, ref localGridShieldsCurrent,
                         ref localGridShieldsMax, ref localGridHealthCurrent, deltaTimeSinceLastTick, localGridDrives, localGridBlocks, ref localGridTimeToReady,  ref localGridBlockCounter);
@@ -5401,18 +5398,13 @@ namespace EliDangHUD
             {
                 if (!HG_initializedTarget)
                 {
-                    targetGridHealthMax = 0;
-                    targetGridHealthCurrent = 0;
-                    targetBlockCounter = 0;
-                    targetShieldsMax = 0;
-                    targetShieldsCurrent = 0;
-
                     HG_InitializeTargetGrid(currentTarget);
                     HG_initializedTarget = true;
                     HG_activationTimeTarget = 0;
                 }
                 if (HG_initializedTarget)
                 {
+					HG_UpdateTargetGrid();
                     HG_UpdateHologramTarget(hologramTargetGrid, targetGridBlocks);
                     UpdateHologramStatus(ref HG_activationTimeTarget, ref targetShieldsLast, ref targetShieldsCurrent,
                         ref targetShieldsMax, ref targetGridHealthCurrent, deltaTimeSinceLastTick, targetGridDrives, targetGridBlocks, ref targetTimeToReady, ref targetBlockCounter);
@@ -5670,6 +5662,28 @@ namespace EliDangHUD
             }
         }
 
+        private void HG_UpdateGrid(ref VRage.Game.ModAPI.IMyCubeGrid hologramGrid,
+            ref List<BlockTracker> blockList, ref List<BlockTracker> driveList, ref MatrixD scalingMatrixHG, ref double gridHealthCurrent, ref double gridHealthMax)
+        {
+            if (hologramGrid != null)
+            {
+                blockList = new List<BlockTracker>();
+                driveList = new List<BlockTracker>();
+                blockList = HG_GetBlockInfo(hologramGrid, ref gridHealthCurrent, ref gridHealthMax);
+                // Define a scaling matrix for positioning on the dashboard
+                double thicc = HG_scaleFactor / (hologramGrid.WorldVolume.Radius / hologramGrid.GridSize); // HG_scaleFactor is global.
+                scalingMatrixHG = MatrixD.CreateScale(HG_Scale * thicc); //HG_Scale is global
+
+                for (int b = 0; b < blockList.Count; b++)
+                {
+                    if (blockList[b].IsJumpDrive)
+                    {
+                        driveList.Add(blockList[b]);
+                    }
+                }
+            }
+        }
+
         private void HG_InitializeLocalGrid()
 		{
 			// Get the player's controlled grid
@@ -5678,27 +5692,65 @@ namespace EliDangHUD
 
 			if (hologramLocalGrid != null)
 			{
-				HG_InitializeGrid(controlledEntity, ref hologramLocalGrid, 
+                localGridHealthMax = 0;
+                localGridHealthCurrent = 0;
+                localGridBlockCounter = 0;
+                localGridShieldsMax = 0;
+                localGridShieldsCurrent = 0;
+                HG_InitializeGrid(controlledEntity, ref hologramLocalGrid, 
 					ref localGridBlocks, ref localGridDrives, ref HG_scalingMatrix, ref localGridHealthCurrent, ref localGridHealthMax);
 			}
 		}
 
+        private void HG_UpdateLocalGrid()
+        {
+            if (hologramLocalGrid != null)
+            {
+                localGridHealthMax = 0;
+                localGridHealthCurrent = 0;
+                localGridBlockCounter = 0;
+                localGridShieldsMax = 0;
+                localGridShieldsCurrent = 0;
+                HG_UpdateGrid(ref hologramLocalGrid,
+                    ref localGridBlocks, ref localGridDrives, ref HG_scalingMatrix, ref localGridHealthCurrent, ref localGridHealthMax);
+            }
+        }
 
-		private void HG_InitializeTargetGrid(VRage.ModAPI.IMyEntity target)
+
+        private void HG_InitializeTargetGrid(VRage.ModAPI.IMyEntity target)
 		{
 			if (target == null) 
 			{
 				return;
 			}
-			hologramTargetGrid = target as VRage.Game.ModAPI.IMyCubeGrid;
+            hologramTargetGrid = target as VRage.Game.ModAPI.IMyCubeGrid;
 			if (hologramTargetGrid != null)
 			{
-				HG_InitializeGrid(target, ref hologramTargetGrid, 
+                targetGridHealthMax = 0;
+                targetGridHealthCurrent = 0;
+                targetBlockCounter = 0;
+                targetShieldsMax = 0;
+                targetShieldsCurrent = 0;
+                HG_InitializeGrid(target, ref hologramTargetGrid, 
 					ref targetGridBlocks, ref targetGridDrives, ref HG_scalingMatrixTarget, ref targetGridHealthCurrent, ref targetGridHealthMax);
 			}
 		}
 
-		private List<BlockTracker> HG_GetBlockInfo(VRage.Game.ModAPI.IMyCubeGrid grid, ref double gridHealthCurrent, ref double gridHealthMax)
+        private void HG_UpdateTargetGrid()
+        {
+            if (hologramTargetGrid != null)
+            {
+                targetGridHealthMax = 0;
+                targetGridHealthCurrent = 0;
+                targetBlockCounter = 0;
+                targetShieldsMax = 0;
+                targetShieldsCurrent = 0;
+                HG_UpdateGrid(ref hologramTargetGrid,
+                    ref targetGridBlocks, ref targetGridDrives, ref HG_scalingMatrixTarget, ref targetGridHealthCurrent, ref targetGridHealthMax);
+            }
+        }
+
+        private List<BlockTracker> HG_GetBlockInfo(VRage.Game.ModAPI.IMyCubeGrid grid, ref double gridHealthCurrent, ref double gridHealthMax)
 		{
 			Vector3D gridCenter = grid.WorldVolume.Center; // Center of the grid's bounding box
 			Vector3D gridPos = grid.GetPosition(); //Position of the grid in the world
@@ -6147,7 +6199,7 @@ namespace EliDangHUD
 
             if (GetRandomDouble() > bootUpAlpha)
             {
-                position *= bootUpAlpha; // I assume this is what gives the hologram the booting up effect, it scales the position of blocks drawn by the bootUpAlpha.
+                //position *= bootUpAlpha; // I assume this is what gives the hologram the booting up effect, it scales the position of blocks drawn by the bootUpAlpha.
                                          // But only randomly when the double is >, so as bootUpAlpha approaches 1, the hologram will be drawn at full position.
             }
             if (GetRandomDouble() > bootUpAlpha)
@@ -6193,9 +6245,9 @@ namespace EliDangHUD
             if (randoTime)
             {
                 // Offset the position by a random amount to give a "glitch" effect, also used for booting up. 
-                Vector3D randOffset = new Vector3D((GetRandomDouble() - 0.5) * 2, (GetRandomDouble() - 0.5) * 2, (GetRandomDouble() - 0.5) * 2);
-                randOffset *= 0.333;
-                position += position * randOffset;
+                //Vector3D randOffset = new Vector3D((GetRandomDouble() - 0.5) * 2, (GetRandomDouble() - 0.5) * 2, (GetRandomDouble() - 0.5) * 2);
+                //randOffset *= 0.333;
+                //position += position * randOffset;
             }
 
             double thickness = hologramScaleFactor / (grid.WorldVolume.Radius / grid.GridSize);
@@ -6217,7 +6269,7 @@ namespace EliDangHUD
                 Vector3D holoDir = Vector3D.Normalize(position - holoCenter);
                 double holoLength = Vector3D.Distance(holoCenter, position);
 
-                DrawLineBillboard(MaterialSquare, color * 0.15f * (float)dotProd * (float)bootUpAlpha, holoCenter, holoDir, (float)holoLength, 0.0025f, BlendTypeEnum.AdditiveTop);
+                DrawLineBillboard(MaterialSquare, color * 0.15f * (float)bootUpAlpha, holoCenter, holoDir, (float)holoLength, 0.0025f, BlendTypeEnum.AdditiveTop);
             }
         }
 
@@ -6352,16 +6404,17 @@ namespace EliDangHUD
                                 break;
                             case HologramView_Side.Orbit:
 
-                                // This is technically an "Orbit" cam... It will show a hologram of the target grid EXACTLY as it appears in world space relative to your orientation
-                                // but not your translation/position in the world. So you can rotate your ship around and see all sides of gridB from anywhere in the world.
-                                // if you are facing a direction and the target is also facing the same direction you see it's backside, even if it is behind you lol.
+								// This is technically an "Orbit" cam... It will show a hologram of the target grid EXACTLY as it appears in world space relative to your orientation
+								// but not your translation/position in the world. So you can rotate your ship around and see all sides of gridB from anywhere in the world.
+								// if you are facing a direction and the target is also facing the same direction you see it's backside, even if it is behind you lol.
 
-                                // What transformation gets us from gridA's coordinate system to gridB's?
-                                MatrixD gridAToGridB = MatrixD.Invert(gridA.WorldMatrix) * gridB.WorldMatrix;
+								//What transformation gets us from gridA's coordinate system to gridB's?
+							    MatrixD gridAToGridB = MatrixD.Invert(gridA.WorldMatrix) * gridB.WorldMatrix;
 
-                                //// Use this as the rotation (this naturally includes both position and orientation differences)
-                                rotationMatrixForView = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(gridAToGridB));
-                                break;
+								//// Use this as the rotation (this naturally includes both position and orientation differences)
+								rotationMatrixForView = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(gridAToGridB));
+
+								break;
                             case HologramView_Side.Perspective:
 								// FenixPK 2025-07-28 there are still problems with this when gridA is rolled but this is sooo beyond my understanding at this point I give up haha. 
 								// Round 3, the winner, this perpendicular on the left/right being handled made all the difference. It has the effect I was hoping for. 
@@ -6436,6 +6489,78 @@ namespace EliDangHUD
 					block.HologramDrawPosition = finalBlockPositionToDraw; // Will be used by render pipeline.
                 }
 			}
+        }
+
+        public static MatrixD GetHologramRotationMatrix(VRage.Game.ModAPI.IMyCubeGrid gridA, VRage.Game.ModAPI.IMyCubeGrid gridB)
+        {
+            // Vector from A to B
+            Vector3D toVector = gridB.WorldMatrix.Translation - gridA.WorldMatrix.Translation;
+
+            // If grids are practically at the same position, return identity or last known rotation
+            if (toVector.LengthSquared() < 1e-9)
+                return MatrixD.Identity;
+
+            Vector3D directionToB = Vector3D.Normalize(toVector);
+
+            // Project gridA's Up vector onto plane perpendicular to directionToB
+            Vector3D projectedUp = gridA.WorldMatrix.Up - Vector3D.Dot(gridA.WorldMatrix.Up, directionToB) * directionToB;
+
+            Vector3D fakeUp;
+
+            // Check if projection is unstable (too close to parallel)
+            if (projectedUp.LengthSquared() < 1e-9)
+            {
+                // Fallback: pick gridA's Right or Forward which is least aligned with directionToB
+                Vector3D rightCandidate = gridA.WorldMatrix.Right;
+                Vector3D forwardCandidate = gridA.WorldMatrix.Forward;
+
+                double rightDot = Math.Abs(Vector3D.Dot(directionToB, rightCandidate));
+                double forwardDot = Math.Abs(Vector3D.Dot(directionToB, forwardCandidate));
+
+                fakeUp = (rightDot < forwardDot) ? rightCandidate : forwardCandidate;
+
+                // Still check if right and fakeUp form a stable basis
+                Vector3D testRight = Vector3D.Cross(fakeUp, directionToB);
+                if (testRight.LengthSquared() < 1e-9)
+                {
+                    // Final fallback: calculate guaranteed perpendicular vector
+                    fakeUp = Vector3D.CalculatePerpendicularVector(directionToB);
+                }
+            }
+            else
+            {
+                fakeUp = Vector3D.Normalize(projectedUp);
+            }
+
+            // Calculate right vector and re-orthonormalize the basis
+            Vector3D right = Vector3D.Cross(fakeUp, directionToB);
+            if (right.LengthSquared() < 1e-9)
+            {
+                // Should be very rare at this point, but fallback anyway
+                fakeUp = Vector3D.CalculatePerpendicularVector(directionToB);
+                right = Vector3D.Cross(fakeUp, directionToB);
+            }
+            right = Vector3D.Normalize(right);
+            fakeUp = Vector3D.Cross(directionToB, right);
+
+            // Create a proxy matrix: position = gridA's position,
+            // forward = directionToB,
+            // up = fakeUp (orthonormal)
+            MatrixD proxyMatrix = new MatrixD
+            {
+                Forward = directionToB,
+                Up = fakeUp,
+                Right = right,
+                Translation = gridA.WorldMatrix.Translation
+            };
+
+            // Compute relative rotation from proxyMatrix (gridA facing gridB) to gridB's world matrix
+            MatrixD relativeRotation = MatrixD.Invert(proxyMatrix) * gridB.WorldMatrix;
+
+            // Extract rotation part only
+            MatrixD hologramRotation = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(relativeRotation));
+
+            return hologramRotation;
         }
 
         Vector3D SnapDirectionTo45Degrees(Vector3D dir)

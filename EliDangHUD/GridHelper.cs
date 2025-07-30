@@ -50,6 +50,11 @@ namespace EliDangHUD
         public Vector3D localGridControlledEntityPosition;
 
 		/// <summary>
+		/// Stores the current CustomData for the controlled entity (seat/cockpit)
+		/// </summary>
+		public string localGridControlledEntityCustomData;
+
+		/// <summary>
 		/// Stores the linear velocity of the CubeGrid belonging to the controlled entity (seat/cockpit)
 		/// </summary>
 		public Vector3D localGridVelocity;
@@ -186,7 +191,7 @@ namespace EliDangHUD
                         return;
                     }
                     localGrid = cockpit.CubeGrid; // Store the parent CubeGrid of the controlled entity for re-use
-
+					localGridControlledEntityCustomData = cockpit.CustomData;
 					UpdateElapsedTimeDeltaTimerGHandler(); // Store deltaTime and reset deltaTimer
 
 					// Update stored positions

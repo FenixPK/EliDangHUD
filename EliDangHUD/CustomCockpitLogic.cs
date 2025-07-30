@@ -174,15 +174,21 @@ public class CustomCockpitLogic : MyGameLogicComponent
             action.Name = new StringBuilder("Toggle Holo HUD");
             action.Icon = "Textures\\GUI\\Icons\\Actions\\Toggle.dds";
             action.Enabled = block => IsEligibleCockpit(block);
-            action.Action = block => {
-				bool result;
-                var val = !bool.TryParse(GetParameter(block, "ScannerEnable"), out result) || !result;
-                SetParameter(block, "ScannerEnable", val.ToString());
+
+            // Toggle the "ScannerEnable" parameter
+            action.Action = block =>
+            {
+                bool current = false;
+                bool parsed = bool.TryParse(GetParameter(block, "ScannerEnable"), out current);
+                SetParameter(block, "ScannerEnable", (!current).ToString());
             };
-            action.Writer = (block, sb) => {
-				bool result;
-                bool val = bool.TryParse(GetParameter(block, "ScannerEnable"), out result) && result;
-                sb.Append(val ? "On" : "Off");
+
+            // Show "On"/"Off" based on current value
+            action.Writer = (block, sb) =>
+            {
+                bool current = false;
+                bool parsed = bool.TryParse(GetParameter(block, "ScannerEnable"), out current);
+                sb.Append(current ? "On" : "Off");
             };
 
             MyAPIGateway.TerminalControls.AddAction<IMyCockpit>(action);
