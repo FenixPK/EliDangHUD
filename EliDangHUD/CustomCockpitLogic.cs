@@ -345,7 +345,30 @@ public class CustomCockpitLogic : MyGameLogicComponent
 				SetParameter(block, "ScannerHolo", value.ToString());
 			};
 			MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(c);
-		}
+
+            var action = MyAPIGateway.TerminalControls.CreateAction<IMyCockpit>("ToggleHolograms");
+            action.Name = new StringBuilder("Toggle Holograms");
+            action.Icon = "Textures\\GUI\\Icons\\Actions\\Toggle.dds";
+            action.Enabled = block => IsEligibleCockpit(block);
+
+            // Toggle the "ToggleHolograms" parameter
+            action.Action = block =>
+            {
+                bool current = false;
+                bool parsed = bool.TryParse(GetParameter(block, "ScannerHolo"), out current);
+                SetParameter(block, "ScannerHolo", (!current).ToString());
+            };
+
+            // Show "On"/"Off" based on current value
+            action.Writer = (block, sb) =>
+            {
+                bool current = false;
+                bool parsed = bool.TryParse(GetParameter(block, "ScannerHolo"), out current);
+                sb.Append(current ? "On" : "Off");
+            };
+
+            MyAPIGateway.TerminalControls.AddAction<IMyCockpit>(action);
+        }
 		{
 			var c = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlCheckbox, IMyCockpit>("HologramsYou");
 			c.Title = MyStringId.GetOrCompute("Hologram : Your Ship");
@@ -533,9 +556,77 @@ public class CustomCockpitLogic : MyGameLogicComponent
 				SetParameter(block, "ScannerShowVoxels", value.ToString());
 			};
 			MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(c);
-		}
 
-	}
+            var action = MyAPIGateway.TerminalControls.CreateAction<IMyCockpit>("ToggleVoxels");
+            action.Name = new StringBuilder("Toggle Voxels");
+            action.Icon = "Textures\\GUI\\Icons\\Actions\\Toggle.dds";
+            action.Enabled = block => IsEligibleCockpit(block);
+
+            // Toggle the "ScannerShowVoxels" parameter
+            action.Action = block =>
+            {
+                bool current = false;
+                bool parsed = bool.TryParse(GetParameter(block, "ScannerShowVoxels"), out current);
+                SetParameter(block, "ScannerShowVoxels", (!current).ToString());
+            };
+
+            // Show "On"/"Off" based on current value
+            action.Writer = (block, sb) =>
+            {
+                bool current = false;
+                bool parsed = bool.TryParse(GetParameter(block, "ScannerShowVoxels"), out current);
+                sb.Append(current ? "On" : "Off");
+            };
+
+            MyAPIGateway.TerminalControls.AddAction<IMyCockpit>(action);
+        }
+        {
+            var c = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlCheckbox, IMyCockpit>("ShowPoweredOnly");
+            c.Title = MyStringId.GetOrCompute("Show Only Powered Grids");
+            c.Tooltip = MyStringId.GetOrCompute("Enable to show only grids with power");
+            c.SupportsMultipleBlocks = true;
+            c.Visible = block => IsEligibleCockpit(block);
+            c.Enabled = block => true; // to see how the grayed out ones look
+
+            c.Getter = block => {
+                bool result;
+                // Attempt to parse the string from CustomData. If it fails, return a default value.
+                if (bool.TryParse(GetParameter(block, "ScannerOnlyPoweredGrids"), out result))
+                    return result;
+                return true;  // Default value if parsing fails or parameter does not exist
+            };
+
+            c.Setter = (block, value) => {
+                // Convert float to string and set it using SetParameter
+                SetParameter(block, "ScannerOnlyPoweredGrids", value.ToString());
+            };
+            MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(c);
+
+            var action = MyAPIGateway.TerminalControls.CreateAction<IMyCockpit>("TogglePoweredOnly");
+            action.Name = new StringBuilder("Toggle Powered Only");
+            action.Icon = "Textures\\GUI\\Icons\\Actions\\Toggle.dds";
+            action.Enabled = block => IsEligibleCockpit(block);
+
+            // Toggle the "ScannerOnlyPoweredGrids" parameter
+            action.Action = block =>
+            {
+                bool current = false;
+                bool parsed = bool.TryParse(GetParameter(block, "ScannerOnlyPoweredGrids"), out current);
+                SetParameter(block, "ScannerOnlyPoweredGrids", (!current).ToString());
+            };
+
+            // Show "On"/"Off" based on current value
+            action.Writer = (block, sb) =>
+            {
+                bool current = false;
+                bool parsed = bool.TryParse(GetParameter(block, "ScannerOnlyPoweredGrids"), out current);
+                sb.Append(current ? "On" : "Off");
+            };
+
+            MyAPIGateway.TerminalControls.AddAction<IMyCockpit>(action);
+        }
+
+    }
 
 	private bool ControlsExist()
 	{

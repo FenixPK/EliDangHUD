@@ -214,6 +214,8 @@ namespace EliDangHUD
         public bool RadarPingHasActiveRadar { get; set; }
 
         public double RadarPingMaxActiveRange { get; set; }
+
+		public bool RadarPingHasPower { get; set; }
     }
 
 	public class RadarAnimation
@@ -362,8 +364,61 @@ namespace EliDangHUD
         public bool useHollowReticle = true;
         public string useHollowReticle_DESCRIPTION = "Should the targeting reticle be hollow or have a \"dot\" in the middle that can sometimes block the view of the target especially if it's a small grid.";
 
+		/// <summary>
+		/// Minimum number of blocks a grid must have to be selectable as a target
+		/// </summary>
 		public int minTargetBlocksCount = 5;
 		public string minTargetBlocksCount_DESCRIPTION = "The minimum number of blocks required for a grid to be selected as a target. Helps reduce pieces of debris being selected";
+
+
+        /// <summary>
+        /// Whether to use a mouse button, or a keybind, for selecting new targets in Eli Dang hud
+        /// </summary>
+        public bool useMouseTargetSelect = true;
+		public string useMouseTargetSelect_DESCRIPTION = "Whether to use a mouse button, or a keybind, for selecting new targets in Eli Dang hud";
+
+        /// <summary>
+        /// Mouse button to use: 0 = Left, 1 = Right, 2 = Middle
+        /// </summary>
+        public int selectTargetMouseButton = 1; // 0 = Left, 1 = Right, 2 = Middle
+		public string selectTargetMouseButton_DESCRIPTION = "Mouse button to use: 0 = Left, 1 = Right, 2 = Middle";
+
+        /// <summary>
+        /// Key to select target, if mouse button is disabled
+        /// </summary>
+        public int selectTargetKey = (int)MyKeys.T;
+		public string selectTargetKey_DESCRIPTION = "Key to select target, if mouse button is disabled";
+
+        /// <summary>
+        /// Key to cycle hologram view back (Ctrl modifier cycles local hologram, no Ctrl cycles target)
+        /// </summary>
+        public int rotateLeftKey = (int)MyKeys.NumPad4;
+		public string rotateLeftKey_DESCRIPTION = "Key to cycle hologram view back (Ctrl modifier cycles local hologram, no Ctrl cycles target)";
+
+        /// <summary>
+        /// Key to reset hologram view (Ctrl modifier cycles local hologram, no Ctrl cycles target)
+        /// </summary>
+        public int resetKey = (int)MyKeys.NumPad5;
+		public string resetKey_DESCRIPTION = "Key to reset hologram view (Ctrl modifier cycles local hologram, no Ctrl cycles target)";
+
+        /// <summary>
+        /// Key to cycle hologram view forward (Ctrl modifier cycles local hologram, no Ctrl cycles target)
+        /// </summary>
+        public int rotateRightKey = (int)MyKeys.NumPad6;
+		public string rotateRightKey_DESCRIPTION = "Key to cycle hologram view forward (Ctrl modifier cycles local hologram, no Ctrl cycles target)";
+
+        /// <summary>
+        /// Key to set hologram view to Orbit cam (Only for target)
+        /// </summary>
+        public int orbitViewKey = (int)MyKeys.NumPad1;
+		public string orbitViewKey_DESCRIPTION = "Key to set hologram view to Orbit cam (Only for target)";
+
+        /// <summary>
+        /// Key to set hologram view to Perspective cam (Only for target)
+        /// </summary>
+        public int perspectiveViewKey = (int)MyKeys.NumPad3;
+		public string perspectiveViewKey_DESCRIPTION = "Key to set hologram view to Perspective cam (Only for target)";
+
     }
 
     [MySessionComponentDescriptor(MyUpdateOrder.BeforeSimulation | MyUpdateOrder.AfterSimulation)]
@@ -528,7 +583,12 @@ namespace EliDangHUD
 		public MatrixD angularRotationWiggleTarget = MatrixD.Identity;
 		public MatrixD angularRotationWiggleLocal = MatrixD.Identity;
 
-		
+
+        private bool ShowVelocityLines = true;
+        private bool ShowVoxels = true;
+		private bool _onlyPoweredGrids = false;
+        private float SpeedThreshold = 10f;
+
 
         // The player
         private IMyPlayer player;
@@ -1422,6 +1482,7 @@ namespace EliDangHUD
             localHologramMatrix.Translation = localHologramWorldPos;
 
 
+           
 
         }
 
@@ -1463,10 +1524,21 @@ namespace EliDangHUD
             _currentTargetPositionReturned = new Vector3D(); // Will reuse this.
             if (currentTarget != null && !currentTarget.Closed)
             {
+                
                 // In here we will check if the player can still actively or passively target the current target and release them if not, or adjust range brackets accordingly if still targetted. 
                 CanGridRadarDetectEntity(_playerHasPassiveRadar, _playerHasActiveRadar, _playerMaxPassiveRange, _playerMaxActiveRange, gHandler.localGridPosition,
                     currentTarget, out _playerCanDetectCurrentTarget, out _currentTargetPositionReturned, out _distanceToCurrentTargetSqr, out _currentTargetHasActiveRadar, out _currentTargetMaxActiveRange);
 
+                VRage.Game.ModAPI.IMyCubeGrid targetGrid = currentTarget as VRage.Game.ModAPI.IMyCubeGrid;
+                if (targetGrid != null)
+                {
+                    // Store whether radar ping is powered regardless of whether we only show powered or not, in case we want to do something like make the non powered
+                    // grids darker and powered ones lighter. Then we check if _onlyPoweredGrids is true and we don't have power for current entity we skip it. 
+                    if (_onlyPoweredGrids && !HasPowerProduction(targetGrid))
+                    {
+						_playerCanDetectCurrentTarget = false;
+                    }
+                }
                 if (_playerCanDetectCurrentTarget)
                 {
                     if (debug)
@@ -1532,6 +1604,19 @@ namespace EliDangHUD
                 {
                     continue; // Skip drawing yourself on the radar.
                 }
+
+                VRage.Game.ModAPI.IMyCubeGrid entityGrid = entity as VRage.Game.ModAPI.IMyCubeGrid;
+                if (entityGrid != null)
+                {
+					// Store whether radar ping is powered regardless of whether we only show powered or not, in case we want to do something like make the non powered
+					// grids darker and powered ones lighter. Then we check if _onlyPoweredGrids is true and we don't have power for current entity we skip it. 
+                    radarPings[i].RadarPingHasPower = HasPowerProduction(entityGrid);
+                    if (_onlyPoweredGrids && !radarPings[i].RadarPingHasPower)
+                    {
+                        continue;
+                    }
+                }
+                
 
                 bool playerCanDetect = false;
                 Vector3D entityPos;
@@ -2067,9 +2152,7 @@ namespace EliDangHUD
 
 		}
 
-		private bool ShowVelocityLines = true;
-		private bool ShowVoxels = true;
-		private float SpeedThreshold = 10f;
+		
 
 		/// <summary>
 		/// Parses the controlled block's CustomData for a section starting with "EliDang". If parsed successfuly after loading settings sets _customDataInitialized = true.
@@ -2157,6 +2240,8 @@ namespace EliDangHUD
             }
 
 
+
+
             // Toolbar
             EnableToolbars = ini.Get(mySection, "ScannerTools").ToBoolean(true);
 
@@ -2197,7 +2282,10 @@ namespace EliDangHUD
 
 			// Voxel Toggle
 			ShowVoxels = ini.Get(mySection, "ScannerShowVoxels").ToBoolean(true);
-		}
+
+            // Power toggle
+            _onlyPoweredGrids = ini.Get(mySection, "ScannerOnlyPoweredGrids").ToBoolean(false);
+        }
 		//-----------------------------------------------------------------------------------
 
 
@@ -3508,8 +3596,17 @@ namespace EliDangHUD
 					continue;
 				}
 
-				// Handle fade for edge
-				float fadeDimmer = 1f;
+                VRage.Game.ModAPI.IMyCubeGrid entityGrid = entity as VRage.Game.ModAPI.IMyCubeGrid;
+                if (entityGrid != null)
+                {
+                    if (_onlyPoweredGrids && !radarPings[i].RadarPingHasPower)
+                    {
+                        continue;
+                    }
+                }
+
+                // Handle fade for edge
+                float fadeDimmer = 1f;
                 // Have to invert old logic, original author made this extend radar range past configured limit. 
 				// I am having the limit as a hard limit be it global config or antenna broadcast range, so we instead make a small range before that "fuzzy" instead. 
 				// If it was outside max range it wouldn't have been detected by the player actively or passively, so we skipped it already. Meaning all we have to do is check if it is in the fade region and fade it or draw it regularly. 
@@ -4608,12 +4705,36 @@ namespace EliDangHUD
 		private bool isTargetLocked = false;
 		private bool isTargetAnnounced = false;
 
-		/// <summary>
-		/// Check player input, could handle various things. Currently just right-click target locking. 
-		/// </summary>
-		private void CheckPlayerInput()
+        public bool IsSelectTargetPressed()
+        {
+            if (theSettings.useMouseTargetSelect)
+            {
+                switch ((int)theSettings.selectTargetMouseButton)
+                {
+                    case 0: return MyAPIGateway.Input.IsNewLeftMousePressed();
+                    case 1: return MyAPIGateway.Input.IsNewRightMousePressed();
+                    case 2: return MyAPIGateway.Input.IsNewMiddleMousePressed();
+                    default: return false;
+                }
+            }
+            else
+            {
+                return MyAPIGateway.Input.IsNewKeyPressed((MyKeys)theSettings.selectTargetKey);
+            }
+        }
+
+        /// <summary>
+        /// Check player input, could handle various things. Currently just right-click target locking. 
+        /// </summary>
+        private void CheckPlayerInput()
 		{
-			if (MyAPIGateway.Input.IsNewGameControlPressed(MyControlsSpace.SECONDARY_TOOL_ACTION))
+            MyKeys rotateLeftKey = (MyKeys)theSettings.rotateLeftKey;
+            MyKeys resetKey = (MyKeys)theSettings.resetKey;
+            MyKeys rotateRightKey = (MyKeys)theSettings.rotateRightKey;
+            MyKeys orbitKey = (MyKeys)theSettings.orbitViewKey;
+            MyKeys perspectiveKey = (MyKeys)theSettings.perspectiveViewKey;
+
+            if (IsSelectTargetPressed())
 			{
 				//Echo ("Press");
 				if (isTargetLocked && currentTarget != null && !currentTarget.MarkedForClose)
@@ -4657,40 +4778,42 @@ namespace EliDangHUD
 			}
 
             bool ctrl = MyAPIGateway.Input.IsAnyCtrlKeyPressed();
+
+
 			if (ctrl)
 			{
-                if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.NumPad4))
+                if (MyAPIGateway.Input.IsNewKeyPressed(rotateLeftKey))
                 {
                     HologramViewLocal_Current = ((int)HologramViewLocal_Current - 1 < 0 ? HologramView_Side.Bottom : HologramViewLocal_Current - 1); // Step down, or roll over to max.
                 }
-                if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.NumPad5))
+                if (MyAPIGateway.Input.IsNewKeyPressed(resetKey))
                 {
                     HologramViewLocal_Current = HologramView_Side.Rear; // Reset
                 }
-                if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.NumPad6))
+                if (MyAPIGateway.Input.IsNewKeyPressed(rotateRightKey))
                 {
                     HologramViewLocal_Current = ((int)HologramViewLocal_Current + 1 > HologramViewLocal_Current_MaxSide ? HologramView_Side.Rear : HologramViewLocal_Current + 1); // Step up, or roll over to min.
                 }
             }
 			else 
 			{
-                if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.NumPad4))
+                if (MyAPIGateway.Input.IsNewKeyPressed(rotateLeftKey))
                 {
                     HologramViewTarget_Current = ((int)HologramViewTarget_Current - 1 < 0 ? HologramView_Side.Bottom : HologramViewTarget_Current - 1); // Step down, or roll over to max.
                 }
-                if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.NumPad5))
+                if (MyAPIGateway.Input.IsNewKeyPressed(resetKey))
                 {
                     HologramViewTarget_Current = HologramView_Side.Rear; // Reset
                 }
-                if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.NumPad6))
+                if (MyAPIGateway.Input.IsNewKeyPressed(rotateRightKey))
                 {
                     HologramViewTarget_Current = ((int)HologramViewTarget_Current + 1 > HologramViewTarget_Current_MaxSide ? HologramView_Side.Rear : HologramViewTarget_Current + 1); // Step up, or roll over to min.
                 }
-                if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.NumPad1))
+                if (MyAPIGateway.Input.IsNewKeyPressed(orbitKey))
                 {
                     HologramViewTarget_Current = HologramView_Side.Orbit;
                 }
-                if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.NumPad3))
+                if (MyAPIGateway.Input.IsNewKeyPressed(perspectiveKey))
                 {
                     HologramViewTarget_Current = HologramView_Side.Perspective; // Perspective
                 }
@@ -5126,6 +5249,11 @@ namespace EliDangHUD
                 VRage.Game.ModAPI.IMyCubeGrid cubeGrid = e as VRage.Game.ModAPI.IMyCubeGrid;
                 if (cubeGrid != null)
                 {
+					if (_onlyPoweredGrids && !HasPowerProduction(cubeGrid))
+					{
+						// If powered only don't allow selecting unpowered grids. 
+						return false;
+					}
                     List<VRage.Game.ModAPI.IMySlimBlock> tempBlocks = new List<VRage.Game.ModAPI.IMySlimBlock>();
                     cubeGrid.GetBlocks(tempBlocks);
                     return tempBlocks.Count >= theSettings.minTargetBlocksCount;
@@ -5915,7 +6043,6 @@ namespace EliDangHUD
             // store UNSCALED blocks only so it can work with transformations/rotations. And also update in the UpdateBeforeSimulation not in the Draw
             if (localGrid != null)
             {
-                bool isEntityTarget = false;
                 MatrixD angularRotationWiggle = MatrixD.Identity;
                 MatrixD rotationOnlyGridMatrix = localGrid.WorldMatrix;
                 rotationOnlyGridMatrix.Translation = Vector3D.Zero; // Set the translation to zero to get only the rotation component.
