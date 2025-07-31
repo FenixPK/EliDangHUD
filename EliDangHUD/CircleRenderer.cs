@@ -118,34 +118,27 @@ DONE: Make entities with active radar stand out visually.
 DONE: Look into color/scale sliders re-setting or not changing per ship as you leave one and enter another. Might already be fixed? I believe this would have been fixed
 by my changes to where CheckCustomData gets called anyway. 
 DONE: Make target selection code use a minBlockCount setting to prevent debris being picked up instead of actual grids. Also uses GetTopMostParent so it returns main grids instead of subgrids like wheels etc.
+DONE: Make target selection and hologram view changing keys be bindable in the config. 
+DONE: Add setting to only show radar pings for grids with power. Setting is independent of voxels, so if show voxels is true they will still appear despite not having power. 
+DONE: Add block actions for toggling the hud on/off, the holograms on/off, show voxels on/off, and powered only on/off. These can be bound from the G menu to the toolbar. 
+DONE: Local Grid and Target Grid holograms can have their views cycled. Ctrl modifier applies to local grid hologram, no Ctrl key pressed will change target grid hologram.
 
 --TODO--
-TODO: Fix whatever I broke regarding the block position camera dir stuff in drawing the hologram when I switched back to original author code with my block positions. 
-I believe it shades it when looking at grid for some reason? Think I fixed this by getting the dotProduct out of there.
-
-TODO: Figure out why the block hotkey I added for turning hud/on off (which is a wip for adding other sliders too) turned the holo hud off, and wouldn't turn it back on??
-
 TODO: Figure out all this DamageAmount/AttachGrid/DetachGrid event handler stuff. It looks... incomplete? Eg GetDamageAmount if called would re-set the amount to zero. It is used to get a damage amount to add to glitch amount overload.
 but the way it is configured all that happens prior to this is attaching event handlers for on function changed. So amount would always be 0?
 Is this a remnant from presumably older code that used the queue of blocks to check each one for current damage, so it would do something like upon sitting in the control seat of a grid that was already damaged
 store that value? 
 TODO: Look into use of IMyCockpit vs IMyShipController, didn't we see reports of players wishing it worked for remote controlled ships?
-TODO: (PARTIAL) Make player condition hologram better... Could rotate it on a timer to show all sides, and then if taking damage rotate it so it shows the side being impacted? I have standardized the code so it is far easier to modify and maintain
-but made no actual changes to it yet.
+TODO: (PARTIAL) Make player condition hologram better - would love to make it flip to show side taking damage most recently?
 TODO: Can we color code power, weapon, antenna, control blocks in the target/player hologram? Then apply a yellow/red color gradient overtop for damage. 
-TODO: Make altitude readout
-
+TODO (PARTIAL): Make altitude readout - I have the value, but haven't decided where to draw it on screen yet.
 TODO: Make broadcast range only affect active signal sent out, and make scale be something else configurable that gets stored in the cockpit's block data that can have up/down toggles added to toolbar. 
-No idea how to do this so using the broadcast range for now.
-
-TODO: Make radar work on a holotable, especially if the above is accomplished!
+No idea how to do this so using the broadcast range for now. MIGHT NOT DO THIS AFTER ALL. I kinda like broadcast range directly controlling scale.
+TODO: Make radar work on a holotable
 TODO: Make radar work on LCD with up or down triangles for verticality for eg. Only after holotable. 
-
 TODO: Compatibility with frame shift drive? Likely around the jumpdrive mechanic? Will look into this.
-TODO: Show modded ammo types in the gauges.
-TODO: Ability to key-rebind the targetting instead of right click for eg.
-TODO: Do above in concert with weaponcore compat, so targetting is shared somehow in a nice way?
-
+TODO: Show modded ammo types in the gauges. Attempted but might have failed? needs testing...
+TODO: WeaponCore compatibility - partiall attempted, but I really have no idea what I'm doing. I may need to load up the WeaponCore source code to figure out how to hook into it. 
 TODO: Advanced SigInt logic where active signals from any ship can bounce around and be picked up in passive mode? So one active ship can feed passive fleet?
 TODO: Apparently splitting/merging a ship with merge blocks causes a crash.
 TODO: Remote control ship and then get out of antenna range (or have remote controlled ship explode for eg) was causing crash. Another author may have fixed that in this already.
