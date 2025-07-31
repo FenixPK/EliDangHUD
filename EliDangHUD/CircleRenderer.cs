@@ -510,14 +510,15 @@ namespace EliDangHUD
 		public bool EnableToolbars = true;
 		public bool EnableSpeedLines = true;
 
-		public bool HologramView_PerspectiveAttemptOne = false;
-		public HologramView_Side HologramView_Current = HologramView_Side.Perspective; // 0 is back, 1 is left, 2 is right, 3 is front, 4 is top, 5 is bottom. 
-		private int HologramView_Current_MaxSide = 5; // In case we add more? - Max is still 5. 6 and 7 are reserved for orbit and perspective cams currently.
-		public bool HologramView_AngularWiggle = true;
-        public bool HologramView_AngularWiggleTarget = true;
+		public HologramView_Side HologramViewTarget_Current = HologramView_Side.Perspective; // 0 is back, 1 is left, 2 is right, 3 is front, 4 is top, 5 is bottom. 
+		private int HologramViewTarget_Current_MaxSide = 5; // In case we add more? - Max is still 5. 6 and 7 are reserved for orbit and perspective cams currently.
 
-		// The Rotation matrices for changing the view of the target or local grid holograms. This allows Slerp'ing smoothly from view to view so it doesn't snap when we switch the side being displayed. 
-		public MatrixD hologramRotationMatrixTarget_Current = MatrixD.Identity;
+        public HologramView_Side HologramViewLocal_Current = HologramView_Side.Rear; // 0 is back, 1 is left, 2 is right, 3 is front, 4 is top, 5 is bottom. 
+        private int HologramViewLocal_Current_MaxSide = 5; // In case we add more? - Max is still 5. 6 and 7 are reserved for orbit and perspective cams currently.
+        public bool HologramView_AngularWiggle = true;
+
+        // The Rotation matrices for changing the view of the target or local grid holograms. This allows Slerp'ing smoothly from view to view so it doesn't snap when we switch the side being displayed. 
+        public MatrixD hologramRotationMatrixTarget_Current = MatrixD.Identity;
 		public MatrixD hologramRotationMatrixTarget_Goal = MatrixD.Identity;
 		public MatrixD hologramRotationMatrixLocal_Current = MatrixD.Identity;
 		public MatrixD hologramRotationMatrixLocal_Goal = MatrixD.Identity;
@@ -2138,14 +2139,21 @@ namespace EliDangHUD
 			EnableHolograms_them = !theSettings.enableHologramsGlobal ? false : ini.Get(mySection, "ScannerHoloThem").ToBoolean(true); // If disabled at global level don't even check just default to false.
             EnableHolograms_you = !theSettings.enableHologramsGlobal ? false : ini.Get(mySection, "ScannerHoloYou").ToBoolean(true); // If disabled at global level don't even check just default to false.
 
-
+			// Local Hologram view
+            HologramView_Side theLocalSide;
+            string hologramViewLocal_CurrentString = ini.Get(mySection, "HologramViewLocal_Current").ToString();
+            if (Enum.TryParse<HologramView_Side>(hologramViewLocal_CurrentString, out theLocalSide))
+            {
+                HologramViewLocal_Current = theLocalSide;
+            }
             HologramView_AngularWiggle = ini.Get(mySection, "HologramViewFlat_AngularWiggle").ToBoolean(true);
-            HologramView_AngularWiggleTarget = ini.Get(mySection, "HologramViewFlat_AngularWiggleTarget").ToBoolean(true);
-			HologramView_Side theSide;
-			string hologramViewFlat_CurrentSideString = ini.Get(mySection, "HologramViewFlat_CurrentSide").ToString();
-			if (Enum.TryParse<HologramView_Side>(hologramViewFlat_CurrentSideString, out theSide))
+
+			// Target Hologram view
+			HologramView_Side theTargetSide;
+			string hologramViewTarget_CurrentString = ini.Get(mySection, "HologramViewTarget_Current").ToString();
+			if (Enum.TryParse<HologramView_Side>(hologramViewTarget_CurrentString, out theTargetSide))
 			{
-				HologramView_Current = theSide;
+				HologramViewTarget_Current = theTargetSide;
             }
 
 
@@ -4647,29 +4655,48 @@ namespace EliDangHUD
                     }
 				}
 			}
-			if (!HologramView_PerspectiveAttemptOne) 
+
+            bool ctrl = MyAPIGateway.Input.IsAnyCtrlKeyPressed();
+			if (ctrl)
 			{
                 if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.NumPad4))
                 {
-					HologramView_Current = ((int)HologramView_Current - 1 < 0 ? HologramView_Side.Bottom : HologramView_Current - 1); // Step down, or roll over to max.
+                    HologramViewLocal_Current = ((int)HologramViewLocal_Current - 1 < 0 ? HologramView_Side.Bottom : HologramViewLocal_Current - 1); // Step down, or roll over to max.
                 }
                 if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.NumPad5))
                 {
-					HologramView_Current = HologramView_Side.Rear; // Reset
+                    HologramViewLocal_Current = HologramView_Side.Rear; // Reset
                 }
                 if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.NumPad6))
                 {
-                    HologramView_Current = ((int)HologramView_Current + 1 > HologramView_Current_MaxSide ? HologramView_Side.Rear : HologramView_Current + 1); // Step up, or roll over to min.
+                    HologramViewLocal_Current = ((int)HologramViewLocal_Current + 1 > HologramViewLocal_Current_MaxSide ? HologramView_Side.Rear : HologramViewLocal_Current + 1); // Step up, or roll over to min.
+                }
+            }
+			else 
+			{
+                if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.NumPad4))
+                {
+                    HologramViewTarget_Current = ((int)HologramViewTarget_Current - 1 < 0 ? HologramView_Side.Bottom : HologramViewTarget_Current - 1); // Step down, or roll over to max.
+                }
+                if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.NumPad5))
+                {
+                    HologramViewTarget_Current = HologramView_Side.Rear; // Reset
+                }
+                if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.NumPad6))
+                {
+                    HologramViewTarget_Current = ((int)HologramViewTarget_Current + 1 > HologramViewTarget_Current_MaxSide ? HologramView_Side.Rear : HologramViewTarget_Current + 1); // Step up, or roll over to min.
                 }
                 if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.NumPad1))
                 {
-					HologramView_Current = HologramView_Side.Orbit; 
+                    HologramViewTarget_Current = HologramView_Side.Orbit;
                 }
                 if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.NumPad3))
                 {
-                    HologramView_Current = HologramView_Side.Perspective; // Perspective
+                    HologramViewTarget_Current = HologramView_Side.Perspective; // Perspective
                 }
             }
+			
+            
 
 		}
 
@@ -5928,7 +5955,48 @@ namespace EliDangHUD
                     }
 
                     Vector3D blockPositionRotated = Vector3D.Transform(blockPositionTransformed, rotationOnlyGridMatrix);
-                    finalBlockPositionToDraw = blockPositionRotated;
+
+
+                    MatrixD rotationMatrixForView = MatrixD.Identity; // new matrixD.
+
+                    // Can use MatrixD.slerp to smoothly transition between a current matrix and a target matrix for rotation...
+
+                    // I actually think instead of just CreateRotationY/X/Z I need to do this relative to my cockpit blocks "up" direction, or it doesn't make any sense.
+                    switch (HologramViewLocal_Current)
+                    {
+                        case HologramView_Side.Rear:
+                            // Rear (default - no rotation needed)
+                            rotationMatrixForView = MatrixD.Identity;
+                            break;
+                        case HologramView_Side.Left:
+                            // Left side (90° yaw left)
+                            rotationMatrixForView = MatrixD.CreateFromAxisAngle(gHandler.localGridControlledEntity.WorldMatrix.Up, MathHelper.ToRadians(90)); // Use up so we pivot around that axis.
+                            break;
+                        case HologramView_Side.Front:
+                            // Front (180° yaw)
+                            rotationMatrixForView = MatrixD.CreateFromAxisAngle(gHandler.localGridControlledEntity.WorldMatrix.Up, MathHelper.ToRadians(180)); // Use up so we pivot around that axis.
+                            break;
+                        case HologramView_Side.Right:
+                            // Right side (90° yaw right / 270° left)
+                            rotationMatrixForView = MatrixD.CreateFromAxisAngle(gHandler.localGridControlledEntity.WorldMatrix.Up, MathHelper.ToRadians(-90)); // Use up so we pivot around that axis.
+                            break;
+                        case HologramView_Side.Top:
+                            // Top view (90° pitch down)
+                            rotationMatrixForView = MatrixD.CreateFromAxisAngle(gHandler.localGridControlledEntity.WorldMatrix.Right, MathHelper.ToRadians(-90)); // Use right so we pivot around that axis.
+                            break;
+                        case HologramView_Side.Bottom:
+                            // Bottom view (90° pitch up)
+                            rotationMatrixForView = MatrixD.CreateFromAxisAngle(gHandler.localGridControlledEntity.WorldMatrix.Right, MathHelper.ToRadians(90)); // Use right so we pivot around that axis.
+                            break;
+                       
+                        default:
+                            rotationMatrixForView = MatrixD.Identity;
+                            break;
+                    }
+                    // Rotate around a center point
+                    Vector3D rotatedRelativePosition = Vector3D.Transform(blockPositionRotated, rotationMatrixForView);
+
+                    finalBlockPositionToDraw = rotatedRelativePosition;
 					BT.HologramDrawPosition = finalBlockPositionToDraw;
                 }
             }
@@ -6274,6 +6342,7 @@ namespace EliDangHUD
         }
 
 
+
         private void HG_UpdateHologramTarget(VRage.Game.ModAPI.IMyCubeGrid targetGrid, List<BlockTracker> blockInfo)
         {
             if (targetGrid != null)
@@ -6346,16 +6415,7 @@ namespace EliDangHUD
 
                     MatrixD rotationOnlyGridBMatrix = gridB.WorldMatrix;
                     rotationOnlyGridBMatrix.Translation = Vector3D.Zero;
-
-                    // Do we wiggle?
-                    if (HologramView_AngularWiggleTarget)
-                    {
-                        blockPositionToTransform = Vector3D.Rotate(blockPositionRelativeToGridCenter, angularRotationWiggle);
-                    }
-                    else
-                    {
-                        blockPositionToTransform = blockPositionRelativeToGridCenter;
-                    }
+                    blockPositionToTransform = blockPositionRelativeToGridCenter;
 
                     MatrixD rotationMatrixCancelGridAB = MatrixD.Invert(rotationOnlyGridBMatrix) * rotationOnlyGridAMatrix;
                     Vector3D blockPositionOrientationNeutral = Vector3D.Transform(blockPositionToTransform, rotationMatrixCancelGridAB);
@@ -6369,198 +6429,146 @@ namespace EliDangHUD
                     blockPositionConvertedFromMetersToBlocks = blockPositionTransformed / gridB.GridSize; // Convert from meters UoM to blocks UoM independent of large vs small grid ship.
                     blockPositionInBlocksScaledForHologram = Vector3D.Transform(blockPositionConvertedFromMetersToBlocks, scalingMatrix);
 
-                    if (!HologramView_PerspectiveAttemptOne)
+
+                    MatrixD rotationMatrixForView = MatrixD.Identity; // new matrixD.
+
+                    // Can use MatrixD.slerp to smoothly transition between a current matrix and a target matrix for rotation...
+
+                    // I actually think instead of just CreateRotationY/X/Z I need to do this relative to my cockpit blocks "up" direction, or it doesn't make any sense.
+                    switch (HologramViewTarget_Current)
                     {
-                        MatrixD rotationMatrixForView = MatrixD.Identity; // new matrixD.
+                        case HologramView_Side.Rear:
+                            // Rear (default - no rotation needed)
+                            rotationMatrixForView = MatrixD.Identity;
+                            break;
+                        case HologramView_Side.Left:
+                            // Left side (90° yaw left)
+                            rotationMatrixForView = MatrixD.CreateFromAxisAngle(gridA.WorldMatrix.Up, MathHelper.ToRadians(90)); // Use up so we pivot around that axis.
+                            break;
+                        case HologramView_Side.Front:
+                            // Front (180° yaw)
+                            rotationMatrixForView = MatrixD.CreateFromAxisAngle(gridA.WorldMatrix.Up, MathHelper.ToRadians(180)); // Use up so we pivot around that axis.
+                            break;
+                        case HologramView_Side.Right:
+                            // Right side (90° yaw right / 270° left)
+                            rotationMatrixForView = MatrixD.CreateFromAxisAngle(gridA.WorldMatrix.Up, MathHelper.ToRadians(-90)); // Use up so we pivot around that axis.
+                            break;
+                        case HologramView_Side.Top:
+                            // Top view (90° pitch down)
+                            rotationMatrixForView = MatrixD.CreateFromAxisAngle(gridA.WorldMatrix.Right, MathHelper.ToRadians(-90)); // Use right so we pivot around that axis.
+                            break;
+                        case HologramView_Side.Bottom:
+                            // Bottom view (90° pitch up)
+                            rotationMatrixForView = MatrixD.CreateFromAxisAngle(gridA.WorldMatrix.Right, MathHelper.ToRadians(90)); // Use right so we pivot around that axis.
+                            break;
+                        case HologramView_Side.Orbit:
 
-                        // Can use MatrixD.slerp to smoothly transition between a current matrix and a target matrix for rotation...
+                            // This is technically an "Orbit" cam... It will show a hologram of the target grid EXACTLY as it appears in world space relative to your orientation
+                            // but not your translation/position in the world. So you can rotate your ship around and see all sides of gridB from anywhere in the world.
+                            // if you are facing a direction and the target is also facing the same direction you see it's backside, even if it is behind you lol.
 
-                        // I actually think instead of just CreateRotationY/X/Z I need to do this relative to my cockpit blocks "up" direction, or it doesn't make any sense.
-                        switch (HologramView_Current)
-                        {
-                            case HologramView_Side.Rear:
-                                // Rear (default - no rotation needed)
-                                rotationMatrixForView = MatrixD.Identity;
-                                break;
-                            case HologramView_Side.Left:
-                                // Left side (90° yaw left)
-                                rotationMatrixForView = MatrixD.CreateFromAxisAngle(gridA.WorldMatrix.Up, MathHelper.ToRadians(90)); // Use up so we pivot around that axis.
-                                break;
-                            case HologramView_Side.Front:
-                                // Front (180° yaw)
-                                rotationMatrixForView = MatrixD.CreateFromAxisAngle(gridA.WorldMatrix.Up, MathHelper.ToRadians(180)); // Use up so we pivot around that axis.
-                                break;
-                            case HologramView_Side.Right:
-                                // Right side (90° yaw right / 270° left)
-                                rotationMatrixForView = MatrixD.CreateFromAxisAngle(gridA.WorldMatrix.Up, MathHelper.ToRadians(-90)); // Use up so we pivot around that axis.
-                                break;
-                            case HologramView_Side.Top:
-                                // Top view (90° pitch down)
-                                rotationMatrixForView = MatrixD.CreateFromAxisAngle(gridA.WorldMatrix.Right, MathHelper.ToRadians(-90)); // Use right so we pivot around that axis.
-                                break;
-                            case HologramView_Side.Bottom:
-                                // Bottom view (90° pitch up)
-                                rotationMatrixForView = MatrixD.CreateFromAxisAngle(gridA.WorldMatrix.Right, MathHelper.ToRadians(90)); // Use right so we pivot around that axis.
-                                break;
-                            case HologramView_Side.Orbit:
+                            //What transformation gets us from gridA's coordinate system to gridB's?
+                            MatrixD gridAToGridB = MatrixD.Invert(gridA.WorldMatrix) * gridB.WorldMatrix;
 
-								// This is technically an "Orbit" cam... It will show a hologram of the target grid EXACTLY as it appears in world space relative to your orientation
-								// but not your translation/position in the world. So you can rotate your ship around and see all sides of gridB from anywhere in the world.
-								// if you are facing a direction and the target is also facing the same direction you see it's backside, even if it is behind you lol.
+                            //Use this as the rotation (this naturally includes both position and orientation differences)
+                            rotationMatrixForView = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(gridAToGridB));
+                            break;
+                        case HologramView_Side.Perspective:
+							// FenixPK 2025-07-28 there are still problems with this when gridA is rolled but this is sooo beyond my understanding at this point I give up haha. 
+							// Round 3, the winner, this perpendicular on the left/right being handled made all the difference. It has the effect I was hoping for. 
+							// Create proxy matrix: gridB's orientation at gridA's position
+							MatrixD proxyMatrix = gridB.WorldMatrix;
+							proxyMatrix.Translation = gridA.WorldMatrix.Translation;
+							MatrixD relativeOrientation = gridB.WorldMatrix * MatrixD.Invert(proxyMatrix);
+							// Extract just the rotation part (remove any translation)
+							rotationMatrixForView = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(relativeOrientation));
 
-								//What transformation gets us from gridA's coordinate system to gridB's?
-							    MatrixD gridAToGridB = MatrixD.Invert(gridA.WorldMatrix) * gridB.WorldMatrix;
+							// Create a "should be looking at" orientation
+							Vector3D directionToGridB = Vector3D.Normalize(gridB.WorldMatrix.Translation - proxyMatrix.Translation);
 
-								//// Use this as the rotation (this naturally includes both position and orientation differences)
-								rotationMatrixForView = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(gridAToGridB));
+							// Project gridA's up vector onto the plane perpendicular to the direction vector
+							Vector3D gridAUpInWorldSpace = gridA.WorldMatrix.Up;  //gridA.WorldMatrix.Up;
+							Vector3D projectedGridAUp = gridAUpInWorldSpace - Vector3D.Dot(gridAUpInWorldSpace, directionToGridB) * directionToGridB;
 
-								break;
-                            case HologramView_Side.Perspective:
-								// FenixPK 2025-07-28 there are still problems with this when gridA is rolled but this is sooo beyond my understanding at this point I give up haha. 
-								// Round 3, the winner, this perpendicular on the left/right being handled made all the difference. It has the effect I was hoping for. 
-								// Create proxy matrix: gridB's orientation at gridA's position
-								MatrixD proxyMatrix = gridB.WorldMatrix;
-								proxyMatrix.Translation = gridA.WorldMatrix.Translation;
-								MatrixD relativeOrientation = gridB.WorldMatrix * MatrixD.Invert(proxyMatrix);
-								// Extract just the rotation part (remove any translation)
-								rotationMatrixForView = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(relativeOrientation));
+							Vector3D gridAUp;
+							// Check if the projection is valid (not too small)
+							if (projectedGridAUp.LengthSquared() > 0.001)
+							{
+								gridAUp = Vector3D.Normalize(projectedGridAUp);
+							}
+							else
+							{
+								// Fallback when projection fails (gridA's up is parallel to direction)
+								Vector3D rightCandidate = gridA.WorldMatrix.Right;
+								Vector3D forwardCandidate = gridA.WorldMatrix.Forward;
+								double rightDot = Math.Abs(Vector3D.Dot(directionToGridB, rightCandidate));
+								double forwardDot = Math.Abs(Vector3D.Dot(directionToGridB, forwardCandidate));
+								gridAUp = (rightDot < forwardDot) ? rightCandidate : forwardCandidate;
+							}
 
-								// Create a "should be looking at" orientation
-								Vector3D directionToGridB = Vector3D.Normalize(gridB.WorldMatrix.Translation - proxyMatrix.Translation);
+							// Handle parallel case (though this should be rare now)
+							double dotProduct = Math.Abs(Vector3D.Dot(directionToGridB, gridAUp));
+							if (dotProduct > 0.999)
+							{
+								Vector3D rightCandidate = proxyMatrix.Right;
+								Vector3D forwardCandidate = proxyMatrix.Forward;
+								double rightDot = Math.Abs(Vector3D.Dot(directionToGridB, rightCandidate));
+								double forwardDot = Math.Abs(Vector3D.Dot(directionToGridB, forwardCandidate));
+								gridAUp = (rightDot < forwardDot) ? rightCandidate : forwardCandidate;
+							}
 
-								// Project gridA's up vector onto the plane perpendicular to the direction vector
-								Vector3D gridAUpInWorldSpace = gridA.WorldMatrix.Up;  //gridA.WorldMatrix.Up;
-								Vector3D projectedGridAUp = gridAUpInWorldSpace - Vector3D.Dot(gridAUpInWorldSpace, directionToGridB) * directionToGridB;
+							Vector3D shouldBeRight = Vector3D.Normalize(Vector3D.Cross(directionToGridB, gridAUp));
+							Vector3D shouldBeUp = Vector3D.Cross(shouldBeRight, directionToGridB);
+							MatrixD shouldBeLookingAt = MatrixD.CreateWorld(Vector3D.Zero, directionToGridB, shouldBeUp);
 
-								Vector3D gridAUp;
-								// Check if the projection is valid (not too small)
-								if (projectedGridAUp.LengthSquared() > 0.001)
-								{
-									gridAUp = Vector3D.Normalize(projectedGridAUp);
-								}
-								else
-								{
-									// Fallback when projection fails (gridA's up is parallel to direction)
-									Vector3D rightCandidate = gridA.WorldMatrix.Right;
-									Vector3D forwardCandidate = gridA.WorldMatrix.Forward;
-									double rightDot = Math.Abs(Vector3D.Dot(directionToGridB, rightCandidate));
-									double forwardDot = Math.Abs(Vector3D.Dot(directionToGridB, forwardCandidate));
-									gridAUp = (rightDot < forwardDot) ? rightCandidate : forwardCandidate;
-								}
+							// Get gridA's actual orientation (no translation)
+							MatrixD gridAActualOrientation = proxyMatrix;
+							gridAActualOrientation.Translation = Vector3D.Zero;
 
-								// Handle parallel case (though this should be rare now)
-								double dotProduct = Math.Abs(Vector3D.Dot(directionToGridB, gridAUp));
-								if (dotProduct > 0.999)
-								{
-									Vector3D rightCandidate = proxyMatrix.Right;
-									Vector3D forwardCandidate = proxyMatrix.Forward;
-									double rightDot = Math.Abs(Vector3D.Dot(directionToGridB, rightCandidate));
-									double forwardDot = Math.Abs(Vector3D.Dot(directionToGridB, forwardCandidate));
-									gridAUp = (rightDot < forwardDot) ? rightCandidate : forwardCandidate;
-								}
+							// Calculate the differential rotation (flip the order)
+							MatrixD differential = MatrixD.Invert(shouldBeLookingAt) * gridAActualOrientation;
+							MatrixD differentialRotation = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(differential));
 
-								Vector3D shouldBeRight = Vector3D.Normalize(Vector3D.Cross(directionToGridB, gridAUp));
-								Vector3D shouldBeUp = Vector3D.Cross(shouldBeRight, directionToGridB);
-								MatrixD shouldBeLookingAt = MatrixD.CreateWorld(Vector3D.Zero, directionToGridB, shouldBeUp);
+							// Apply the compensation
+							rotationMatrixForView = rotationMatrixForView * differentialRotation;
+							break;
 
-								// Get gridA's actual orientation (no translation)
-								MatrixD gridAActualOrientation = proxyMatrix;
-								gridAActualOrientation.Translation = Vector3D.Zero;
-
-								// Calculate the differential rotation (flip the order)
-								MatrixD differential = MatrixD.Invert(shouldBeLookingAt) * gridAActualOrientation;
-								MatrixD differentialRotation = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(differential));
-
-								// Apply the compensation
-								rotationMatrixForView = rotationMatrixForView * differentialRotation;
-								break;
-
-                            default:
-                                rotationMatrixForView = MatrixD.Identity;
-                                break;
-                        }
-
-                        // Rotate around a center point
-                        Vector3D rotatedRelativePosition = Vector3D.Transform(blockPositionInBlocksScaledForHologram, rotationMatrixForView);
-                        blockPositionInHologram = rotatedRelativePosition + hologramConsoleLocation; // Position it in the hologram console
+                        default:
+                            rotationMatrixForView = MatrixD.Identity;
+                            break;
                     }
+
+                    // Rotate around a center point
+                    Vector3D rotatedRelativePosition = Vector3D.Transform(blockPositionInBlocksScaledForHologram, rotationMatrixForView);
+                    blockPositionInHologram = rotatedRelativePosition + hologramConsoleLocation; // Position it in the hologram console
+                    
 
                     finalBlockPositionToDraw = blockPositionInHologram;
 					block.HologramDrawPosition = finalBlockPositionToDraw; // Will be used by render pipeline.
                 }
 			}
         }
-
-        public static MatrixD GetHologramRotationMatrix(VRage.Game.ModAPI.IMyCubeGrid gridA, VRage.Game.ModAPI.IMyCubeGrid gridB)
+        public static MatrixD GetNeutralizedHologramRotation(VRage.Game.ModAPI.IMyCubeGrid gridA, VRage.Game.ModAPI.IMyCubeGrid gridB)
         {
-            // Vector from A to B
-            Vector3D toVector = gridB.WorldMatrix.Translation - gridA.WorldMatrix.Translation;
+            // Neutral orientation = identity rotation (world forward, up, right)
+            Vector3D worldForward = Vector3D.Forward;
+            Vector3D worldUp = Vector3D.Up;
 
-            // If grids are practically at the same position, return identity or last known rotation
-            if (toVector.LengthSquared() < 1e-9)
-                return MatrixD.Identity;
+            // Neutral world matrices for gridA and gridB: position actual, orientation neutral
+            MatrixD neutralA = MatrixD.CreateWorld(gridA.WorldMatrix.Translation, worldForward, worldUp);
+            MatrixD neutralB = MatrixD.CreateWorld(gridB.WorldMatrix.Translation, worldForward, worldUp);
 
-            Vector3D directionToB = Vector3D.Normalize(toVector);
+            // Direction vector from neutralA to neutralB
+            Vector3D directionToB = Vector3D.Normalize(gridB.WorldMatrix.Translation - gridA.WorldMatrix.Translation);
 
-            // Project gridA's Up vector onto plane perpendicular to directionToB
-            Vector3D projectedUp = gridA.WorldMatrix.Up - Vector3D.Dot(gridA.WorldMatrix.Up, directionToB) * directionToB;
+            // Create look-at matrix for neutralA facing neutralB using world up
+            MatrixD lookAtA = MatrixD.CreateWorld(gridA.WorldMatrix.Translation, directionToB, worldUp);
 
-            Vector3D fakeUp;
-
-            // Check if projection is unstable (too close to parallel)
-            if (projectedUp.LengthSquared() < 1e-9)
-            {
-                // Fallback: pick gridA's Right or Forward which is least aligned with directionToB
-                Vector3D rightCandidate = gridA.WorldMatrix.Right;
-                Vector3D forwardCandidate = gridA.WorldMatrix.Forward;
-
-                double rightDot = Math.Abs(Vector3D.Dot(directionToB, rightCandidate));
-                double forwardDot = Math.Abs(Vector3D.Dot(directionToB, forwardCandidate));
-
-                fakeUp = (rightDot < forwardDot) ? rightCandidate : forwardCandidate;
-
-                // Still check if right and fakeUp form a stable basis
-                Vector3D testRight = Vector3D.Cross(fakeUp, directionToB);
-                if (testRight.LengthSquared() < 1e-9)
-                {
-                    // Final fallback: calculate guaranteed perpendicular vector
-                    fakeUp = Vector3D.CalculatePerpendicularVector(directionToB);
-                }
-            }
-            else
-            {
-                fakeUp = Vector3D.Normalize(projectedUp);
-            }
-
-            // Calculate right vector and re-orthonormalize the basis
-            Vector3D right = Vector3D.Cross(fakeUp, directionToB);
-            if (right.LengthSquared() < 1e-9)
-            {
-                // Should be very rare at this point, but fallback anyway
-                fakeUp = Vector3D.CalculatePerpendicularVector(directionToB);
-                right = Vector3D.Cross(fakeUp, directionToB);
-            }
-            right = Vector3D.Normalize(right);
-            fakeUp = Vector3D.Cross(directionToB, right);
-
-            // Create a proxy matrix: position = gridA's position,
-            // forward = directionToB,
-            // up = fakeUp (orthonormal)
-            MatrixD proxyMatrix = new MatrixD
-            {
-                Forward = directionToB,
-                Up = fakeUp,
-                Right = right,
-                Translation = gridA.WorldMatrix.Translation
-            };
-
-            // Compute relative rotation from proxyMatrix (gridA facing gridB) to gridB's world matrix
-            MatrixD relativeRotation = MatrixD.Invert(proxyMatrix) * gridB.WorldMatrix;
+            // Relative rotation from lookAtA to neutralB
+            MatrixD relativeRotation = MatrixD.Invert(lookAtA) * neutralB;
 
             // Extract rotation part only
-            MatrixD hologramRotation = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(relativeRotation));
-
-            return hologramRotation;
+            return MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(relativeRotation));
         }
 
         Vector3D SnapDirectionTo45Degrees(Vector3D dir)
@@ -6705,15 +6713,15 @@ namespace EliDangHUD
                     // Apply the offsets for where the hologram "emitter" is versus the radar center.
                     HG_Offset_transformation = radarMatrix.Left * -radarRadius * flipAxisForTarget + radarMatrix.Left * _hologramRightOffset_HardCode.X * flipAxisForTarget + radarMatrix.Up * _hologramRightOffset_HardCode.Y + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
                     hologramConsoleLocation = worldRadarPos + HG_Offset_transformation; // Set the position to draw the hologram based on where the radar center is, + the offsets. This is where in the world the hologram appears.
-                                                                                        // When we draw the blocks relative to the targetGrid's center we will essentially be scaling them down and then drawing them as if the center was this emitter point. 
+																						// When we draw the blocks relative to the targetGrid's center we will essentially be scaling them down and then drawing them as if the center was this emitter point. 
 
-                    // Original author had the block position divided by gridSize, So instead of working with positions in meters we work with position in blocks and the actual size in game might be different if small grid vs big grid ship. 
-                    // This allows the hologram to display a 20x20x20 small block ship the same as a 20x20x20 large block ship.
-                    // HOWEVER.... This means when we do anything fun like Inverse matrix of gridA to get gridB into gridA's frame of reference we are using blocks as UoM in gridB's matrix and meters as UoM in gridA's matrix.
-                    // This is like mixing Tons and Metric Board Feet in a subtotal and then wondering why your average is wrong. It doesn't work xD
+					// Original author had the block position divided by gridSize, So instead of working with positions in meters we work with position in blocks and the actual size in game might be different if small grid vs big grid ship. 
+					// This allows the hologram to display a 20x20x20 small block ship the same as a 20x20x20 large block ship.
+					// HOWEVER.... This means when we do anything fun like Inverse matrix of gridA to get gridB into gridA's frame of reference we are using blocks as UoM in gridB's matrix and meters as UoM in gridA's matrix.
+					// This is like mixing Tons and Metric Board Feet in a subtotal and then wondering why your average is wrong. It doesn't work xD
 
 
-
+					bool HologramView_PerspectiveAttemptOne = false;
                     if (HologramView_PerspectiveAttemptOne)
                     {
                         // NOTE 2025-07-20 none of this worked, I tried my best but I could not get it working using my own brain. I almost gave up by Claude came in clutch with some 
@@ -6846,15 +6854,6 @@ namespace EliDangHUD
                         MatrixD rotationOnlyGridBMatrix = gridB.WorldMatrix;
                         rotationOnlyGridBMatrix.Translation = Vector3D.Zero;
 
-                        // Do we wiggle?
-                        if (HologramView_AngularWiggleTarget)
-                        {
-                            blockPositionToTransform = Vector3D.Rotate(blockPositionRelativeToGridCenter, angularRotationWiggle);
-                        }
-                        else
-                        {
-                            blockPositionToTransform = blockPositionRelativeToGridCenter;
-                        }
 
                         MatrixD rotationMatrixCancelGridAB = MatrixD.Invert(rotationOnlyGridBMatrix) * rotationOnlyGridAMatrix;
                         Vector3D blockPositionOrientationNeutral = Vector3D.Transform(blockPositionToTransform, rotationMatrixCancelGridAB);
@@ -6876,7 +6875,7 @@ namespace EliDangHUD
                         // Can use MatrixD.slerp to smoothly transition between a current matrix and a target matrix for rotation...
 
                         // I actually think instead of just CreateRotationY/X/Z I need to do this relative to my cockpit blocks "up" direction, or it doesn't make any sense.
-                        switch (HologramView_Current)
+                        switch (HologramViewTarget_Current)
                         {
                             case HologramView_Side.Rear:
                                 // Rear (default - no rotation needed)
