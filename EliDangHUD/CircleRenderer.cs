@@ -381,43 +381,43 @@ namespace EliDangHUD
         /// Mouse button to use: 0 = Left, 1 = Right, 2 = Middle
         /// </summary>
         public int selectTargetMouseButton = 1; // 0 = Left, 1 = Right, 2 = Middle
-		public string selectTargetMouseButton_DESCRIPTION = "Mouse button to use: 0 = Left, 1 = Right, 2 = Middle";
+		public string selectTargetMouseButton_DESCRIPTION = "Mouse button to use: 0 = Left, 1 = Right, 2 = Middle. (Default is Right)";
 
         /// <summary>
         /// Key to select target, if mouse button is disabled
         /// </summary>
         public int selectTargetKey = (int)MyKeys.T;
-		public string selectTargetKey_DESCRIPTION = "Key to select target, if mouse button is disabled";
+		public string selectTargetKey_DESCRIPTION = "Key to select target, if mouse button is disabled (Default is T)";
 
         /// <summary>
         /// Key to cycle hologram view back (Ctrl modifier cycles local hologram, no Ctrl cycles target)
         /// </summary>
         public int rotateLeftKey = (int)MyKeys.NumPad4;
-		public string rotateLeftKey_DESCRIPTION = "Key to cycle hologram view back (Ctrl modifier cycles local hologram, no Ctrl cycles target)";
+		public string rotateLeftKey_DESCRIPTION = "Key to cycle hologram view back (Ctrl modifier cycles local hologram, no Ctrl cycles target, Default is NumPad4)";
 
         /// <summary>
         /// Key to reset hologram view (Ctrl modifier cycles local hologram, no Ctrl cycles target)
         /// </summary>
         public int resetKey = (int)MyKeys.NumPad5;
-		public string resetKey_DESCRIPTION = "Key to reset hologram view (Ctrl modifier cycles local hologram, no Ctrl cycles target)";
+		public string resetKey_DESCRIPTION = "Key to reset hologram view (Ctrl modifier cycles local hologram, no Ctrl cycles target, Default is NumPad5)";
 
         /// <summary>
         /// Key to cycle hologram view forward (Ctrl modifier cycles local hologram, no Ctrl cycles target)
         /// </summary>
         public int rotateRightKey = (int)MyKeys.NumPad6;
-		public string rotateRightKey_DESCRIPTION = "Key to cycle hologram view forward (Ctrl modifier cycles local hologram, no Ctrl cycles target)";
+		public string rotateRightKey_DESCRIPTION = "Key to cycle hologram view forward (Ctrl modifier cycles local hologram, no Ctrl cycles target, Default is NumPad6)";
 
         /// <summary>
         /// Key to set hologram view to Orbit cam (Only for target)
         /// </summary>
         public int orbitViewKey = (int)MyKeys.NumPad1;
-		public string orbitViewKey_DESCRIPTION = "Key to set hologram view to Orbit cam (Only for target)";
+		public string orbitViewKey_DESCRIPTION = "Key to set hologram view to Orbit cam (Only for target, Default is NumPad1)";
 
         /// <summary>
         /// Key to set hologram view to Perspective cam (Only for target)
         /// </summary>
         public int perspectiveViewKey = (int)MyKeys.NumPad3;
-		public string perspectiveViewKey_DESCRIPTION = "Key to set hologram view to Perspective cam (Only for target)";
+		public string perspectiveViewKey_DESCRIPTION = "Key to set hologram view to Perspective cam (Only for target, Default is NumPad3)";
 
     }
 
