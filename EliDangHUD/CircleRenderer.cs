@@ -122,18 +122,25 @@ DONE: Make target selection and hologram view changing keys be bindable in the c
 DONE: Add setting to only show radar pings for grids with power. Setting is independent of voxels, so if show voxels is true they will still appear despite not having power. 
 DONE: Add block actions for toggling the hud on/off, the holograms on/off, show voxels on/off, and powered only on/off. These can be bound from the G menu to the toolbar. 
 DONE: Local Grid and Target Grid holograms can have their views cycled. Ctrl modifier applies to local grid hologram, no Ctrl key pressed will change target grid hologram.
+DONE: Fix HasPowerProduction to check if batteries have stored power too. 
+DONE: Moved some functions back into Draw(), while calculating UI positions in UpdateAfterSimulation seemed like a good optimization, when grids are moving quickly it lags too far behind and causes UI to draw oddly. 
+I suspect this would be even worse with speed mods allowing over 300m/s. I have left updating the radar detections themselves in UpdateAfterSimulation, and this should be fine. 
+DONE: Removed arbitrary DisplayName == "Stone" || DisplayName == null filter from radar entities return. In my testing this prevented asteroids of any type I spawned in from showing. 
+I'd like to do further settings to allow users to more specifically choose to filter our floating items of name 'Stone' for eg, or only voxels (asteroids and deposits) of certain types or sizes even. 
 
 --TODO--
+TODO: I'd like to do further settings to allow users to more specifically choose to filter our floating items of name 'Stone' for eg, or only voxels (asteroids and deposits) of certain types or sizes even. 
 TODO: Figure out all this DamageAmount/AttachGrid/DetachGrid event handler stuff. It looks... incomplete? Eg GetDamageAmount if called would re-set the amount to zero. It is used to get a damage amount to add to glitch amount overload.
 but the way it is configured all that happens prior to this is attaching event handlers for on function changed. So amount would always be 0?
 Is this a remnant from presumably older code that used the queue of blocks to check each one for current damage, so it would do something like upon sitting in the control seat of a grid that was already damaged
 store that value? 
 TODO: Look into use of IMyCockpit vs IMyShipController, didn't we see reports of players wishing it worked for remote controlled ships?
 TODO: (PARTIAL) Make player condition hologram better - would love to make it flip to show side taking damage most recently?
-TODO: Can we color code power, weapon, antenna, control blocks in the target/player hologram? Then apply a yellow/red color gradient overtop for damage. 
+TODO: Can we color code power, weapon, antenna, control blocks in the target/player hologram? Then apply a yellow/red color gradient overtop for damage. Or even shade them? For eg. instead of MaterialSquare
+we have other squares that have /// or ### or something. Who knows. There's definitely something to do here just not sure exact approach. 
 TODO (PARTIAL): Make altitude readout - I have the value, but haven't decided where to draw it on screen yet.
 TODO: Make broadcast range only affect active signal sent out, and make scale be something else configurable that gets stored in the cockpit's block data that can have up/down toggles added to toolbar. 
-No idea how to do this so using the broadcast range for now. MIGHT NOT DO THIS AFTER ALL. I kinda like broadcast range directly controlling scale.
+No idea how to do this so using the broadcast range for now. MIGHT NOT DO THIS AFTER ALL. I kinda like broadcast range directly controlling scale it gives visual feedback for how far out your antenna is set too.
 TODO: Make radar work on a holotable
 TODO: Make radar work on LCD with up or down triangles for verticality for eg. Only after holotable. 
 TODO: Compatibility with frame shift drive? Likely around the jumpdrive mechanic? Will look into this.
@@ -1846,20 +1853,17 @@ namespace EliDangHUD
 
 
                 CheckPlayerInput();
-
-                UpdateUIPositions(); // Update the positions of the UI elements based on the current grid and camera position.
 				
 				UpdateRadarDetections(); // Update some radar scaling/range values based on current target etc. Then loop through each entity and check if player can detect it, update relationships, store values like active radar range etc.
 				
-				UpdateSpeedSettings();
+
 
                 if (EnableDust)
                 {
                     UpdateDust();
                 }
 
-				HG_Update();
-
+				//HG_Update();
                 if (EnableMoney)
                 {
                     UpdateCredits();
@@ -1933,11 +1937,12 @@ namespace EliDangHUD
                 {
                     return; // Again do we actually want this or should remotely controlled grids have radar?
                 }
-				//----End Additional Checks----//
-
-				DrawSpeedLinesAndPlanetOrbits();
+                //----End Additional Checks----//
+                UpdateSpeedSettings();
+                DrawSpeedLinesAndPlanetOrbits();
 
                 UpdateCameraPosition();
+                UpdateUIPositions(); // Update the positions of the UI elements based on the current grid and camera position.
                 // Check for camera distance, so we do not draw close up hud elements if position would prevent their viewing anyway.
                 if (_distanceToCameraSqr > 4) // 2^2 = 4
                 {
@@ -1967,8 +1972,9 @@ namespace EliDangHUD
 
                 if (EnableHolograms)
                 {
-					// 2025-07-25 FenixPK has separated the block position calculations to UpdateAfterSimulation, this simply loops through the blocks and draws them now.
-					HG_Draw();
+                    // 2025-07-25 FenixPK has separated the block position calculations to UpdateAfterSimulation, this simply loops through the blocks and draws them now.
+                    HG_Update();
+                    HG_Draw();
                     //HG_Update_OLD();
                 }
 
@@ -1999,15 +2005,24 @@ namespace EliDangHUD
         bool HasPowerProduction(VRage.Game.ModAPI.IMyCubeGrid grid)
         {
             List<Sandbox.ModAPI.IMyPowerProducer> producers = new List<Sandbox.ModAPI.IMyPowerProducer>();
+			List<Sandbox.ModAPI.IMyBatteryBlock> batteries = new List<Sandbox.ModAPI.IMyBatteryBlock>();
             MyAPIGateway.TerminalActionsHelper.GetTerminalSystemForGrid(grid)?.GetBlocksOfType(producers);
+			MyAPIGateway.TerminalActionsHelper.GetTerminalSystemForGrid(grid)?.GetBlocksOfType(batteries);
 
-            foreach (var producer in producers)
+            foreach (Sandbox.ModAPI.IMyPowerProducer producer in producers)
             {
                 if (producer.IsWorking && producer.Enabled && producer.CurrentOutput > 0.01f)
                 {
                     return true;
                 }
             }
+			foreach (Sandbox.ModAPI.IMyBatteryBlock battery in batteries)
+			{
+				if (battery.IsWorking && battery.Enabled && battery.CurrentStoredPower > 0.01f)
+				{
+					return true;
+				}
+			}
             return false;
         }
 
@@ -2435,7 +2450,7 @@ namespace EliDangHUD
 				return;
 			}
 
-			if (entity == null || entity.MarkedForClose || entity.Closed || entity is MyPlanet || entity.DisplayName == null || entity.DisplayName == "Stone")
+			if (entity == null || entity.MarkedForClose || entity.Closed || entity is MyPlanet)
 			{
 				// Only add to entities OR pings if valid.
 				return;
@@ -3860,10 +3875,6 @@ namespace EliDangHUD
 				if (entity == null) return false;
                 if (entity.MarkedForClose || entity.Closed) return false;
                 if (entity is MyPlanet) return false;
-               //if (!ShowVoxels && entity is IMyVoxelBase) return false;
-
-                // Skip invalid display names or types
-                if (entity.DisplayName == null || entity.DisplayName == "Stone") return false;
 
                 return true;
             });
