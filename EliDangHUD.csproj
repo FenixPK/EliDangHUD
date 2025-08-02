@@ -139,6 +139,7 @@
     <None Include="Data\Scripts\EliDangHUD\EliDangHUD\obj\x86\Debug\EliDangHUD.csproj.AssemblyReference.cache" />
     <None Include="Data\TransparentMaterials_ED.sbc" />
     <None Include="LICENSE" />
+    <None Include="modinfo.sbmi" />
     <None Include="README.md" />
   </ItemGroup>
   <ItemGroup>
