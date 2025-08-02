@@ -129,6 +129,8 @@ DONE: Removed arbitrary DisplayName == "Stone" || DisplayName == null filter fro
 I'd like to do further settings to allow users to more specifically choose to filter our floating items of name 'Stone' for eg, or only voxels (asteroids and deposits) of certain types or sizes even. 
 
 --TODO--
+TODO: Fix bug with CustomData/Toggles only working if you have a powered antenna. Eligibility for the grid should ONLY be on [ELI_HUD] tag, while radar and target holograms do require
+a working antenna, the settings being available should NOT be dependent on this lol.
 TODO: I'd like to do further settings to allow users to more specifically choose to filter our floating items of name 'Stone' for eg, or only voxels (asteroids and deposits) of certain types or sizes even. 
 TODO: Figure out all this DamageAmount/AttachGrid/DetachGrid event handler stuff. It looks... incomplete? Eg GetDamageAmount if called would re-set the amount to zero. It is used to get a damage amount to add to glitch amount overload.
 but the way it is configured all that happens prior to this is attaching event handlers for on function changed. So amount would always be 0?
