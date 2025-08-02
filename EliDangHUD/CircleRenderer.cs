@@ -279,7 +279,7 @@ namespace EliDangHUD
         /// </summary>
         /// <remarks>This value is used to determine the "bracket" a target fits into for zooming the radar. Or when changing broadcast distance of antennas (radar range).
         /// Adjusting this value can affect the precision of radar zoom levels.</remarks>
-        public int rangeBracketDistance = 500;
+        public int rangeBracketDistance = 200;
         public string rangeBracketDistance_DESCRIPTION = "Represents the distance in meters used for range bracketing in radar targeting calculations. \r\n" +
             "This value is used to determine the \"bracket\" a target fits into for zooming the radar. Or when changing broadcast distance of antennas (radar range). \r\n" +
             "Adjusting this value can affect the precision of radar zoom levels.";
