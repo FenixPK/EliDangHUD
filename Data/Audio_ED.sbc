@@ -1,0 +1,255 @@
+<?xml version="1.0"?>
+<Definitions xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <Sounds>
+
+        <Sound>
+            <Id>
+                <TypeId>MyObjectBuilder_AudioDefinition</TypeId>
+                <SubtypeId>ED_beeps</SubtypeId>
+            </Id>
+            <Category>SHIP</Category>
+            <MaxDistance>5</MaxDistance>
+            <Volume>0.25</Volume>
+            <Loopable>false</Loopable>
+
+            <PreventSynchronization>0</PreventSynchronization>
+            <Waves>
+                <Wave Type="D3">
+                    <Start>Audio/ED/beeps.wav</Start>
+                </Wave>
+            </Waves>
+        </Sound>
+        <Sound>
+            <Id>
+                <TypeId>MyObjectBuilder_AudioDefinition</TypeId>
+                <SubtypeId>ED_clickBurst</SubtypeId>
+            </Id>
+            <Category>SHIP</Category>
+            <MaxDistance>5</MaxDistance>
+            <Volume>0.25</Volume>
+            <Loopable>false</Loopable>
+
+            <PreventSynchronization>0</PreventSynchronization>
+            <Waves>
+                <Wave Type="D3">
+                    <Start>Audio/ED/clickBurst.wav</Start>
+                </Wave>
+            </Waves>
+        </Sound>
+        <Sound>
+            <Id>
+                <TypeId>MyObjectBuilder_AudioDefinition</TypeId>
+                <SubtypeId>ED_clicks1</SubtypeId>
+            </Id>
+            <Category>SHIP</Category>
+            <MaxDistance>5</MaxDistance>
+            <Volume>0.25</Volume>
+            <Loopable>false</Loopable>
+
+            <PreventSynchronization>0</PreventSynchronization>
+            <Waves>
+                <Wave Type="D3">
+                    <Start>Audio/ED/clicks1.wav</Start>
+                </Wave>
+            </Waves>
+        </Sound>
+        <Sound>
+            <Id>
+                <TypeId>MyObjectBuilder_AudioDefinition</TypeId>
+                <SubtypeId>ED_clicks2</SubtypeId>
+            </Id>
+            <Category>SHIP</Category>
+            <MaxDistance>5</MaxDistance>
+            <Volume>0.25</Volume>
+            <Loopable>false</Loopable>
+
+            <PreventSynchronization>0</PreventSynchronization>
+            <Waves>
+                <Wave Type="D3">
+                    <Start>Audio/ED/clicks2.wav</Start>
+                </Wave>
+            </Waves>
+        </Sound>
+        <Sound>
+            <Id>
+                <TypeId>MyObjectBuilder_AudioDefinition</TypeId>
+                <SubtypeId>ED_clicks3</SubtypeId>
+            </Id>
+            <Category>SHIP</Category>
+            <MaxDistance>5</MaxDistance>
+            <Volume>0.25</Volume>
+            <Loopable>false</Loopable>
+
+            <PreventSynchronization>0</PreventSynchronization>
+            <Waves>
+                <Wave Type="D3">
+                    <Start>Audio/ED/clicks3.wav</Start>
+                </Wave>
+            </Waves>
+        </Sound>
+        <Sound>
+            <Id>
+                <TypeId>MyObjectBuilder_AudioDefinition</TypeId>
+                <SubtypeId>ED_flubStatic</SubtypeId>
+            </Id>
+            <Category>SHIP</Category>
+            <MaxDistance>5</MaxDistance>
+            <Volume>0.25</Volume>
+            <Loopable>false</Loopable>
+
+            <PreventSynchronization>0</PreventSynchronization>
+            <Waves>
+                <Wave Type="D3">
+                    <Start>Audio/ED/flubStatic.wav</Start>
+                </Wave>
+            </Waves>
+        </Sound>
+        <Sound>
+            <Id>
+                <TypeId>MyObjectBuilder_AudioDefinition</TypeId>
+                <SubtypeId>ED_marchingClicks</SubtypeId>
+            </Id>
+            <Category>SHIP</Category>
+            <MaxDistance>20</MaxDistance>
+            <Volume>1.0</Volume>
+            <Loopable>false</Loopable>
+
+            <PreventSynchronization>0</PreventSynchronization>
+            <Waves>
+                <Wave Type="D3">
+                    <Start>Audio/ED/marchingClicks.wav</Start>
+                </Wave>
+            </Waves>
+        </Sound>
+        <Sound>
+            <Id>
+                <TypeId>MyObjectBuilder_AudioDefinition</TypeId>
+                <SubtypeId>ED_simpleBeep</SubtypeId>
+            </Id>
+            <Category>SHIP</Category>
+            <MaxDistance>5</MaxDistance>
+            <Volume>0.25</Volume>
+            <Loopable>false</Loopable>
+
+            <PreventSynchronization>0</PreventSynchronization>
+            <Waves>
+                <Wave Type="D3">
+                    <Start>Audio/ED/simpleBeep.wav</Start>
+                </Wave>
+            </Waves>
+        </Sound>
+        <Sound>
+            <Id>
+                <TypeId>MyObjectBuilder_AudioDefinition</TypeId>
+                <SubtypeId>ED_staticClicks</SubtypeId>
+            </Id>
+            <Category>SHIP</Category>
+            <MaxDistance>5</MaxDistance>
+            <Volume>0.25</Volume>
+            <Loopable>false</Loopable>
+
+            <PreventSynchronization>0</PreventSynchronization>
+            <Waves>
+                <Wave Type="D3">
+                    <Start>Audio/ED/staticClicks.wav</Start>
+                </Wave>
+            </Waves>
+        </Sound>
+        <Sound>
+            <Id>
+                <TypeId>MyObjectBuilder_AudioDefinition</TypeId>
+                <SubtypeId>ED_warbleStatic</SubtypeId>
+            </Id>
+            <Category>SHIP</Category>
+            <MaxDistance>5</MaxDistance>
+            <Volume>0.25</Volume>
+            <Loopable>false</Loopable>
+
+            <PreventSynchronization>0</PreventSynchronization>
+            <Waves>
+                <Wave Type="D3">
+                    <Start>Audio/ED/warbleStatic.wav</Start>
+                </Wave>
+            </Waves>
+        </Sound>
+        <Sound>
+            <Id>
+                <TypeId>MyObjectBuilder_AudioDefinition</TypeId>
+                <SubtypeId>ED_zoom</SubtypeId>
+            </Id>
+            <Category>SHIP</Category>
+            <MaxDistance>5</MaxDistance>
+            <Volume>0.25</Volume>
+            <Loopable>false</Loopable>
+
+            <PreventSynchronization>0</PreventSynchronization>
+            <Waves>
+                <Wave Type="D3">
+                    <Start>Audio/ED/zoom.wav</Start>
+                </Wave>
+            </Waves>
+        </Sound>
+        <Sound>
+            <Id>
+                <TypeId>MyObjectBuilder_AudioDefinition</TypeId>
+                <SubtypeId>ED_zoomAlt</SubtypeId>
+            </Id>
+            <Category>SHIP</Category>
+            <MaxDistance>5</MaxDistance>
+            <Volume>0.25</Volume>
+            <Loopable>false</Loopable>
+
+            <PreventSynchronization>0</PreventSynchronization>
+            <Waves>
+                <Wave Type="D3">
+                    <Start>Audio/ED/zoomAlt.wav</Start>
+                </Wave>
+            </Waves>
+        </Sound>
+
+        <Sound>
+            <Id>
+                <TypeId>MyObjectBuilder_AudioDefinition</TypeId>
+                <SubtypeId>HudLockingProgress</SubtypeId>
+            </Id>
+            <Category>HUD</Category>
+            <Volume>0.5</Volume>
+            <Loopable>true</Loopable>
+            <Waves>
+                <Wave Type="D2">
+                    <Start>Audio/ED/targetStart.wav</Start>
+                    <Loop>Audio/ED/targetLoop.wav</Loop>
+                </Wave>
+            </Waves>
+        </Sound>
+        <Sound>
+            <Id>
+                <TypeId>MyObjectBuilder_AudioDefinition</TypeId>
+                <SubtypeId>HudLockingSuccess</SubtypeId>
+            </Id>
+            <Category>HUD</Category>
+            <Volume>0.5</Volume>
+            <Loopable>true</Loopable>
+            <Waves>
+                <Wave Type="D2">
+                    <Start>Audio/ED/targetEnd.wav</Start>
+                </Wave>
+            </Waves>
+        </Sound>
+        <Sound>
+            <Id>
+                <TypeId>MyObjectBuilder_AudioDefinition</TypeId>
+                <SubtypeId>HudLockingLost</SubtypeId>
+            </Id>
+            <Category>HUD</Category>
+            <Volume>0.01</Volume>
+            <Loopable>true</Loopable>
+            <Waves>
+                <Wave Type="D2">
+                    <Start>Audio/ED/targetLost.wav</Start>
+                </Wave>
+            </Waves>
+        </Sound>
+
+    </Sounds>
+</Definitions>

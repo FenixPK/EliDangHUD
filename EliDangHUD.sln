@@ -1,7 +1,9 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 2012
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EliDangHUD", "EliDangHUD\EliDangHUD.csproj", "{AA43765C-9A14-4643-86AC-1B96AB2E3929}"
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.36227.6
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EliDangHUD", "EliDangHUD.csproj", "{AA43765C-9A14-4643-86AC-1B96AB2E3929}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -13,5 +15,11 @@ Global
 		{AA43765C-9A14-4643-86AC-1B96AB2E3929}.Debug|x86.Build.0 = Debug|x86
 		{AA43765C-9A14-4643-86AC-1B96AB2E3929}.Release|x86.ActiveCfg = Release|x86
 		{AA43765C-9A14-4643-86AC-1B96AB2E3929}.Release|x86.Build.0 = Release|x86
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {CE8BCD52-3647-4CE4-85E9-AD3544C8F824}
 	EndGlobalSection
 EndGlobal

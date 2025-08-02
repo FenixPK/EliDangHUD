@@ -33,10 +33,11 @@
   </PropertyGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
   <ItemGroup>
-    <Compile Include="CircleRenderer.cs" />
-    <Compile Include="GridHelper.cs" />
-    <Compile Include="CustomCockpitLogic.cs" />
-    <Compile Include="ED_extras.cs" />
+    <Compile Include="Data\Scripts\EliDangHUD\EliDangHUD\CircleRenderer.cs" />
+    <Compile Include="Data\Scripts\EliDangHUD\EliDangHUD\CustomCockpitLogic.cs" />
+    <Compile Include="Data\Scripts\EliDangHUD\EliDangHUD\ED_extras.cs" />
+    <Compile Include="Data\Scripts\EliDangHUD\EliDangHUD\GridHelper.cs" />
+    <Compile Include="Data\Scripts\EliDangHUD\EliDangHUD\obj\x86\Debug\.NETFramework,Version=v4.5.AssemblyAttributes.cs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="netstandard, Version=2.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL" />
@@ -129,5 +130,128 @@
       <HintPath>C:\Program Files %28x86%29\Steam\steamapps\common\SpaceEngineers\Bin64\SpaceEngineers.ObjectBuilders.dll</HintPath>
     </Reference>
     <Reference Include="System.Xml" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Data\Audio_ED.sbc" />
+    <None Include="Data\Scripts\EliDangHUD\EliDangHUD\obj\x86\Debug\build.force" />
+    <None Include="Data\Scripts\EliDangHUD\EliDangHUD\obj\x86\Debug\DesignTimeResolveAssemblyReferences.cache" />
+    <None Include="Data\Scripts\EliDangHUD\EliDangHUD\obj\x86\Debug\DesignTimeResolveAssemblyReferencesInput.cache" />
+    <None Include="Data\Scripts\EliDangHUD\EliDangHUD\obj\x86\Debug\EliDangHUD.csproj.AssemblyReference.cache" />
+    <None Include="Data\TransparentMaterials_ED.sbc" />
+    <None Include="LICENSE" />
+    <None Include="README.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Audio\ED\beeps.wav" />
+    <Content Include="Audio\ED\clickBurst.wav" />
+    <Content Include="Audio\ED\clicks1.wav" />
+    <Content Include="Audio\ED\clicks2.wav" />
+    <Content Include="Audio\ED\clicks3.wav" />
+    <Content Include="Audio\ED\flubStatic.wav" />
+    <Content Include="Audio\ED\marchingClicks.wav" />
+    <Content Include="Audio\ED\NoReverb\beeps.wav" />
+    <Content Include="Audio\ED\NoReverb\clickBurst.wav" />
+    <Content Include="Audio\ED\NoReverb\clicks1.wav" />
+    <Content Include="Audio\ED\NoReverb\clicks2.wav" />
+    <Content Include="Audio\ED\NoReverb\clicks3.wav" />
+    <Content Include="Audio\ED\NoReverb\flubStatic.wav" />
+    <Content Include="Audio\ED\NoReverb\marchingClicks.wav" />
+    <Content Include="Audio\ED\NoReverb\simpleBeep.wav" />
+    <Content Include="Audio\ED\NoReverb\staticClicks.wav" />
+    <Content Include="Audio\ED\NoReverb\warbleStatic.wav" />
+    <Content Include="Audio\ED\NoReverb\zoom.wav" />
+    <Content Include="Audio\ED\NoReverb\zoomAlt.wav" />
+    <Content Include="Audio\ED\simpleBeep.wav" />
+    <Content Include="Audio\ED\staticClicks.wav" />
+    <Content Include="Audio\ED\staticClicks_loop.wav" />
+    <Content Include="Audio\ED\targetEnd.wav" />
+    <Content Include="Audio\ED\targetLoop.wav" />
+    <Content Include="Audio\ED\targetLost.wav" />
+    <Content Include="Audio\ED\targetStart.wav" />
+    <Content Include="Audio\ED\warbleStatic.wav" />
+    <Content Include="Audio\ED\zoom.wav" />
+    <Content Include="Audio\ED\zoomAlt.wav" />
+    <Content Include="metadata.mod" />
+    <Content Include="Readme.txt" />
+    <Content Include="Textures\ED\Circle.dds" />
+    <Content Include="Textures\ED\Circle_Hollow.dds" />
+    <Content Include="Textures\ED\Circle_SeeThrough.dds" />
+    <Content Include="Textures\ED\Circle_SeeThrough_add.dds" />
+    <Content Include="Textures\ED\Diamond.dds" />
+    <Content Include="Textures\ED\EDshipFlare.dds" />
+    <Content Include="Textures\ED\ED_Cube.dds" />
+    <Content Include="Textures\ED\ED_dust1.dds" />
+    <Content Include="Textures\ED\ED_dust2.dds" />
+    <Content Include="Textures\ED\ED_dust3.dds" />
+    <Content Include="Textures\ED\ED_FONT_0.dds" />
+    <Content Include="Textures\ED\ED_FONT_1.dds" />
+    <Content Include="Textures\ED\ED_FONT_2.dds" />
+    <Content Include="Textures\ED\ED_FONT_3.dds" />
+    <Content Include="Textures\ED\ED_FONT_4.dds" />
+    <Content Include="Textures\ED\ED_FONT_5.dds" />
+    <Content Include="Textures\ED\ED_FONT_6.dds" />
+    <Content Include="Textures\ED\ED_FONT_7.dds" />
+    <Content Include="Textures\ED\ED_FONT_8.dds" />
+    <Content Include="Textures\ED\ED_FONT_9.dds" />
+    <Content Include="Textures\ED\ED_FONT_A.dds" />
+    <Content Include="Textures\ED\ED_FONT_B.dds" />
+    <Content Include="Textures\ED\ED_FONT_BRK_L.dds" />
+    <Content Include="Textures\ED\ED_FONT_BRK_R.dds" />
+    <Content Include="Textures\ED\ED_FONT_C.dds" />
+    <Content Include="Textures\ED\ED_FONT_COLON.dds" />
+    <Content Include="Textures\ED\ED_FONT_D.dds" />
+    <Content Include="Textures\ED\ED_FONT_DASH.dds" />
+    <Content Include="Textures\ED\ED_FONT_E.dds" />
+    <Content Include="Textures\ED\ED_FONT_EXCLAIM.dds" />
+    <Content Include="Textures\ED\ED_FONT_F.dds" />
+    <Content Include="Textures\ED\ED_FONT_G.dds" />
+    <Content Include="Textures\ED\ED_FONT_H.dds" />
+    <Content Include="Textures\ED\ED_FONT_H2.dds" />
+    <Content Include="Textures\ED\ED_FONT_I.dds" />
+    <Content Include="Textures\ED\ED_FONT_J.dds" />
+    <Content Include="Textures\ED\ED_FONT_K.dds" />
+    <Content Include="Textures\ED\ED_FONT_L.dds" />
+    <Content Include="Textures\ED\ED_FONT_M.dds" />
+    <Content Include="Textures\ED\ED_FONT_N.dds" />
+    <Content Include="Textures\ED\ED_FONT_O.dds" />
+    <Content Include="Textures\ED\ED_FONT_P.dds" />
+    <Content Include="Textures\ED\ED_FONT_PERCENT.dds" />
+    <Content Include="Textures\ED\ED_FONT_PERIOD.dds" />
+    <Content Include="Textures\ED\ED_FONT_PIPE.dds" />
+    <Content Include="Textures\ED\ED_FONT_POWER.dds" />
+    <Content Include="Textures\ED\ED_FONT_Q.dds" />
+    <Content Include="Textures\ED\ED_FONT_QUESTION.dds" />
+    <Content Include="Textures\ED\ED_FONT_R.dds" />
+    <Content Include="Textures\ED\ED_FONT_S.dds" />
+    <Content Include="Textures\ED\ED_FONT_SC.dds" />
+    <Content Include="Textures\ED\ED_FONT_SLASH.dds" />
+    <Content Include="Textures\ED\ED_FONT_SQRB_L.dds" />
+    <Content Include="Textures\ED\ED_FONT_SQRB_R.dds" />
+    <Content Include="Textures\ED\ED_FONT_T.dds" />
+    <Content Include="Textures\ED\ED_FONT_U.dds" />
+    <Content Include="Textures\ED\ED_FONT_V.dds" />
+    <Content Include="Textures\ED\ED_FONT_W.dds" />
+    <Content Include="Textures\ED\ED_FONT_X.dds" />
+    <Content Include="Textures\ED\ED_FONT_Y.dds" />
+    <Content Include="Textures\ED\ED_FONT_Z.dds" />
+    <Content Include="Textures\ED\ED_TOOLBARBACK.dds" />
+    <Content Include="Textures\ED\fx_visor.dds" />
+    <Content Include="Textures\ED\HUDFont.dds" />
+    <Content Include="Textures\ED\radarBorder.dds" />
+    <Content Include="Textures\ED\radarCompass.dds" />
+    <Content Include="Textures\ED\radarLockOn - Copy.dds" />
+    <Content Include="Textures\ED\radarLockOn.dds" />
+    <Content Include="Textures\ED\radarLockOnHollow.dds" />
+    <Content Include="Textures\ED\radarTargetting.dds" />
+    <Content Include="Textures\ED\radarTargetting_outter.dds" />
+    <Content Include="Textures\ED\Square.dds" />
+    <Content Include="Textures\ED\targetArrows.dds" />
+    <Content Include="Textures\ED\Triangle.dds" />
+    <Content Include="thumb.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="Data\Scripts\EliDangHUD\EliDangHUD\bin\Debug\" />
+    <Folder Include="Data\Scripts\EliDangHUD\EliDangHUD\bin\Release\" />
+    <Folder Include="Data\Scripts\EliDangHUD\EliDangHUD\obj\x86\Debug\TempPE\" />
   </ItemGroup>
 </Project>
