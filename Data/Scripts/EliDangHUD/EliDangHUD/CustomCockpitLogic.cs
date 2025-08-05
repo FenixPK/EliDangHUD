@@ -11,6 +11,7 @@ using System;
 using VRage.Game.ModAPI.Ingame.Utilities;
 using System.Text.RegularExpressions;
 using System.Text;
+using EliDangHUD;
 
 [MyEntityComponentDescriptor(typeof(MyObjectBuilder_Cockpit), false)]
 public class CustomCockpitLogic : MyGameLogicComponent
@@ -19,11 +20,13 @@ public class CustomCockpitLogic : MyGameLogicComponent
 	private static bool _controlsCreated = false;  // Static flag to track control creation
 
 	private MyIni ini = new MyIni();
+	private static ModSettings theSettings = new ModSettings();
 
 	public override void Init(MyObjectBuilder_EntityBase objectBuilder)
 	{
 		base.Init(objectBuilder);
-		_cockpit = Entity as IMyCockpit;
+        theSettings = CircleRenderer.LoadSettings();
+        _cockpit = Entity as IMyCockpit;
 		NeedsUpdate |= MyEntityUpdateEnum.BEFORE_NEXT_FRAME;
 
 	}
@@ -40,14 +43,26 @@ public class CustomCockpitLogic : MyGameLogicComponent
 	}
 
 
+	/// <summary>
+	/// Modified this. It uses either the [ELI_HUD] tag, or Main Cockpit, no antenna check. Antenna should only control radar/target hologram. Not the entire hud. 
+	/// </summary>
+	/// <param name="block"></param>
+	/// <returns></returns>
     private static bool IsEligibleCockpit(IMyTerminalBlock block)
     {
 		IMyCockpit cockpit = block as IMyCockpit;
-		if (cockpit == null || !GridHasAntenna(block))
+		if (cockpit == null)
 		{ 
 			return false; 
 		}
-        return cockpit.CustomName.Contains("[ELI_HUD]");
+		if (theSettings.useMainCockpitInsteadOfTag)
+		{
+			return cockpit.IsMainCockpit;
+		}
+		else 
+		{
+            return cockpit.CustomName.Contains("[ELI_HUD]");
+        }
     }
 
     
@@ -63,12 +78,10 @@ public class CustomCockpitLogic : MyGameLogicComponent
 			{
 				if (antenna.IsWorking)
 				{
-					// Check if the antenna is broadcasting
-					if (antenna.IsBroadcasting)
-					{
-						if (!i.CustomData.Contains("[NORADAR]"))
-							count++;
-					}
+					if (!i.CustomData.Contains("[NORADAR]"))
+					{ 
+						count++; 
+					}   
 				}
 			}
 		}

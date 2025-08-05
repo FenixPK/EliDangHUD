@@ -127,10 +127,12 @@ DONE: Moved some functions back into Draw(), while calculating UI positions in U
 I suspect this would be even worse with speed mods allowing over 300m/s. I have left updating the radar detections themselves in UpdateAfterSimulation, and this should be fine. 
 DONE: Removed arbitrary DisplayName == "Stone" || DisplayName == null filter from radar entities return. In my testing this prevented asteroids of any type I spawned in from showing. 
 I'd like to do further settings to allow users to more specifically choose to filter our floating items of name 'Stone' for eg, or only voxels (asteroids and deposits) of certain types or sizes even. 
+DONE: Make Main Cockpit or Tag be an option. Make custom cockpit sliders/checkboxes etc. load based on only this setting, no longer requires a broadcasting antenna. (Was a leftover of original). 
+DONE: Make SigInt lite logic be toggleable. You can have some of the old logic instead. It still checks all powered antennas on the grid and uses the max broadcast range as the radar range for detecting and scaling the radar.
+But doesn't do all the active vs passive radar stuff. 
+DONE: More minor optimizations: only checks if entity has power if you can already detect it based on range and the setting to only show powered grids is true. 
 
 --TODO--
-TODO: Fix bug with CustomData/Toggles only working if you have a powered antenna. Eligibility for the grid should ONLY be on [ELI_HUD] tag, while radar and target holograms do require
-a working antenna, the settings being available should NOT be dependent on this lol.
 TODO: I'd like to do further settings to allow users to more specifically choose to filter our floating items of name 'Stone' for eg, or only voxels (asteroids and deposits) of certain types or sizes even. 
 TODO: Figure out all this DamageAmount/AttachGrid/DetachGrid event handler stuff. It looks... incomplete? Eg GetDamageAmount if called would re-set the amount to zero. It is used to get a damage amount to add to glitch amount overload.
 but the way it is configured all that happens prior to this is attaching event handlers for on function changed. So amount would always be 0?
@@ -268,6 +270,14 @@ namespace EliDangHUD
 	/// </summary>
     public class ModSettings
     {
+
+		/// <summary>
+		/// If true the mod is enabled by setting seat as Main Cockpit instead of using an [ELI_HUD] tag. 
+		/// </summary>
+		public bool useMainCockpitInsteadOfTag = false;
+		public string useMainCockpitInsteadOfTag_DESCRIPTION = "If true the mod is enabled by setting seat as Main Cockpit instead of using a tag [ELI_HUD], for users who prefer the original method. \r\n " +
+			"Note that with this setting enabled you can only have one HUD seat per grid. If you leave this disabled you can use the [ELI_HUD] tag on as many seats as you want.";
+
         /// <summary>
         /// Max global radar range, setting -1 will use the draw distance. Otherwise you can set a global maximum limit for the radar range. 
 		/// I think you could technically exceed the games 50km limit in radar scale, but there is a hard limit at the 50km antenna broadcast range for detecting.
@@ -291,6 +301,16 @@ namespace EliDangHUD
         /// </summary>
         public int maxPings = 500;
         public string maxPings_DESCRIPTION = "Maximum number of entities/voxels that can be displayed as radar pings on the radar at once.";
+
+		/// <summary>
+		/// When true uses SigInt lite logic with Active and Passive radar.
+		/// </summary>
+		public bool useSigIntLite = true;
+		public string useSigIntLite_DESCRIPTION = "When true uses SigInt lite logic regarding Active and Passive radar, using Antenna blocks on your and other grids. When enabled: A powered and broadcasting antenna \r\n " +
+			"on your grid will be considered active mode, powered but not broadcasting is considered passive mode. \r\n " +
+			"Active can pick up all entities (voxels and grids) within the broadcast range. This is your radar waves painting everything within that radius and pinging them. \r\n " +
+			"Passive can only pick up actively broadcasting grids within your broadcast radius, and their broadcast radius. This is your radar picking up signals that are pinging off you. \r\n " +
+			"When disabled uses the simple logic of largest radius from all powered antennae on the grid as your radar range.";
 
         /// <summary>
         /// Percentage threshhold at which radar pings start to fade out at the edge of the radar range Eg. 0.01 = 0.01*100 = 1%. 
@@ -745,7 +765,7 @@ namespace EliDangHUD
 		/// that matches the structure of <see cref="ModSettings"/>.</param>
 		/// <returns>An instance of <see cref="ModSettings"/> populated with the data from the XML string. Returns <see
 		/// langword="null"/> if the XML string is invalid or cannot be deserialized.</returns>
-		public ModSettings DeserializeSettingsFromXML(string settingsInXML)
+		public static ModSettings DeserializeSettingsFromXML(string settingsInXML)
 		{
             // Deserialize the settings from XML format to return type <ModSettings>
             return MyAPIGateway.Utilities.SerializeFromXML<ModSettings>(settingsInXML);
@@ -770,14 +790,13 @@ namespace EliDangHUD
         /// Loads the mod settings from persistent storage from XML format.
         /// </summary>
         /// <returns>An instance of <see cref="ModSettings"/> populated with data from the XML file in world storage. Or a new one with default values if none exists. </returns>
-        public ModSettings LoadSettings()
+        public static ModSettings LoadSettings()
 		{
 			if (MyAPIGateway.Utilities.FileExistsInWorldStorage(settingsFile, typeof(ModSettings)))
 			{
 				using (var reader = MyAPIGateway.Utilities.ReadFileInWorldStorage(settingsFile, typeof(ModSettings)))
 				{
 					string data = reader.ReadToEnd();
-					MyLog.Default.WriteLine($"FENIX_HUD: {data}");
 					return DeserializeSettingsFromXML(data);
 				}
 			}
@@ -1532,7 +1551,7 @@ namespace EliDangHUD
                     currentTarget, out _playerCanDetectCurrentTarget, out _currentTargetPositionReturned, out _distanceToCurrentTargetSqr, out _currentTargetHasActiveRadar, out _currentTargetMaxActiveRange);
 
                 VRage.Game.ModAPI.IMyCubeGrid targetGrid = currentTarget as VRage.Game.ModAPI.IMyCubeGrid;
-                if (targetGrid != null)
+				if (targetGrid != null && _playerCanDetectCurrentTarget == true) // Added condition that we must be able to detect them otherwise, save CPU cycles checking blocks for power/batteries if we can't detect them anyway. 
                 {
                     // Store whether radar ping is powered regardless of whether we only show powered or not, in case we want to do something like make the non powered
                     // grids darker and powered ones lighter. Then we check if _onlyPoweredGrids is true and we don't have power for current entity we skip it. 
@@ -1541,27 +1560,19 @@ namespace EliDangHUD
 						_playerCanDetectCurrentTarget = false;
                     }
                 }
+                double distanceToCamera = Vector3D.DistanceSquared(_cameraPosition, _currentTargetPositionReturned); // Additional check on target distance to our CAMERA. 
+                if (distanceToCamera > 50000d * 50000d)
+                {
+                    _playerCanDetectCurrentTarget = false;
+                }
                 if (_playerCanDetectCurrentTarget)
                 {
-                    if (debug)
-                    {
-                        //MyLog.Default.WriteLine($"FENIX_HUD: Target selected, and can detect");
-                    }
                     _distanceToCurrentTarget = Math.Sqrt(_distanceToCurrentTargetSqr);
                     radarScaleRange_Goal = GetRadarScaleBracket(_distanceToCurrentTarget);
                     squishValue_Goal = 0.0;
-					double distanceToCamera = Vector3D.DistanceSquared(_cameraPosition, _currentTargetPositionReturned); // Additional check on target distance to our CAMERA. 
-                    if (distanceToCamera > 50000d*50000d)
-                    {
-                        ReleaseTarget();
-                    }
                 }
                 else
                 {
-                    if (debug)
-                    {
-                        //MyLog.Default.WriteLine($"FENIX_HUD: Target selected, but playerCanDetect is false - clearing target");
-                    }
                     ReleaseTarget();
                     radarScaleRange_Goal = GetRadarScaleBracket(radarScaleRange);
                     squishValue_Goal = 0.75;
@@ -1569,10 +1580,6 @@ namespace EliDangHUD
             }
             else
             {
-                if (debug)
-                {
-                    //MyLog.Default.WriteLine($"FENIX_HUD: No Target found");
-                }
                 radarScaleRange_Goal = GetRadarScaleBracket(radarScaleRange);
                 squishValue_Goal = 0.75;
             }
@@ -1815,13 +1822,34 @@ namespace EliDangHUD
                     return;
                 }
 
-                if (!gHandler.localGridControlledEntityCustomName.Contains("[ELI_HUD]"))
-                {
-                    Echo("Include [ELI_HUD] tag in cockpit block name to enable Scanner.");
-					_controlledBlockTaggedForMod = false;
-                    return;
+				if (theSettings.useMainCockpitInsteadOfTag)
+				{
+                    Sandbox.ModAPI.IMyCockpit cockpit = gHandler.localGridControlledEntity as Sandbox.ModAPI.IMyCockpit;
+
+                    if (cockpit == null)
+                    {
+                        _controlledBlockTaggedForMod = false;
+						return;
+                    }
+                    if (!cockpit.IsMainCockpit)
+                    {
+
+                        Echo("Set to Main Cockpit to enable Scanner.");
+                        _controlledBlockTaggedForMod = false;
+                        return;
+                    }
+                    _controlledBlockTaggedForMod = true;
                 }
-				_controlledBlockTaggedForMod = true;
+				else 
+				{
+                    if (!gHandler.localGridControlledEntityCustomName.Contains("[ELI_HUD]"))
+                    {
+                        Echo("Include [ELI_HUD] tag in cockpit block name to enable Scanner.");
+                        _controlledBlockTaggedForMod = false;
+                        return;
+                    }
+                    _controlledBlockTaggedForMod = true;
+                }
 
                 if (!HasPowerProduction(gHandler.localGrid))
                 {
@@ -4914,8 +4942,29 @@ namespace EliDangHUD
 				// If no functional radar we can't detect anything
 				return; // Can't detect it, return defaults.
             }
+            // Store calculate variables once here and re-use.
             VRage.Game.ModAPI.IMyCubeGrid entityGrid = entity as VRage.Game.ModAPI.IMyCubeGrid; // Is this a grid? will be Null if not.
 			Vector3D entityPos = entity.GetPosition();
+            double gridMaxActiveRangeSqr = gridMaxActiveRange * gridMaxActiveRange;
+            double gridMaxPassiveRangeSqr = gridMaxPassiveRange * gridMaxPassiveRange;
+            Vector3D relativePos = entityPos - gridPos; // Position of entity relative to grid
+            double relativeDistanceSqr = relativePos.LengthSquared();
+
+            if (!theSettings.useSigIntLite) 
+			{
+				// When not using SigInt lite we use the maxPassiveRange check only, which should already be limitted to the max radar range setting.
+				if (IsWithinRadarRadius(relativeDistanceSqr, gridMaxPassiveRangeSqr))
+				{
+					canDetect = true;
+					entityPosReturn = entityPos;
+					relativeDistanceSqrReturn = relativeDistanceSqr;
+					return;  // Detected, set values and return
+				}
+				else 
+				{
+					return; // Can't detect it, return defaults.
+                }
+            }
 
             // Check if even a grid first
             if (entityGrid == null && !gridHasActiveRadar)
@@ -4926,10 +4975,7 @@ namespace EliDangHUD
 				return; // Can't detect it, return defaults.
             }
 
-			// Store calculate variables once here and re-use.
-			double gridMaxActiveRangeSqr = gridMaxActiveRange * gridMaxActiveRange;
-            Vector3D relativePos = entityPos - gridPos; // Position of entity relative to grid
-            double relativeDistanceSqr = relativePos.LengthSquared();
+			
 
             // At this point we may have passive only, or active+passive. 
             if (entityGrid == null && gridHasActiveRadar)
@@ -4954,7 +5000,6 @@ namespace EliDangHUD
                 // entityGrid might be within grid's maxActiveRange
                 // We should check if grid has active radar first and test that first, as we might be in passive only mode and could save some cycles
                 // Then if still not detected check passive where we evaluate the entityGrid's antenna status.
-                double gridMaxPassiveRangeSqr = gridMaxPassiveRange * gridMaxPassiveRange;
                 bool entityHasPassiveRadar = false; // Not used
                 bool entityHasActiveRadar = false; // Is entityGrid sending out signals grid can passively receive?
                 double entityMaxPassiveRange = 0; // Not used
