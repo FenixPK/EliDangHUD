@@ -1,4 +1,5 @@
-Only cockpits with [ELI_HUD] in the name are eligible, no more reliance on being main cockpit. 
+By default only cockpits with [ELI_HUD] in the name are eligible, no more reliance on being main cockpit. However you can enable useMainCockpitInsteadOfTag in the settings if you desire
+the old logic. You can also disable the SigInt lite logic of Active vs Passive radar if desired. 
 Local grid settings get stored to CustomData of the cockpit block.
 
 Global settings are stored in the World Save folder, eg SaveGameName\Storage\########_EliDangHud\EDHH_settings.xml

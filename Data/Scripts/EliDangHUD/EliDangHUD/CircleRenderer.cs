@@ -611,6 +611,11 @@ namespace EliDangHUD
 		private bool _onlyPoweredGrids = false;
         private float SpeedThreshold = 10f;
 
+		private List<VRage.Game.ModAPI.IMyCubeBlock> _holoTablesOnGrid = new List<VRage.Game.ModAPI.IMyCubeBlock>();
+        private VRage.Game.ModAPI.IMyCubeGrid playerNearestGrid; 
+
+
+
 
         // The player
         private IMyPlayer player;
@@ -1527,7 +1532,65 @@ namespace EliDangHUD
 
         }
 
+        private void GetNearbyHoloTables()
+        {
+            _holoTablesOnGrid.Clear();
+			double playerDistanceSqr = 20 * 20;
 
+           
+            IMyCharacter character = MyAPIGateway.Session?.ControlledObject as IMyCharacter;
+			if (character == null) 
+			{
+                return;
+            }
+            Vector3D playerPos = character.GetPosition();
+            var sphere = new BoundingSphereD(playerPos, 20);
+            var entities = new List<VRage.Game.Entity.MyEntity>();
+            MyGamePruningStructure.GetAllTopMostEntitiesInSphere(ref sphere, entities);
+
+            VRage.Game.ModAPI.IMyCubeGrid nearestGrid = null;
+            double closestDistSq = 20 * 20;
+
+            if (entities == null) 
+            {
+                return;
+            }
+            foreach (var entity in entities)
+            {
+                var grid = entity as VRage.Game.ModAPI.IMyCubeGrid;
+                if (grid?.Physics == null || grid.MarkedForClose)
+                {
+                    continue;
+                }
+                    
+
+                double distSq = Vector3D.DistanceSquared(playerPos, grid.WorldAABB.Center);
+                if (distSq < closestDistSq)
+                {
+                    closestDistSq = distSq;
+                    nearestGrid = grid;
+                }
+            }
+
+            playerNearestGrid = nearestGrid;
+            if (playerNearestGrid == null)
+            {
+                return;
+            }
+
+            List<Sandbox.ModAPI.IMyTerminalBlock> potentialHolos = new List<Sandbox.ModAPI.IMyTerminalBlock>();
+            MyAPIGateway.TerminalActionsHelper.GetTerminalSystemForGrid(playerNearestGrid)?.GetBlocksOfType<Sandbox.ModAPI.IMyTerminalBlock>(potentialHolos, block =>
+                block.CustomName?.Contains("[ELI_HOLO]") == true
+            );
+
+            foreach (Sandbox.ModAPI.IMyTerminalBlock terminal in potentialHolos)
+            {
+                if (Vector3D.DistanceSquared(playerPos, terminal.GetPosition()) <= playerDistanceSqr)
+                {
+                    _holoTablesOnGrid.Add(terminal);
+                }
+            }
+        }
 
         /// <summary>
         /// Updates radar detections based on the player's current grid's radar capabilities in relation to the entities. Ie. if player is in passive mode and entities nearby have active radar on. Also updates the current target selection.
@@ -1683,7 +1746,135 @@ namespace EliDangHUD
             }
         }
 
-		public void UpdateSpeedSettings() 
+        public void UpdateRadarDetectionsHoloTable()
+        {
+            IMyCharacter character = MyAPIGateway.Session?.ControlledObject as IMyCharacter;
+            if (character == null) //.....33154
+            {
+                return;
+            }
+            VRage.Game.ModAPI.IMyCubeGrid playerGrid = playerNearestGrid;
+            Vector3D playerGridPos = playerNearestGrid.GetPosition();
+
+            // Check radar active/passive status and broadcast range for player grid.
+            // playerGrid is set once earlier in the Draw() method when determining if cockpit is eligible, player controlled etc, and is used to get power draw among other things. Saved for re-use here and elsewhere.
+            EvaluateGridAntennaStatus(playerGrid, out _playerHasPassiveRadar, out _playerHasActiveRadar, out _playerMaxPassiveRange, out _playerMaxActiveRange);
+
+            // Radar distance/scale should be based on our highest functional, powered antenna (regardless of mode).
+            radarScaleRange = _playerMaxPassiveRange; // Already limited to global max. Uses passive only because in active mode active and passive will be equal. 
+
+            radarScaleRange_Goal = GetRadarScaleBracket(radarScaleRange);
+            squishValue_Goal = 0.75;
+            squishValue = LerpD(squishValue, squishValue_Goal, 0.1);
+
+            // Handle smooth animation when first starting up or sitting in seat, along with smooth animation for switching range bracket due to targetting. 
+            //radarScaleRange_CurrentLogin = LerpD(radarScaleRange_CurrentLogin, radarScaleRange_GoalLogin, 0.01);
+            radarScaleRange_Current = LerpD(radarScaleRange_Current, radarScaleRange_Goal, 0.1);
+            radarScaleRange = radarScaleRange_Current;
+
+            holoRadarScale = (holoRadarRadius / radarScaleRange);
+
+            _fadeDistance = radarScaleRange * (1 - theSettings.fadeThreshhold); // Eg at 0.01 would be 0.99%. For a radar distance of 20,000m this means the last 19800-19999 becomes fuzzy/dims the blip.
+            _fadeDistanceSqr = _fadeDistance * _fadeDistance; // Sqr for fade distance in comparisons.
+            _radarShownRangeSqr = radarScaleRange * radarScaleRange; // Anything over this range, even if within sensor range, can't be drawn on screen. 
+
+            bool onlyPoweredGrids = true;
+            bool showVoxels = true;
+
+            // Go up to count OR max pings, so we don't process too many pings on the radar. 
+            for (int i = 0; i < Math.Min(radarPings.Count, theSettings.maxPings); i++)
+            {
+                VRage.ModAPI.IMyEntity entity = radarPings[i].Entity;
+                if (entity == null)
+                {
+                    radarPings.RemoveAt(i);
+                    continue; // Clear the ping then continue
+                }
+                if (!showVoxels && radarPings[i].Status == RelationshipStatus.Vox)
+                {
+                    continue; // Skip voxels if not set to show them. 
+                }
+                if (entity.GetTopMostParent() == playerGrid.GetTopMostParent())
+                {
+                    //continue; // Skip drawing yourself on the radar.
+                }
+
+                VRage.Game.ModAPI.IMyCubeGrid entityGrid = entity as VRage.Game.ModAPI.IMyCubeGrid;
+                if (entityGrid != null)
+                {
+                    // Store whether radar ping is powered regardless of whether we only show powered or not, in case we want to do something like make the non powered
+                    // grids darker and powered ones lighter. Then we check if _onlyPoweredGrids is true and we don't have power for current entity we skip it. 
+                    radarPings[i].RadarPingHasPower = HasPowerProduction(entityGrid);
+                    if (onlyPoweredGrids && !radarPings[i].RadarPingHasPower)
+                    {
+                        continue;
+                    }
+                }
+
+
+                bool playerCanDetect = false;
+                Vector3D entityPos;
+                double entityDistanceSqr;
+                bool entityHasActiveRadar = false;
+                double entityMaxActiveRange = 0;
+
+                CanGridRadarDetectEntity(_playerHasPassiveRadar, _playerHasActiveRadar, _playerMaxPassiveRange, _playerMaxActiveRange, playerGridPos,
+                    entity, out playerCanDetect, out entityPos, out entityDistanceSqr, out entityHasActiveRadar, out entityMaxActiveRange);
+
+                radarPings[i].PlayerCanDetect = playerCanDetect;
+                radarPings[i].RadarPingPosition = entityPos;
+                radarPings[i].RadarPingDistanceSqr = entityDistanceSqr;
+                radarPings[i].RadarPingHasActiveRadar = entityHasActiveRadar;
+                radarPings[i].RadarPingMaxActiveRange = entityMaxActiveRange;
+
+                if (!playerCanDetect || entityDistanceSqr > _radarShownRangeSqr) // If can't detect it, or the radar scale prevents showing it move on.
+                {
+                    continue;
+                }
+
+                // Check if relationship status has changed and update ping (eg. if a ship flipped from neutral to hostile or hostile to friendly via capture). 
+                RadarPing currentPing = radarPings[i];
+                UpdateExistingRadarPingStatus(ref currentPing);
+                radarPings[i] = currentPing;
+
+                if (entityDistanceSqr < _radarShownRangeSqr * (1 - theSettings.fadeThreshhold)) // Once we pass the fade threshold an auidible and visual cue should be applied. 
+                {
+                    if (!radarPings[i].Announced)
+                    {
+                        radarPings[i].Announced = true;
+                        if (radarPings[i].Status == RelationshipStatus.Hostile && entityDistanceSqr > 250000) //500^2 = 250,000
+                        {
+                            foreach (VRage.Game.ModAPI.IMyCubeBlock holoTable in _holoTablesOnGrid) 
+                            {
+                                PlayCustomSound(SP_ENEMY, holoTable.GetPosition());
+                            }
+                            NewAlertAnim(entity);
+                        }
+                        else if (radarPings[i].Status == RelationshipStatus.Friendly && entityDistanceSqr > 250000)
+                        {
+                            foreach (VRage.Game.ModAPI.IMyCubeBlock holoTable in _holoTablesOnGrid)
+                            {
+                                PlayCustomSound(SP_NEUTRAL, holoTable.GetPosition());
+                            }
+                            NewBlipAnim(entity);
+                        }
+                        else if (radarPings[i].Status == RelationshipStatus.Neutral && entityDistanceSqr > 250000)
+                        {
+                            // No Sound
+                        }
+                    }
+                }
+                else
+                {
+                    if (radarPings[i].Announced)
+                    {
+                        radarPings[i].Announced = false;
+                    }
+                }
+            }
+        }
+
+        public void UpdateSpeedSettings() 
 		{
             ControlDimmer += 0.05f;
             SpeedDimmer = Clamped((float)gHandler.localGridSpeed * 0.01f + 0.05f, 0f, 1f);
@@ -1911,6 +2102,13 @@ namespace EliDangHUD
                     //Standing Event!
                     OnStandUp();
                 }
+
+                // If we are not controlling a grid we can check for HoloTables instead
+                GetNearbyHoloTables();
+                if (_holoTablesOnGrid != null && _holoTablesOnGrid.Count > 0) 
+                {
+                    UpdateRadarDetectionsHoloTable();
+                }
             }
             _distanceToCameraSqr = Vector3D.DistanceSquared(_cameraPosition, worldRadarPos);
 
@@ -2021,9 +2219,13 @@ namespace EliDangHUD
             }
 			else 
 			{
+                UpdateCameraPosition();
                 ControlDimmer -= 0.05f;
-                return;
-			}
+                if (_holoTablesOnGrid != null && _holoTablesOnGrid.Count > 0)
+                {
+                    DrawRadarHoloTable();
+                }
+            }
 		}
         //-----------------------------------------------------------------------------------
 
@@ -3322,8 +3524,10 @@ namespace EliDangHUD
 		public static float radarRadius = 0.125f; 
 		public static double radarScale = 0.000025;
 		public static float targetHologramRadius = 0.125f;
-		
-		private bool targetingFlipper = false;
+        public static double holoRadarScale = 0.0001;
+        public static float holoRadarRadius = 1f;
+
+        private bool targetingFlipper = false;
 
 		
 
@@ -3881,9 +4085,320 @@ namespace EliDangHUD
 		}
 
 
+        private void DrawRadarHoloTable()
+        {
+            // We shouldn't be in here if we haven't already checked if gHandler is null, camera too far away etc. So we can skip more checks here. 
 
-		// List to hold all entities found
-		HashSet<VRage.ModAPI.IMyEntity> radarEntities = new HashSet<VRage.ModAPI.IMyEntity>();
+            // Debug log writes every 360 frames to reduce log spam
+            if (debugFrameCount >= 360)
+            {
+                debug = true;
+            }
+            else
+            {
+                debug = false;
+                debugFrameCount++;
+            }
+
+            // Okay FenixPK is pretty sure the "problems" I've been having with vectors, matrices, and rotations and perspective etc. are all coming from the fact that the holograms share a position vector and matrix with the radar which needs to rotate.
+            // So we will split this into three positions, three offsets. And it solves a request where users wanted to move all of this stuff around independently too. If I can finish it in time haha.
+
+            // Fetch the player's cockpit entity and it's world position (ie. the block the player is controlling). 
+            //Vector3D playerGridPos = gHandler.localGridControlledEntityPosition;
+            IMyCharacter character = MyAPIGateway.Session?.ControlledObject as IMyCharacter;
+            if (character == null)
+            {
+                return;
+            }
+            VRage.Game.ModAPI.IMyCubeGrid playerGrid = playerNearestGrid;
+            Vector3D playerPos = character.GetPosition();
+            Vector3D playerGridPos = playerNearestGrid?.GetPosition() ?? playerPos;
+            bool onlyPoweredGrids = true;
+            bool showVoxels = true;
+
+            // CAMERA POSITION //
+            // Get the camera's vectors
+            MatrixD cameraMatrix = _cameraMatrix;
+            Vector3 viewUp = cameraMatrix.Up;
+            Vector3 viewLeft = cameraMatrix.Left;
+            Vector3 viewForward = cameraMatrix.Forward;
+            Vector3 viewBackward = cameraMatrix.Backward;
+            Vector3D viewBackwardD = cameraMatrix.Backward;
+            Vector3D cameraPos = _cameraPosition;
+
+
+            foreach (VRage.Game.ModAPI.IMyCubeBlock holoTable in _holoTablesOnGrid)
+            {
+                // Get the hologram table's position and orientation
+                MatrixD holoTableMatrix = holoTable.WorldMatrix;
+                Vector3D holoTablePos = holoTableMatrix.Translation + holoTableMatrix.Up * 0.2;
+
+                // Draw the radar circle
+                Vector3D holoUp = holoTableMatrix.Up;
+                Vector3D holoDown = holoTableMatrix.Down;
+                Vector3D holoLeft = holoTableMatrix.Left;
+                Vector3D holoForward = holoTableMatrix.Forward;
+                Vector3D holoBackward = holoTableMatrix.Backward;
+
+                Vector4 color_Current = color_VoxelBase; // Default to voxelbase color
+                float scale_Current = 1.0f;
+
+                // Radar Pulse Timer for the pulse animation
+                double radarPulseTime = this.timerRadarElapsedTimeTotal.Elapsed.TotalSeconds / 3;
+                radarPulseTime = 1 - (radarPulseTime - Math.Truncate(radarPulseTime)) * 2;
+
+                // Radar attack timer to flip the blips and make them pulsate. Goal is to tie this to being targetted by those grids rather than by distance to them.
+                double attackTimer = this.timerRadarElapsedTimeTotal.Elapsed.TotalSeconds * 4;
+                attackTimer = (attackTimer - Math.Truncate(attackTimer));
+                if (attackTimer > 0.5)
+                {
+                    targetingFlipper = true;
+                }
+                else
+                {
+                    targetingFlipper = false;
+                }
+                // Draw Rings
+                //DrawQuad(holoTablePos, holoUp, (double)holoRadarRadius * 0.03f, MaterialCircle, theSettings.lineColor * 5f); //Center
+                                                                                                                      // Draw perspective lines
+                float radarFov = Clamped(GetCameraFOV() / 2, 0, 90) / 90;
+                //DrawLineBillboard(Material, theSettings.lineColor * GLOW * 0.4f, holoTablePos, Vector3D.Lerp(radarMatrix.Forward, radarMatrix.Left, radarFov), holoRadarRadius * 1.45f, 0.0005f); //Perspective Lines
+                // DrawLineBillboard(Material, theSettings.lineColor * GLOW * 0.4f, holoTablePos, Vector3D.Lerp(radarMatrix.Forward, radarMatrix.Right, radarFov), holoRadarRadius * 1.45f, 0.0005f);
+
+                //// Animate radar pulse
+                //for (int i = 1; i < 11; i++)
+                //{
+                //    int radarPulseSteps = (int)Math.Truncate(10 * radarPulseTime);
+                //    float radarPulse = 1;
+                //    if (radarPulseSteps == i)
+                //    {
+                //        radarPulse = 2;
+                //    }
+                //    DrawCircle(holoTablePos - (holoUp * 0.003), (holoRadarRadius * 0.95) - (holoRadarRadius * 0.95) * (Math.Pow((float)i / 10, 4)), holoUp, theSettings.lineColor, false, 0.25f * radarPulse, 0.00035f);
+                //}
+
+                // Draw border
+                //DrawQuadRigid(holoTablePos, holoUp, (double)holoRadarRadius * 1.18, MaterialBorder, theSettings.lineColor, true); //Border
+                Color radiusColor = (Color.Orange) * 0.25f;
+                MatrixD sphereMatrix = MatrixD.CreateTranslation(holoTablePos);
+                MySimpleObjectDraw.DrawTransparentSphere(
+                    ref sphereMatrix, 
+                    (float)holoRadarRadius,                 
+                    ref radiusColor,                          
+                    MySimpleObjectRasterizer.Solid,
+                    36
+                );
+
+                // Draw compass
+                //if (EnableGauges)
+                //{
+                //    DrawQuadRigid(holoTablePos - (holoUp * 0.005), -holoUp, (double)holoRadarRadius * 1.5, MaterialCompass, theSettings.lineColor, true); //Compass
+                //}
+                // DrawQuad(holoTablePos - (holoUp * 0.010), holoUp, (double)holoRadarRadius * 2.25, MaterialCircleSeeThrough, new Vector4(0, 0, 0, 0.75f)); //Dim Backing
+                // DrawQuad(holoTablePos + (holoUp * 0.025), viewBackward, 0.25, MaterialCircleSeeThroughAdd, theSettings.lineColor * 0.075f, true);
+
+                UpdateRadarAnimationsHoloTable(playerGridPos, holoTablePos, holoTableMatrix);
+
+                // Okay I had to do some research on this. The way this works is Math.Sin() returns a value between -1 and 1, so we add 1 to it to get a value between 0 and 2, then divide by 2 to get a value between 0 and 1.
+                // Basically shifting the wave up so we are into positive value only territory, and then scaling it to a 0-1 range where 0 is completely invisible and 1 is fully visible. Neat.
+                float haloPulse = (float)((Math.Sin(timerRadarElapsedTimeTotal.Elapsed.TotalSeconds * (4 * Math.PI)) + 1.0) * 0.5); // 0 -> 1 -> 0 smoothly. Should give 2 second pulses. Could do (2*Math.PI) for 1 second pulses
+
+                // Go up to count OR max pings, so we don't process too many pings on the radar. 
+                for (int i = 0; i < Math.Min(radarPings.Count, theSettings.maxPings); i++)
+                {
+                    VRage.ModAPI.IMyEntity entity = radarPings[i].Entity;
+                    if (entity == null)
+                    {
+                        radarPings.RemoveAt(i);
+                        continue; // Clear the ping then continue
+                    }
+                    if (!showVoxels && radarPings[i].Status == RelationshipStatus.Vox)
+                    {
+                        continue; // Skip voxels if not set to show them. 
+                    }
+                    
+
+                    if (!radarPings[i].PlayerCanDetect || radarPings[i].RadarPingDistanceSqr > _radarShownRangeSqr) // If can't detect it, or the radar scale prevents showing it move on.
+                    {
+                        continue;
+                    }
+
+                    VRage.Game.ModAPI.IMyCubeGrid entityGrid = entity as VRage.Game.ModAPI.IMyCubeGrid;
+                    if (entityGrid != null)
+                    {
+                        if (onlyPoweredGrids && !radarPings[i].RadarPingHasPower)
+                        {
+                            continue;
+                        }
+                    }
+
+                    // Handle fade for edge
+                    float fadeDimmer = 1f;
+                    // Have to invert old logic, original author made this extend radar range past configured limit. 
+                    // I am having the limit as a hard limit be it global config or antenna broadcast range, so we instead make a small range before that "fuzzy" instead. 
+                    // If it was outside max range it wouldn't have been detected by the player actively or passively, so we skipped it already. Meaning all we have to do is check if it is in the fade region and fade it or draw it regularly. 
+                    if (radarPings[i].RadarPingDistanceSqr >= _fadeDistanceSqr)
+                    {
+                        fadeDimmer = 1 - Clamped(1 - (float)((_fadeDistanceSqr - radarPings[i].RadarPingDistanceSqr) / (_fadeDistanceSqr - _radarShownRangeSqr)), 0, 1);
+                    }
+                    Vector3D scaledPos = ApplyLogarithmicScalingHolo(radarPings[i].RadarPingPosition, playerGridPos); // Apply radar scaling
+
+                    // Position on the radar
+                    Vector3D radarEntityPos = holoTablePos + scaledPos;
+
+                    // If there are any problems that would make displaying the entity fail or do something ridiculous that tanks FPS just skip to the next one.
+                    if (double.IsNaN(radarEntityPos.X) || double.IsInfinity(radarEntityPos.X))
+                    {
+                        continue;
+                    }
+                    if (!radarEntityPos.IsValid())
+                    {
+                        continue;
+                    }
+
+                    Vector3D v = radarEntityPos - holoTablePos;
+                    Vector3D uNorm = Vector3D.Normalize(holoUp);
+                    float vertDistance = (float)Vector3D.Dot(v, uNorm);
+
+                    float upDownDimmer = 1f;
+                    if (vertDistance < 0)
+                    {
+                        upDownDimmer = 0.8f;
+                    }
+
+                    float lineLength = (float)Vector3D.Distance(radarEntityPos, holoTablePos);
+                    Vector3D lineDir = holoDown;
+
+                    // If invalid, skip now.
+                    if (!lineDir.IsValid())
+                    {
+                        continue;
+                    }
+
+                    double gridWidth = radarPings[i].Width;
+                    scale_Current = Math.Max(min_blip_scale, (float)gridWidth); // If gridWidth is something ridiculous like 0.0f then fall back on min scale. 
+                    if (scale_Current <= 0.000001 || double.IsNaN(scale_Current)) // Compare to EPS rather than 0. If invalid skip now.
+                    {
+                        continue;
+                    }
+
+                    // Do color of blip based on relationship to player
+                    color_Current = radarPings[i].Color;
+
+                    // Detect being targeted (under attack) and modify color based on flipper so the blip flashes
+                    if (radarPings[i].Status == RelationshipStatus.Hostile && IsEntityTargetingPlayerHolo(radarPings[i].Entity))
+                    {
+                        if (!targetingFlipper)
+                        {
+                            color_Current = color_GridEnemyAttack;
+                        }
+                    }
+
+                    // Pulse timers for animation
+                    Vector3D pulsePos = radarEntityPos + (lineDir * vertDistance);
+                    double pulseDistance = Vector3D.Distance(pulsePos, holoTablePos);
+                    float pulseTimer = (float)(ClampedD(radarPulseTime, 0, 1) + 0.5 + Math.Min(pulseDistance, holoRadarRadius) / holoRadarRadius);
+                    if (pulseTimer > 1)
+                    {
+                        pulseTimer = pulseTimer - 1;//(float)Math.Truncate (pulseTimer);
+                        if (pulseTimer > 1)
+                        {
+                            pulseTimer = pulseTimer - 1;
+                        }
+                    }
+                    pulseTimer = Math.Max(pulseTimer * 2, 1);
+
+                    // Set drawMaterial based on type of entity/relationship.
+                    MyStringId drawMat = MaterialCircle;
+                    switch (radarPings[i].Status)
+                    {
+                        case RelationshipStatus.Friendly:
+                            drawMat = MaterialSquare;
+                            break;
+                        case RelationshipStatus.Hostile:
+                            drawMat = MaterialTriangle;
+                            break;
+                        case RelationshipStatus.Neutral:
+                            drawMat = MaterialSquare;
+                            break;
+                        case RelationshipStatus.Vox:
+                            drawMat = MaterialCircle;
+                            color_Current = theSettings.lineColor;
+                            break;
+                        case RelationshipStatus.FObj:
+                            drawMat = MaterialDiamond;
+                            break;
+                        default:
+                            drawMat = MaterialCircle;
+                            break;
+                    }
+
+                    
+
+                    // Draw each entity as a billboard on the radar
+                    float blipSize = 0.02f * fadeDimmer * scale_Current; // was 0.005f
+                    Vector3D blipPos = radarEntityPos + (lineDir * vertDistance);
+                    // Draw the blip with vertical elevation +/- relative to radar plane, with line connecting it to the radar plane.
+
+                    if (entity.GetTopMostParent() == playerGrid.GetTopMostParent())
+                    {
+                        color_Current = (Color.Yellow).ToVector4() * 2;
+                        drawMat = MaterialCircle;
+                        blipSize = blipSize * 0.5f;
+
+                        //DrawLineBillboard(MaterialSquare, color_Current * 0.25f * fadeDimmer * pulseTimer, radarEntityPos, lineDir, vertDistance, 0.004f * fadeDimmer);
+                        DrawQuad(blipPos, holoUp, blipSize, MaterialCircle, color_Current * upDownDimmer * 0.25f * pulseTimer * 0.5f);
+                        // Add blip "shadow" on radar plane
+                        MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, 0.01f * fadeDimmer * scale_Current);
+
+                    }
+                    else 
+                    {
+                        DrawLineBillboard(MaterialSquare, color_Current * 0.25f * fadeDimmer * pulseTimer, radarEntityPos, lineDir, vertDistance, 0.004f * fadeDimmer);
+                        DrawQuad(blipPos, holoUp, blipSize, MaterialCircle, color_Current * upDownDimmer * 0.25f * pulseTimer * 0.5f);
+                        // Add blip "shadow" on radar plane
+                        MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, 0.01f * fadeDimmer * scale_Current);
+
+                    }
+                    // DONE UNTESTED: need to check that they have it AND it can reach us, if we aren't being painted by it don't show it. For situations where our active radar is set far enough to pickup grids
+                    // that also have active radar and thus the bool would be true but it's range is low enough they can't reach us (see us). As in only show grids that can see us. 
+                    if (radarPings[i].RadarPingHasActiveRadar && radarPings[i].RadarPingDistanceSqr <= (radarPings[i].RadarPingMaxActiveRange * radarPings[i].RadarPingMaxActiveRange))
+                    {
+                        float pulseScale = 1.0f + (haloPulse * 0.20f); // Scale the halo by 15% at max pulse
+                        float pulseAlpha = 1.0f * (1.0f - haloPulse); // Alpha goes from 0.25 to 0 at max pulse, so it fades out as pulse increases.
+                        float ringSize = (1.10f * blipSize) * pulseScale; // Scale the ring size based on the pulse
+                        Vector4 haloColor = color_Current * 0.25f * (float)haloPulse; // subtle, fading
+                                                                                      // Use the same position and orientation as the blip
+                        DrawCircle(radarEntityPos, ringSize, holoUp, Color.WhiteSmoke, false, 1.0f * pulseAlpha, 0.00035f); //0.5f * haloPulse
+
+                        //float haloSize = (blipSize * 1.05f) * (1.0f + 0.25f * haloPulse); // slightly larger than blip
+                        //DrawQuad(radarEntityPos, radarUp, haloSize, MaterialCircleHollow, haloColor, true); // Soft pulsing halo/glow around the blip...
+                        //DrawQuad(radarEntityPos, radarUp, ringSize, MaterialCircleHollow, haloColor * pulseAlpha, true); // Soft expanding/pusling ring around the blip...
+                    }
+
+                    if (currentTarget != null && entity == currentTarget)
+                    {
+                        float outlineSize = blipSize * 1.15f; // Slightly larger than the blip
+                        Vector4 color = (Color.Yellow).ToVector4() * 2;
+
+                        MyTransparentGeometry.AddBillboardOriented(
+                            MaterialTarget,
+                            color,
+                            radarEntityPos,
+                            viewLeft,           // Align with radar plane
+                            viewUp,
+                            outlineSize
+                        );
+                    }
+                }
+
+            }
+        }
+
+
+
+        // List to hold all entities found
+        HashSet<VRage.ModAPI.IMyEntity> radarEntities = new HashSet<VRage.ModAPI.IMyEntity>();
 		List<RadarPing> radarPings = new List<RadarPing>();
 
         private void FindEntities()
@@ -4064,8 +4579,10 @@ namespace EliDangHUD
             Vector3D offset = entityPos - referencePos;
             double distance = offset.Length();
 
-            if (distance < 0.01)
+            if (distance < 0.01) 
+            {
                 return Vector3D.Zero;
+            }
 
             // Logarithmic scaling
             double scaleFactor = Math.Max(Math.Exp(distance / radarScaleRange) / 2.8, radarScale);
@@ -4076,31 +4593,79 @@ namespace EliDangHUD
 
             return scaledOffset;
         }
-		//------------------------------------------------------------------------------------------
+
+        public Vector3D ApplyLogarithmicScalingHolo(Vector3D entityPos, Vector3D referencePos)
+        {
+            // Modified 2025-07-13 by FenixPK - I believe this accomplishes the same end result, but without the Matrices which should in theory be faster/less CPU intensive.
+            // Idea being that radar blips are in logarmithic brackets for where they appear on the radar screen depending on their distance. When far away
+            // and approaching at a constant velocity they will slowly move from the outer brackets, the rate at which they jump to the next "bracket" increasing exponentially as they get closer.
+            // Hence the whole logarithmic part of this... It's a rather cool effect! 
+
+            Vector3D offset = entityPos - referencePos;
+            double distance = offset.Length();
+
+            if (distance < 0.01)
+            {
+                return Vector3D.Zero;
+            }
+
+            // Logarithmic scaling
+            double scaleFactor = Math.Max(Math.Exp(distance / radarScaleRange) / 2.8, holoRadarScale);
+            double inverseScale = 1.0 / scaleFactor;
+
+            Vector3D direction = offset / distance;
+            Vector3D scaledOffset = direction * distance * inverseScale * holoRadarScale;
+
+            return scaledOffset;
+        }
+
+        public Vector3D ApplyLinearScaling(Vector3D entityPos, Vector3D referencePos)
+        {
+            Vector3D offset = entityPos - referencePos;
+            double distance = offset.Length();
+
+            if (distance < 0.01) 
+            {
+                return Vector3D.Zero;
+            }
+                
+
+            // Clamp the distance to the radar range
+            double clampedDistance = Math.Min(distance, radarScaleRange);
+
+            // Scale the offset linearly to fit within the radar display (scaled to radarScale)
+            double scale = radarScale * (clampedDistance / radarScaleRange);
+
+            Vector3D direction = offset / distance; // Normalize
+            Vector3D scaledOffset = direction * scale;
+
+            return scaledOffset;
+        }
+        //------------------------------------------------------------------------------------------
 
 
 
-		//===============IS GRID ATTACKING?==========================================================
-		//      public bool IsGridTargetingPlayer(VRage.Game.ModAPI.IMyCubeGrid grid)
-		//{
-		//	var turrets = new List<Sandbox.ModAPI.IMyLargeTurretBase>();
+        //===============IS GRID ATTACKING?==========================================================
+        //      public bool IsGridTargetingPlayer(VRage.Game.ModAPI.IMyCubeGrid grid)
+        //{
+        //	var turrets = new List<Sandbox.ModAPI.IMyLargeTurretBase>();
 
-		//	IMyPlayer player = MyAPIGateway.Session.Player;
-		//	IMyCharacter character = player.Character;
-		//	VRage.ModAPI.IMyEntity playerShip = character.Parent as VRage.ModAPI.IMyEntity; // If the player is piloting a ship
+        //	IMyPlayer player = MyAPIGateway.Session.Player;
+        //	IMyCharacter character = player.Character;
+        //	VRage.ModAPI.IMyEntity playerShip = character.Parent as VRage.ModAPI.IMyEntity; // If the player is piloting a ship
 
-		//	foreach (Sandbox.ModAPI.IMyLargeTurretBase turret in turrets)
-		//	{
-		//		var currentTarget = turret.GetTargetedEntity();
-		//			if (currentTarget.EntityId == character.EntityId || (playerShip != null && currentTarget.EntityId == playerShip.EntityId))
-		//			{
-		//				return true; // The turret is targeting the player or the player's ship
-		//			}
-		//	}
-		//	return false;
-		//}
+        //	foreach (Sandbox.ModAPI.IMyLargeTurretBase turret in turrets)
+        //	{
+        //		var currentTarget = turret.GetTargetedEntity();
+        //			if (currentTarget.EntityId == character.EntityId || (playerShip != null && currentTarget.EntityId == playerShip.EntityId))
+        //			{
+        //				return true; // The turret is targeting the player or the player's ship
+        //			}
+        //	}
+        //	return false;
+        //}
 
-		public bool IsEntityTargetingPlayer(VRage.ModAPI.IMyEntity entity) 
+        public bool IsEntityTargetingPlayer(VRage.ModAPI.IMyEntity entity) 
 		{
             VRage.Game.ModAPI.IMyCubeGrid entityGrid = entity as VRage.Game.ModAPI.IMyCubeGrid; // If a cube grid we can get that here.
             // Check if even a grid first, can only passively detect grids that are broadcasting.
@@ -4111,6 +4676,8 @@ namespace EliDangHUD
 			return IsGridTargetingPlayer(entityGrid);
 
         }
+
+        
         public bool IsGridTargetingPlayer(VRage.Game.ModAPI.IMyCubeGrid grid)
         {
 			if (grid == null || MyAPIGateway.Session?.Player == null)
@@ -4134,6 +4701,59 @@ namespace EliDangHUD
                 MyDetectedEntityInfo targetInfo = turret.GetTargetedEntity();
 				if (targetInfo.IsEmpty())
 				{
+                    continue;
+                }
+                if (targetInfo.EntityId == playerShipId)
+                {
+                    // Turret is targeting the player grid
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public bool IsEntityTargetingPlayerHolo(VRage.ModAPI.IMyEntity entityToCheck)
+        {
+            VRage.Game.ModAPI.IMyCubeGrid entityGrid = entityToCheck as VRage.Game.ModAPI.IMyCubeGrid; // If a cube grid we can get that here.
+            // Check if even a grid first, can only passively detect grids that are broadcasting.
+            if (entityGrid == null)
+            {
+                return false;
+            }
+            return IsGridTargetingPlayerHolo(entityGrid);
+
+        }
+        public bool IsGridTargetingPlayerHolo(VRage.Game.ModAPI.IMyCubeGrid grid)
+        {
+            if (grid == null || MyAPIGateway.Session?.Player == null)
+            {
+                return false;
+            }
+
+            // Get all turret blocks on the grid
+            List<Sandbox.ModAPI.IMyLargeTurretBase> turrets = new List<Sandbox.ModAPI.IMyLargeTurretBase>();
+            turrets = grid.GetFatBlocks<Sandbox.ModAPI.IMyLargeTurretBase>().ToList();
+
+
+            IMyCharacter character = MyAPIGateway.Session?.ControlledObject as IMyCharacter;
+            if (character == null)
+            {
+                return false;
+            }
+            VRage.Game.ModAPI.IMyCubeGrid playerGrid = character?.Parent as VRage.Game.ModAPI.IMyCubeGrid;
+
+            // We store playerGrid for re-use. 
+            long playerShipId = playerGrid?.EntityId ?? 0;
+
+            foreach (Sandbox.ModAPI.IMyLargeTurretBase turret in turrets)
+            {
+                if (!turret.IsWorking || !turret.HasTarget)
+                {
+                    continue;
+                }
+                MyDetectedEntityInfo targetInfo = turret.GetTargetedEntity();
+                if (targetInfo.IsEmpty())
+                {
                     continue;
                 }
                 if (targetInfo.EntityId == playerShipId)
@@ -4530,7 +5150,63 @@ namespace EliDangHUD
 			deleteList.Clear();
 		}
 
-		void DrawArc(Vector3D center, double radius, Vector3D planeDirection, float startAngle, float endAngle, Vector4 colorr, float width = 0.005f, float gap = 0)
+        public void UpdateRadarAnimationsHoloTable(Vector3D shipPos, Vector3D holoPos, MatrixD holoMatrix)
+        {
+            List<RadarAnimation> deleteList = new List<RadarAnimation>();
+
+            MatrixD cameraMatrix = MyAPIGateway.Session.Camera.WorldMatrix;
+            Vector3 viewUp = cameraMatrix.Up;
+            Vector3 viewLeft = cameraMatrix.Left;
+
+            for (int i = 0; i < RadarAnimations.Count; i++)
+            {
+                if (RadarAnimations[i].Time.Elapsed.TotalSeconds > (RadarAnimations[i].LifeTime * RadarAnimations[i].Loops))
+                {
+                    //If time is greater than length of animation, add to the deletion list and skip rendering.
+                    deleteList.Add(RadarAnimations[i]); // Why was this commented out?
+                }
+                else
+                {
+                    VRage.ModAPI.IMyEntity entity = RadarAnimations[i].Entity;
+
+                    //Calculate time scaling
+                    double cTime = RadarAnimations[i].Time.Elapsed.TotalSeconds / RadarAnimations[i].LifeTime;
+                    cTime = cTime - Math.Truncate(cTime);
+                    cTime = MathHelperD.Clamp(cTime, 0, 1);
+
+                    //Lerp Attributes based on time scaling
+                    Vector4 color = Vector4.Lerp(RadarAnimations[i].ColorStart, RadarAnimations[i].ColorStop, (float)cTime);
+                    Vector3D offset = Vector3D.Lerp(RadarAnimations[i].OffsetStart, RadarAnimations[i].OffsetStop, (float)cTime);
+                    float fade = LerpF(RadarAnimations[i].FadeStart, RadarAnimations[i].FadeStop, (float)cTime);
+                    double size = LerpD(RadarAnimations[i].SizeStart, RadarAnimations[i].SizeStop, cTime);
+
+                    Vector3D entityPos = entity.GetPosition();
+                    Vector3D upSquish = Vector3D.Dot(entityPos, holoMatrix.Up) * holoMatrix.Up;
+                    //entityPos -= (upSquish*squishValue); //------Squishing the vertical axis on the radar to make it easier to read... but less vertically accurate.
+
+                    // Apply radar scaling
+                    Vector3D scaledPos = ApplyLogarithmicScalingHolo(entityPos, shipPos);
+
+                    // Position on the radar
+                    Vector3D radarEntityPos = holoPos + scaledPos + offset;
+
+                    MyTransparentGeometry.AddBillboardOriented(RadarAnimations[i].Material, color * fade, radarEntityPos, viewLeft, viewUp, (float)size);
+                }
+            }
+
+            //Delete all animations that were flagged in the prior step.
+            foreach (var d in deleteList)
+            {
+                if (RadarAnimations.Contains(d))
+                {
+                    d.Time.Stop();
+                    RadarAnimations.Remove(d);
+                }
+            }
+            deleteList.Clear();
+        }
+
+        void DrawArc(Vector3D center, double radius, Vector3D planeDirection, float startAngle, float endAngle, Vector4 colorr, float width = 0.005f, float gap = 0)
 		{
 			// Convert start and end angles from degrees to radians
 			double startRadians = Math.PI / 180 * startAngle;
