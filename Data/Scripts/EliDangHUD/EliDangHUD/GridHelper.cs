@@ -232,8 +232,37 @@ namespace EliDangHUD
 		/// <returns></returns>
 		public bool IsLocalPlayerControllingGrid()
 		{
-			// Returns true if the controlled object is a ship controller.
-			return MyAPIGateway.Session.ControlledObject is IMyShipController;
+
+            IMyShipController controlledObj = MyAPIGateway.Session?.ControlledObject as IMyShipController;
+			if (controlledObj == null)
+			{ 
+				return false; 
+			}
+
+            // Check if this is a Remote Control block
+            if (controlledObj is IMyRemoteControl)
+            { 
+				return false;
+			}
+
+            // Get player's character
+            IMyCharacter character = MyAPIGateway.Session.Player?.Character;
+			if (character == null)
+			{ 
+				return false; 
+			}
+
+            // If the player's character is not in the same grid, it means remote control
+            IMyCubeGrid charGrid = character.Parent as IMyCubeGrid;
+			if (charGrid != null && charGrid != controlledObj.CubeGrid)
+			{ 
+				return false; 
+			}
+
+            return true; // Physically sitting in this grid
+
+            // Returns true if the controlled object is a ship controller.
+            //return MyAPIGateway.Session.ControlledObject is IMyShipController;
 		}
 
 		/// <summary>

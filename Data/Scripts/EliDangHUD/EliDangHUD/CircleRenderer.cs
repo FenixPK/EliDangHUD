@@ -264,6 +264,17 @@ namespace EliDangHUD
         Perspective = 7
     }
 
+    public class HoloCustomData 
+    {
+        public bool scannerEnable = true;
+        public double scannerX = 0;
+        public double scannerY = 0.7;
+        public double scannerZ = 0;
+        public float scannerRadius = 1;
+        public bool scannerShowVoxels = true;
+        public bool scannerOnlyPoweredGrids = true;
+    }
+
 	/// <summary>
 	/// This holds the global settings that will get loaded from and saved to the XML file in the save/world folder. Clients that are NOT also servers request these settings from the server. And upon request servers send them.
 	/// Clients that are ALSO servers are single player and just load from file. 
@@ -1544,8 +1555,8 @@ namespace EliDangHUD
                 return;
             }
             Vector3D playerPos = character.GetPosition();
-            var sphere = new BoundingSphereD(playerPos, 20);
-            var entities = new List<VRage.Game.Entity.MyEntity>();
+            BoundingSphereD sphere = new BoundingSphereD(playerPos, 20);
+            List<VRage.Game.Entity.MyEntity> entities = new List<VRage.Game.Entity.MyEntity>();
             MyGamePruningStructure.GetAllTopMostEntitiesInSphere(ref sphere, entities);
 
             VRage.Game.ModAPI.IMyCubeGrid nearestGrid = null;
@@ -1557,7 +1568,7 @@ namespace EliDangHUD
             }
             foreach (var entity in entities)
             {
-                var grid = entity as VRage.Game.ModAPI.IMyCubeGrid;
+                VRage.Game.ModAPI.IMyCubeGrid grid = entity as VRage.Game.ModAPI.IMyCubeGrid;
                 if (grid?.Physics == null || grid.MarkedForClose)
                 {
                     continue;
@@ -1585,7 +1596,7 @@ namespace EliDangHUD
 
             foreach (Sandbox.ModAPI.IMyTerminalBlock terminal in potentialHolos)
             {
-                if (Vector3D.DistanceSquared(playerPos, terminal.GetPosition()) <= playerDistanceSqr)
+                if (Vector3D.DistanceSquared(playerPos, terminal.GetPosition()) <= playerDistanceSqr && terminal.IsWorking)
                 {
                     _holoTablesOnGrid.Add(terminal);
                 }
@@ -2499,7 +2510,8 @@ namespace EliDangHUD
 
             // Scale
             float radarScaleData = ini.Get(mySection, "ScannerS").ToSingle(1);
-			radarRadius = 0.125f * radarScaleData;
+            radarScannerScale = radarScaleData;
+            radarRadius = 0.125f * radarScaleData;
 
 			// Brightness
 			float radarBrightness = ini.Get(mySection, "ScannerB").ToSingle(1);
@@ -2526,12 +2538,77 @@ namespace EliDangHUD
             // Power toggle
             _onlyPoweredGrids = ini.Get(mySection, "ScannerOnlyPoweredGrids").ToBoolean(false);
         }
-		//-----------------------------------------------------------------------------------
+
+        private void ReadCustomDataHolo(MyIni ini, HoloCustomData theData, Sandbox.ModAPI.IMyTerminalBlock block)
+        {
+
+            string mySection = "EliDang";
+
+            // Master
+            if (ini.Get(mySection, "ScannerEnable").IsEmpty) 
+            {
+                ini.Set(mySection, "ScannerEnable", true.ToString());
+            }
+            theData.scannerEnable = ini.Get(mySection, "ScannerEnable").ToBoolean(true);
+
+            // Offset
+            if (ini.Get(mySection, "ScannerX").IsEmpty)
+            {
+                ini.Set(mySection, "ScannerX", 0d.ToString());
+            }
+            theData.scannerX = ini.Get(mySection, "ScannerX").ToDouble(0);
+
+            if (ini.Get(mySection, "ScannerY").IsEmpty)
+            {
+                ini.Set(mySection, "ScannerY", 0.7d.ToString());
+            }
+            theData.scannerY = ini.Get(mySection, "ScannerY").ToDouble(0);
+
+            if (ini.Get(mySection, "ScannerZ").IsEmpty)
+            {
+                ini.Set(mySection, "ScannerZ", 0d.ToString());
+            }
+            theData.scannerZ = ini.Get(mySection, "ScannerZ").ToDouble(0);
+
+            // Scale
+            if (ini.Get(mySection, "ScannerRadius").IsEmpty)
+            {
+                ini.Set(mySection, "ScannerRadius", 1f.ToString());
+            }
+            theData.scannerRadius = ini.Get(mySection, "ScannerRadius").ToSingle(1);
+
+            // Voxel Toggle
+            if (ini.Get(mySection, "ScannerShowVoxels").IsEmpty)
+            {
+                ini.Set(mySection, "ScannerShowVoxels", true.ToString());
+            }
+            theData.scannerShowVoxels = ini.Get(mySection, "ScannerShowVoxels").ToBoolean(true);
+
+            // Power toggle
+            if (ini.Get(mySection, "ScannerOnlyPoweredGrids").IsEmpty)
+            {
+                ini.Set(mySection, "ScannerOnlyPoweredGrids", true.ToString());
+            }
+            theData.scannerOnlyPoweredGrids = ini.Get(mySection, "ScannerOnlyPoweredGrids").ToBoolean(false);
+
+            string updatedData = ini.ToString();
+            if (!updatedData.EndsWith("---"))
+            {
+                if (ini.EndContent == "")
+                {
+                    updatedData += "---\n";
+                }
+            }
+            block.CustomData = updatedData;
+        }
+        //-----------------------------------------------------------------------------------
 
 
 
-		//GET SET CUSTOMDATA=================================================================
-		public static void SetParameter(Sandbox.ModAPI.Ingame.IMyTerminalBlock block, string key, string value)
+
+
+        //GET SET CUSTOMDATA=================================================================
+        public static void SetParameter(Sandbox.ModAPI.Ingame.IMyTerminalBlock block, string key, string value)
 		{
 			var cockpit = block as Sandbox.ModAPI.Ingame.IMyCockpit;
 			if (cockpit != null)
@@ -2568,9 +2645,12 @@ namespace EliDangHUD
 				// Join all lines back to a single string with proper new lines
 				cockpit.CustomData = string.Join("\n", lines);
 			}
+
+
 		}
 
-		public static string GetParameter(Sandbox.ModAPI.Ingame.IMyTerminalBlock block, string key)
+
+        public static string GetParameter(Sandbox.ModAPI.Ingame.IMyTerminalBlock block, string key)
 		{
 			string customData = block.CustomData;
 			string pattern = $"\n{key}: ";
@@ -3521,7 +3601,8 @@ namespace EliDangHUD
 		public double radarScaleRange_GoalLogin = 1;
 		public double radarScaleRange_CurrentLogin = 0.01;
 
-		public static float radarRadius = 0.125f; 
+		public static float radarRadius = 0.125f;
+        public static float radarScannerScale = 1f;
 		public static double radarScale = 0.000025;
 		public static float targetHologramRadius = 0.125f;
         public static double holoRadarScale = 0.0001;
@@ -3953,7 +4034,7 @@ namespace EliDangHUD
                 }
 
                 // Draw each entity as a billboard on the radar
-                float blipSize = 0.005f * fadeDimmer * scale_Current;
+                float blipSize = 0.005f * fadeDimmer * scale_Current * radarScannerScale; // Scale blip size based on radar scale
                 Vector3D blipPos = radarEntityPos + (lineDir * vertDistance);
                 // Draw the blip with vertical elevation +/- relative to radar plane, with line connecting it to the radar plane.
                 DrawLineBillboard(MaterialSquare, color_Current * 0.25f * fadeDimmer * pulseTimer, radarEntityPos, lineDir, vertDistance, 0.001f * fadeDimmer);
@@ -3967,10 +4048,10 @@ namespace EliDangHUD
                 {
                     float pulseScale = 1.0f + (haloPulse * 0.20f); // Scale the halo by 15% at max pulse
                     float pulseAlpha = 1.0f * (1.0f - haloPulse); // Alpha goes from 0.25 to 0 at max pulse, so it fades out as pulse increases.
-                    float ringSize =  (1.10f * blipSize) * pulseScale; // Scale the ring size based on the pulse
+                    float ringSize =  blipSize * pulseScale; // Scale the ring size based on the pulse
                     Vector4 haloColor = color_Current * 0.25f * (float)haloPulse; // subtle, fading
                     // Use the same position and orientation as the blip
-                    DrawCircle(radarEntityPos, ringSize, radarUp, Color.WhiteSmoke, false, 1.0f * pulseAlpha, 0.00035f); //0.5f * haloPulse
+                    DrawCircle(radarEntityPos, ringSize, radarUp, Color.WhiteSmoke, false, 1.0f * pulseAlpha, 0.00035f * radarScannerScale); //0.5f * haloPulse
 
                     //float haloSize = (blipSize * 1.05f) * (1.0f + 0.25f * haloPulse); // slightly larger than blip
                     //DrawQuad(radarEntityPos, radarUp, haloSize, MaterialCircleHollow, haloColor, true); // Soft pulsing halo/glow around the blip...
@@ -4113,8 +4194,7 @@ namespace EliDangHUD
             VRage.Game.ModAPI.IMyCubeGrid playerGrid = playerNearestGrid;
             Vector3D playerPos = character.GetPosition();
             Vector3D playerGridPos = playerNearestGrid?.GetPosition() ?? playerPos;
-            bool onlyPoweredGrids = true;
-            bool showVoxels = true;
+            
 
             // CAMERA POSITION //
             // Get the camera's vectors
@@ -4129,9 +4209,47 @@ namespace EliDangHUD
 
             foreach (VRage.Game.ModAPI.IMyCubeBlock holoTable in _holoTablesOnGrid)
             {
-                // Get the hologram table's position and orientation
+                HoloCustomData theData = new HoloCustomData();
+                Sandbox.ModAPI.IMyTerminalBlock block = (Sandbox.ModAPI.IMyTerminalBlock)holoTable;
+
+                // Read your specific data
+                string mySection = "EliDang"; // Your specific section
+
+                // Ensure CustomData is parsed
+                string customData = block.CustomData;
+                MyIni ini = new MyIni();
+                MyIniParseResult result;
+
+                // Parse the entire CustomData
+                if (ini.TryParse(customData, out result))
+                {
+                    ReadCustomDataHolo(ini, theData, block);
+                }
+                else 
+                {
+                    // Pattern to match the section including the delimiter "---"
+                    string pattern = $@"(\[{mySection}\].*?---\n)";
+                    var match = Regex.Match(customData, pattern, RegexOptions.Singleline);
+
+                    if (match.Success)
+                    {
+                        string sectionData = match.Groups[1].Value;
+
+                        if (ini.TryParse(sectionData, out result))
+                        {
+                            ReadCustomDataHolo(ini, theData, block);
+                        }
+                    }
+                }
+
+
                 MatrixD holoTableMatrix = holoTable.WorldMatrix;
-                Vector3D holoTablePos = holoTableMatrix.Translation + holoTableMatrix.Up * 0.2;
+                Vector3D holoTableOffset = new Vector3D(theData.scannerX, theData.scannerY, theData.scannerZ);
+                Vector3D holoTablePos = holoTableMatrix.Translation + Vector3D.TransformNormal(holoTableOffset, holoTableMatrix);
+
+                bool onlyPoweredGrids = theData.scannerOnlyPoweredGrids;
+                bool showVoxels = theData.scannerShowVoxels;
+                holoRadarRadius = theData.scannerRadius;
 
                 // Draw the radar circle
                 Vector3D holoUp = holoTableMatrix.Up;
@@ -4179,7 +4297,7 @@ namespace EliDangHUD
 
                 // Draw border
                 //DrawQuadRigid(holoTablePos, holoUp, (double)holoRadarRadius * 1.18, MaterialBorder, theSettings.lineColor, true); //Border
-                Color radiusColor = (Color.Orange) * 0.25f;
+                Color radiusColor = (Color.Orange) * 0.33f;
                 MatrixD sphereMatrix = MatrixD.CreateTranslation(holoTablePos);
                 MySimpleObjectDraw.DrawTransparentSphere(
                     ref sphereMatrix, 
@@ -4336,7 +4454,7 @@ namespace EliDangHUD
                     
 
                     // Draw each entity as a billboard on the radar
-                    float blipSize = 0.02f * fadeDimmer * scale_Current; // was 0.005f
+                    float blipSize = 0.005f * fadeDimmer * scale_Current * holoRadarRadius; // was 0.005f
                     Vector3D blipPos = radarEntityPos + (lineDir * vertDistance);
                     // Draw the blip with vertical elevation +/- relative to radar plane, with line connecting it to the radar plane.
 
@@ -4344,20 +4462,20 @@ namespace EliDangHUD
                     {
                         color_Current = (Color.Yellow).ToVector4() * 2;
                         drawMat = MaterialCircle;
-                        blipSize = blipSize * 0.5f;
+                        blipSize = 0.005f * fadeDimmer * holoRadarRadius; // Make local grid static size
 
                         //DrawLineBillboard(MaterialSquare, color_Current * 0.25f * fadeDimmer * pulseTimer, radarEntityPos, lineDir, vertDistance, 0.004f * fadeDimmer);
-                        DrawQuad(blipPos, holoUp, blipSize, MaterialCircle, color_Current * upDownDimmer * 0.25f * pulseTimer * 0.5f);
+                        DrawQuad(blipPos, holoUp, (blipSize * 1.25f), MaterialCircle, color_Current * upDownDimmer * 0.25f * pulseTimer * 0.5f);
                         // Add blip "shadow" on radar plane
-                        MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, 0.01f * fadeDimmer * scale_Current);
+                        MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize * fadeDimmer * scale_Current);
 
                     }
                     else 
                     {
                         DrawLineBillboard(MaterialSquare, color_Current * 0.25f * fadeDimmer * pulseTimer, radarEntityPos, lineDir, vertDistance, 0.004f * fadeDimmer);
-                        DrawQuad(blipPos, holoUp, blipSize, MaterialCircle, color_Current * upDownDimmer * 0.25f * pulseTimer * 0.5f);
+                        DrawQuad(blipPos, holoUp, (blipSize * 1.25f) * 1.25, MaterialCircle, color_Current * upDownDimmer * 0.25f * pulseTimer * 0.5f);
                         // Add blip "shadow" on radar plane
-                        MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, 0.01f * fadeDimmer * scale_Current);
+                        MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize * fadeDimmer * scale_Current);
 
                     }
                     // DONE UNTESTED: need to check that they have it AND it can reach us, if we aren't being painted by it don't show it. For situations where our active radar is set far enough to pickup grids
@@ -4366,14 +4484,9 @@ namespace EliDangHUD
                     {
                         float pulseScale = 1.0f + (haloPulse * 0.20f); // Scale the halo by 15% at max pulse
                         float pulseAlpha = 1.0f * (1.0f - haloPulse); // Alpha goes from 0.25 to 0 at max pulse, so it fades out as pulse increases.
-                        float ringSize = (1.10f * blipSize) * pulseScale; // Scale the ring size based on the pulse
-                        Vector4 haloColor = color_Current * 0.25f * (float)haloPulse; // subtle, fading
-                                                                                      // Use the same position and orientation as the blip
-                        DrawCircle(radarEntityPos, ringSize, holoUp, Color.WhiteSmoke, false, 1.0f * pulseAlpha, 0.00035f); //0.5f * haloPulse
+                        float ringSize = (3.14f * blipSize) * pulseScale; // Scale the ring size based on the pulse
 
-                        //float haloSize = (blipSize * 1.05f) * (1.0f + 0.25f * haloPulse); // slightly larger than blip
-                        //DrawQuad(radarEntityPos, radarUp, haloSize, MaterialCircleHollow, haloColor, true); // Soft pulsing halo/glow around the blip...
-                        //DrawQuad(radarEntityPos, radarUp, ringSize, MaterialCircleHollow, haloColor * pulseAlpha, true); // Soft expanding/pusling ring around the blip...
+                        DrawCircle(radarEntityPos, ringSize, holoUp, Color.WhiteSmoke, false, 1.0f * pulseAlpha, 0.0005f * holoRadarRadius); //0.5f * haloPulse
                     }
 
                     if (currentTarget != null && entity == currentTarget)
@@ -4385,7 +4498,7 @@ namespace EliDangHUD
                             MaterialTarget,
                             color,
                             radarEntityPos,
-                            viewLeft,           // Align with radar plane
+                            viewLeft,
                             viewUp,
                             outlineSize
                         );
@@ -9154,10 +9267,7 @@ namespace EliDangHUD
 
             var cockpit = gHandler.localGridControlledEntity as Sandbox.ModAPI.IMyCockpit;
             var grid = cockpit.CubeGrid;
-            if (grid != null)
-            {
-            }
-            else
+            if (grid == null)
             {
                 return;
             }
