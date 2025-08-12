@@ -279,10 +279,13 @@ namespace EliDangHUD
     {
         public bool holoEnable = true;
         public double holoX = 0;
-        public double holoY = 0.7;
+        public double holoY = 0.5;
         public double holoZ = 0;
-        public float holoScale = 1;
+        public float holoScale = 0.0075f;
         public int holoSide = 0;
+        public double holoBaseX = 0;
+        public double holoBaseY = -0.5;
+        public double holoBaseZ = 0;
     }
 
     /// <summary>
@@ -2833,9 +2836,9 @@ namespace EliDangHUD
             // Scale
             if (ini.Get(mySection, "HoloScale").IsEmpty)
             {
-                ini.Set(mySection, "HoloScale", 1f.ToString());
+                ini.Set(mySection, "HoloScale", 0.0075f.ToString());
             }
-            theData.holoScale = ini.Get(mySection, "HoloScale").ToSingle(1);
+            theData.holoScale = ini.Get(mySection, "HoloScale").ToSingle(0.0075f);
 
             // Side
             if (ini.Get(mySection, "HoloSide").IsEmpty)
@@ -2843,6 +2846,25 @@ namespace EliDangHUD
                 ini.Set(mySection, "HoloSide", 0.ToString());
             }
             theData.holoSide = ini.Get(mySection, "HoloSide").ToInt32(0);
+
+
+            if (ini.Get(mySection, "HoloBaseX").IsEmpty)
+            {
+                ini.Set(mySection, "HoloBaseX", 0d.ToString());
+            }
+            theData.holoBaseX = ini.Get(mySection, "HoloBaseX").ToDouble(0);
+
+            if (ini.Get(mySection, "HoloBaseY").IsEmpty)
+            {
+                ini.Set(mySection, "HoloBaseY", (-0.5d).ToString());
+            }
+            theData.holoBaseY = ini.Get(mySection, "HoloBaseY").ToDouble(-0.5d);
+
+            if (ini.Get(mySection, "HoloBaseZ").IsEmpty)
+            {
+                ini.Set(mySection, "HoloBaseZ", 0d.ToString());
+            }
+            theData.holoBaseZ = ini.Get(mySection, "HoloBaseZ").ToDouble(0);
 
 
             string updatedData = ini.ToString();
@@ -3527,7 +3549,47 @@ namespace EliDangHUD
 			}
 		}
 
-		public void DrawQuad(Vector3D position, Vector3D normal, double radius, MyStringId materialId, Vector4 color, bool mode = false)
+        public void DrawQuad_NoCull(Vector3D realPosition, Vector3D normal, double radius, MyStringId materialId, Vector4 color, bool mode = false)
+        {
+            // Ensure the normal is normalized
+            normal.Normalize();
+
+            // Calculate perpendicular vectors to form the quad
+            Vector3D up = Vector3D.CalculatePerpendicularVector(normal);
+            Vector3D left = Vector3D.Cross(up, normal);
+            up.Normalize();
+            left.Normalize();
+
+            // Calculate the four corners of the quad
+            Vector3D topLeft = realPosition + left * radius + up * radius;
+            Vector3D topRight = realPosition - left * radius + up * radius;
+            Vector3D bottomLeft = realPosition + left * radius - up * radius;
+            Vector3D bottomRight = realPosition - left * radius - up * radius;
+
+            MyQuadD quad = new MyQuadD
+            {
+                Point0 = topLeft,
+                Point1 = topRight,
+                Point2 = bottomRight,
+                Point3 = bottomLeft
+            };
+
+            // Create a "fake" cull point just in front of the camera
+            var cam = MyAPIGateway.Session.Camera;
+            Vector3D fakeCullPoint = cam.Position + cam.WorldMatrix.Forward * 0.1; // 10cm in front of camera
+
+            // Use fakeCullPoint for culling, but corners are the real quad
+            if (!mode)
+            {
+                MyTransparentGeometry.AddQuad(materialId, ref quad, color, ref fakeCullPoint);
+            }
+            else
+            {
+                MyTransparentGeometry.AddQuad(materialId, ref quad, color, ref fakeCullPoint, -1, MyBillboard.BlendTypeEnum.AdditiveTop);
+            }
+        }
+
+        public void DrawQuad(Vector3D position, Vector3D normal, double radius, MyStringId materialId, Vector4 color, bool mode = false)
 		{
 			// Ensure the normal is normalized
 			normal.Normalize();
@@ -7575,38 +7637,15 @@ namespace EliDangHUD
                 randoTime = true;
             }
 
-            double bootUpAlpha = 1;
-
-            if (flippit)
-            {
-                bootUpAlpha = HG_activationTimeTarget;
-            }
-            else
-            {
-                bootUpAlpha = HG_activationTime;
-            }
-
-            bootUpAlpha = ClampedD(bootUpAlpha, 0, 1);
-            bootUpAlpha = Math.Pow(bootUpAlpha, 0.25);
-
-            if (GetRandomDouble() > bootUpAlpha)
-            {
-                position *= bootUpAlpha;
-            }
-            if (GetRandomDouble() > bootUpAlpha)
-            {
-                randoTime = true;
-            }
-
             var camera = MyAPIGateway.Session.Camera;
             Vector3D AxisLeft = camera.WorldMatrix.Left;
             Vector3D AxisUp = camera.WorldMatrix.Up;
             Vector3D AxisForward = camera.WorldMatrix.Forward;
 
             Vector3D billDir = Vector3D.Normalize(position);
-            double dotProd = 1 - (Vector3D.Dot(position, AxisForward) + 1) / 2;
-            dotProd = RemapD(dotProd, -0.5, 1, 0.25, 1);
-            dotProd = ClampedD(dotProd, 0.25, 1);
+            //double dotProd = 1 - (Vector3D.Dot(position, AxisForward) + 1) / 2;
+            //dotProd = RemapD(dotProd, -0.5, 1, 0.25, 1);
+            //dotProd = ClampedD(dotProd, 0.25, 1);
 
             var color = theSettings.lineColor * 0.5f;
             if (flippit)
@@ -7640,15 +7679,8 @@ namespace EliDangHUD
                 color.W = LerpF(cRed.W, cYel.W, (float)HP);
             }
 
-            double thicc = HG_scaleFactor / (grid.WorldVolume.Radius / grid.GridSize);
-            var size = (float)HG_Scale * 0.65f * (float)thicc;//*grid.GridSize;
+            
             var material = MaterialSquare;
-
-            double flipperAxis = 1;
-            if (flippit)
-            {
-                flipperAxis = -1;
-            }
 
             double gridThicc = grid.WorldVolume.Radius;
             //Vector3D HG_Offset_tran = radarMatrix.Left * -radarRadius * flipperAxis + radarMatrix.Left * _hologramRightOffset_HardCode.X * flipperAxis + radarMatrix.Up * _hologramRightOffset_HardCode.Y + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
@@ -7660,44 +7692,52 @@ namespace EliDangHUD
                 position += position * randOffset;
             }
 
-            if (flippit)
-            {
-                position = Vector3D.Transform(position, HG_scalingMatrixTarget);
-            }
-            else
-            {
-                position = Vector3D.Transform(position, HG_scalingMatrix);
-            }
-
             //position += worldRadarPos;
-
             foreach (Sandbox.ModAPI.IMyTerminalBlock holoTable in _holoTableHologramsOnGrid) 
             {
+
                 HologramCustomData theData = _holoTableHologramsData[holoTable];
                 Sandbox.ModAPI.IMyTerminalBlock block = (Sandbox.ModAPI.IMyTerminalBlock)holoTable;
 
                 MatrixD holoTableMatrix = holoTable.WorldMatrix;
                 Vector3D holoTableOffset = new Vector3D(theData.holoX, theData.holoY, theData.holoZ);
+                Vector3D holoTableBaseOffset = new Vector3D(theData.holoBaseX, theData.holoBaseY, theData.holoBaseZ);
                 Vector3D holoTablePos = holoTableMatrix.Translation + Vector3D.TransformNormal(holoTableOffset, holoTableMatrix);
 
+                double thicc = HG_scaleFactor / (grid.WorldVolume.Radius / grid.GridSize);
+                var size = (float)theData.holoScale * 0.65f * (float)thicc;//*grid.GridSize; //HG_Scale changed
+                MatrixD scalingMatrixHG = MatrixD.CreateScale(theData.holoScale * thicc);
+                Vector3D drawPosition = Vector3D.Transform(position, scalingMatrixHG);
+                drawPosition = drawPosition + holoTablePos; // TODO add the Z and other transformations. Possibly need to change scale too?
 
-                Vector3D drawPosition = position + holoTablePos; // TODO add the Z and other transformations. Possibly need to change scale too?
+                Vector3D normal = Vector3D.Normalize(MyAPIGateway.Session.Camera.Position - drawPosition);
 
-                MyTransparentGeometry.AddBillboardOriented(
-                material,
-                color * (float)dotProd * (float)bootUpAlpha,
-                drawPosition,
-                AxisLeft, // Billboard orientation
-                AxisUp, // Billboard orientation
-                size,
-                MyBillboard.BlendTypeEnum.AdditiveTop);
+                //DrawQuad_NoCull(drawPosition, normal, size, material, color, true);
+
+                DrawQuad(
+                    drawPosition,    // Center of hologram
+                    normal,          // Which way the face points
+                    size,        // Radius = half-size
+                    material,        // Material ID
+                    color,           // RGBA color
+                    true             // mode = additive
+                );
+
+                //MyTransparentGeometry.AddBillboardOriented(
+                //material,
+                //color,// * (float)dotProd,
+                //drawPosition,
+                //AxisLeft, // Billboard orientation
+                //AxisUp, // Billboard orientation // was camera up
+                //size,
+                //MyBillboard.BlendTypeEnum.AdditiveTop);
 
                 if (GetRandomFloat() > 0.9f)
                 {
-                    Vector3D holoCenter = holoTable.GetPosition(); // DON'T apply any Z or other transformations as this will come from the holotable/terminal block. 
+                    Vector3D holoCenter = holoTableMatrix.Translation + Vector3D.TransformNormal(holoTableBaseOffset, holoTableMatrix);
                     Vector3D holoDir = Vector3D.Normalize(drawPosition - holoCenter);
                     double holoLength = Vector3D.Distance(holoCenter, drawPosition);
-                    DrawLineBillboard(MaterialSquare, color * 0.15f * (float)dotProd * (float)bootUpAlpha, holoCenter, holoDir, (float)holoLength, 0.0025f, BlendTypeEnum.AdditiveTop);
+                    DrawLineBillboard(MaterialSquare, color * 0.15f, holoCenter, holoDir, (float)holoLength, 0.0025f, BlendTypeEnum.AdditiveTop); //* (float)dotProd
                 }
             }
 
