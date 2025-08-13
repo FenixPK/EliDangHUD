@@ -331,3 +331,6 @@ TODO: Check shield mod integrations, how can we make that universal across shiel
 
 TODO: Apparently asteroids can cause phantom pings on planets, should try and look into that for Cherub.
 
+#Credits
+Ship radar icons from Grandsome https://www.nexusmods.com/x4foundations/mods/895 used with attribution as per requirements. 
+

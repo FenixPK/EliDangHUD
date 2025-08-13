@@ -337,11 +337,10 @@ namespace EliDangHUD
 			"When disabled uses the simple logic of largest radius from all powered antennae on the grid as your radar range.";
 
         /// <summary>
-        /// How far away can a holo table be before it no longer renders the radar. Also used for determining what the nearest grid is for use with the holo radar.
+        /// How far away can a holo table be before it no longer renders the radar.
         /// </summary>
         public double holoTableRenderDistance = 20;
-        public string holoTableRenderDistance_DESCRIPTION = "How far away can a holo table be before it no longer renders the radar. Also used for determining what the nearest grid is for use with the holo radar. \r\n" +
-            "eg. the nearest grid within this distance will render holo radars on all tagged terminal blocks also within this distance from the player.";
+        public string holoTableRenderDistance_DESCRIPTION = "How far away can a holo table be before it no longer renders the radar.";
 
         /// <summary>
         /// Percentage threshhold at which radar pings start to fade out at the edge of the radar range Eg. 0.01 = 0.01*100 = 1%. 
@@ -527,7 +526,17 @@ namespace EliDangHUD
 		private readonly MyStringId MaterialDiamond = 			MyStringId.GetOrCompute("ED_Diamond");
 		private readonly MyStringId MaterialCube = 				MyStringId.GetOrCompute("ED_Cube");
 		private readonly MyStringId MaterialShipFlare = 			MyStringId.GetOrCompute("ED_SHIPFLARE");
-		private List<string> MaterialFont = 			new List<string> ();
+        private readonly MyStringId MaterialSG_1 = MyStringId.GetOrCompute("ED_GRID_SG_1");
+        private readonly MyStringId MaterialSG_2 = MyStringId.GetOrCompute("ED_GRID_SG_2");
+        private readonly MyStringId MaterialSG_3 = MyStringId.GetOrCompute("ED_GRID_SG_3");
+        private readonly MyStringId MaterialSG_4 = MyStringId.GetOrCompute("ED_GRID_SG_4");
+        private readonly MyStringId MaterialLG_1 = MyStringId.GetOrCompute("ED_GRID_LG_1");
+        private readonly MyStringId MaterialLG_2 = MyStringId.GetOrCompute("ED_GRID_LG_2");
+        private readonly MyStringId MaterialLG_3 = MyStringId.GetOrCompute("ED_GRID_LG_3");
+        private readonly MyStringId MaterialLG_4 = MyStringId.GetOrCompute("ED_GRID_LG_4");
+        private readonly MyStringId MaterialLG_5 = MyStringId.GetOrCompute("ED_GRID_LG_5");
+        private readonly MyStringId MaterialLG_6 = MyStringId.GetOrCompute("ED_GRID_LG_6");
+        private List<string> MaterialFont = 			new List<string> ();
 
 
         // Colors for use, sometimes multiplying the Vector4 color by a float to adjust brightness/glow. I believe this has to do with how HDR works
@@ -1574,8 +1583,6 @@ namespace EliDangHUD
         /// </summary>
         private void GetNearestGridToPlayer()
         {
-            double closestDistSq = theSettings.holoTableRenderDistance * theSettings.holoTableRenderDistance; 
-
             IMyCharacter character = MyAPIGateway.Session.Player?.Character;
             if (character == null)
             {
@@ -1584,34 +1591,36 @@ namespace EliDangHUD
             _thePlayer = character;
 
             Vector3D playerPos = _thePlayer.GetPosition();
-            BoundingSphereD sphere = new BoundingSphereD(playerPos, 20);
+            BoundingSphereD sphere = new BoundingSphereD(playerPos, 100); // Get all grids within 100m of the player
             List<VRage.Game.Entity.MyEntity> entities = new List<VRage.Game.Entity.MyEntity>();
             MyGamePruningStructure.GetAllTopMostEntitiesInSphere(ref sphere, entities);
 
             VRage.Game.ModAPI.IMyCubeGrid nearestGrid = null;
-            
 
             if (entities == null)
             {
                 return;
             }
-            foreach (var entity in entities)
+
+            double closestDistSqr = double.MaxValue;
+            foreach (MyEntity entity in entities)
             {
                 VRage.Game.ModAPI.IMyCubeGrid grid = entity as VRage.Game.ModAPI.IMyCubeGrid;
                 if (grid?.Physics == null || grid.MarkedForClose)
                 {
                     continue;
                 }
-
-
-                double distSq = Vector3D.DistanceSquared(playerPos, grid.WorldAABB.Center);
-                if (distSq < closestDistSq)
+                if (grid.WorldAABB.Contains(playerPos) == ContainmentType.Disjoint) 
                 {
-                    closestDistSq = distSq;
+                    continue; // Not inside or intersecting this grid's AABB
+                }
+                double distSqr = Vector3D.DistanceSquared(playerPos, grid.WorldAABB.Center);
+                if (distSqr < closestDistSqr)
+                {
+                    closestDistSqr = distSqr;
                     nearestGrid = grid;
                 }
             }
-
             _nearestGridToPlayer = nearestGrid;
         }
 
@@ -7637,17 +7646,11 @@ namespace EliDangHUD
                 randoTime = true;
             }
 
-            var camera = MyAPIGateway.Session.Camera;
+            IMyCamera camera = MyAPIGateway.Session.Camera;
             Vector3D AxisLeft = camera.WorldMatrix.Left;
             Vector3D AxisUp = camera.WorldMatrix.Up;
-            Vector3D AxisForward = camera.WorldMatrix.Forward;
 
-            Vector3D billDir = Vector3D.Normalize(position);
-            //double dotProd = 1 - (Vector3D.Dot(position, AxisForward) + 1) / 2;
-            //dotProd = RemapD(dotProd, -0.5, 1, 0.25, 1);
-            //dotProd = ClampedD(dotProd, 0.25, 1);
-
-            var color = theSettings.lineColor * 0.5f;
+            Vector4 color = theSettings.lineColor * 0.5f;
             if (flippit)
             {
                 color = LINECOLOR_Comp * 0.5f;
@@ -7679,12 +7682,6 @@ namespace EliDangHUD
                 color.W = LerpF(cRed.W, cYel.W, (float)HP);
             }
 
-            
-            var material = MaterialSquare;
-
-            double gridThicc = grid.WorldVolume.Radius;
-            //Vector3D HG_Offset_tran = radarMatrix.Left * -radarRadius * flipperAxis + radarMatrix.Left * _hologramRightOffset_HardCode.X * flipperAxis + radarMatrix.Up * _hologramRightOffset_HardCode.Y + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
-
             if (randoTime)
             {
                 Vector3D randOffset = new Vector3D((GetRandomDouble() - 0.5) * 2, (GetRandomDouble() - 0.5) * 2, (GetRandomDouble() - 0.5) * 2);
@@ -7692,12 +7689,10 @@ namespace EliDangHUD
                 position += position * randOffset;
             }
 
-            //position += worldRadarPos;
             foreach (Sandbox.ModAPI.IMyTerminalBlock holoTable in _holoTableHologramsOnGrid) 
             {
 
                 HologramCustomData theData = _holoTableHologramsData[holoTable];
-                Sandbox.ModAPI.IMyTerminalBlock block = (Sandbox.ModAPI.IMyTerminalBlock)holoTable;
 
                 MatrixD holoTableMatrix = holoTable.WorldMatrix;
                 Vector3D holoTableOffset = new Vector3D(theData.holoX, theData.holoY, theData.holoZ);
@@ -7705,43 +7700,69 @@ namespace EliDangHUD
                 Vector3D holoTablePos = holoTableMatrix.Translation + Vector3D.TransformNormal(holoTableOffset, holoTableMatrix);
 
                 double thicc = HG_scaleFactor / (grid.WorldVolume.Radius / grid.GridSize);
-                var size = (float)theData.holoScale * 0.65f * (float)thicc;//*grid.GridSize; //HG_Scale changed
+                var size = (float)theData.holoScale * 0.65f * (float)thicc;
                 MatrixD scalingMatrixHG = MatrixD.CreateScale(theData.holoScale * thicc);
-                Vector3D drawPosition = Vector3D.Transform(position, scalingMatrixHG);
-                drawPosition = drawPosition + holoTablePos; // TODO add the Z and other transformations. Possibly need to change scale too?
 
-                Vector3D normal = Vector3D.Normalize(MyAPIGateway.Session.Camera.Position - drawPosition);
 
-                //DrawQuad_NoCull(drawPosition, normal, size, material, color, true);
+                // Handle rotations per holo table side setting.
+                MatrixD rotationMatrixForView = MatrixD.Identity; 
 
-                DrawQuad(
-                    drawPosition,    // Center of hologram
-                    normal,          // Which way the face points
-                    size,        // Radius = half-size
-                    material,        // Material ID
-                    color,           // RGBA color
-                    true             // mode = additive
-                );
+                // TODO, wonder if this should be the holo table?
+                switch (theData.holoSide)
+                {
+                    case (int)HologramView_Side.Rear:
+                        // Rear (default - no rotation needed)
+                        rotationMatrixForView = MatrixD.Identity;
+                        break;
+                    case (int)HologramView_Side.Left:
+                        // Left side (90° yaw left)
+                        rotationMatrixForView = MatrixD.CreateFromAxisAngle(grid.WorldMatrix.Up, MathHelper.ToRadians(90)); // Use up so we pivot around that axis.
+                        break;
+                    case (int)HologramView_Side.Front:
+                        // Front (180° yaw)
+                        rotationMatrixForView = MatrixD.CreateFromAxisAngle(grid.WorldMatrix.Up, MathHelper.ToRadians(180)); // Use up so we pivot around that axis.
+                        break;
+                    case (int)HologramView_Side.Right:
+                        // Right side (90° yaw right / 270° left)
+                        rotationMatrixForView = MatrixD.CreateFromAxisAngle(grid.WorldMatrix.Up, MathHelper.ToRadians(-90)); // Use up so we pivot around that axis.
+                        break;
+                    case (int)HologramView_Side.Top:
+                        // Top view (90° pitch down)
+                        rotationMatrixForView = MatrixD.CreateFromAxisAngle(grid.WorldMatrix.Right, MathHelper.ToRadians(-90)); // Use right so we pivot around that axis.
+                        break;
+                    case (int)HologramView_Side.Bottom:
+                        // Bottom view (90° pitch up)
+                        rotationMatrixForView = MatrixD.CreateFromAxisAngle(grid.WorldMatrix.Right, MathHelper.ToRadians(90)); // Use right so we pivot around that axis.
+                        break;
 
-                //MyTransparentGeometry.AddBillboardOriented(
-                //material,
-                //color,// * (float)dotProd,
-                //drawPosition,
-                //AxisLeft, // Billboard orientation
-                //AxisUp, // Billboard orientation // was camera up
-                //size,
-                //MyBillboard.BlendTypeEnum.AdditiveTop);
+                    default:
+                        rotationMatrixForView = MatrixD.Identity;
+                        break;
+                }
+                // Rotate around a center point
+                Vector3D drawPosition = Vector3D.Transform(position, rotationMatrixForView);
+
+                if (randoTime)
+                {
+                    Vector3D randOffset = new Vector3D((GetRandomDouble() - 0.5) * 2, (GetRandomDouble() - 0.5) * 2, (GetRandomDouble() - 0.5) * 2);
+                    randOffset *= 0.333;
+                    drawPosition += drawPosition * randOffset;
+                }
+
+                drawPosition = Vector3D.Transform(drawPosition, scalingMatrixHG);
+                drawPosition = drawPosition + holoTablePos;
+
+                MyTransparentGeometry.AddBillboardOriented(MaterialSquare, color, drawPosition, AxisLeft, AxisUp, size, MyBillboard.BlendTypeEnum.AdditiveBottom);
 
                 if (GetRandomFloat() > 0.9f)
                 {
                     Vector3D holoCenter = holoTableMatrix.Translation + Vector3D.TransformNormal(holoTableBaseOffset, holoTableMatrix);
                     Vector3D holoDir = Vector3D.Normalize(drawPosition - holoCenter);
                     double holoLength = Vector3D.Distance(holoCenter, drawPosition);
-                    DrawLineBillboard(MaterialSquare, color * 0.15f, holoCenter, holoDir, (float)holoLength, 0.0025f, BlendTypeEnum.AdditiveTop); //* (float)dotProd
+                    DrawLineBillboard(MaterialSquare, color * 0.15f, holoCenter, holoDir, (float)holoLength, 0.0025f, BlendTypeEnum.AdditiveBottom); //* (float)dotProd
                 }
             }
 
-           
         }
 
 
