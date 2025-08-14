@@ -1,43 +1,23 @@
-using ParallelTasks;
-using Sandbox.Common.ObjectBuilders;
 using Sandbox.Common.ObjectBuilders.Definitions;
 using Sandbox.Definitions;
 using Sandbox.Game;
 using Sandbox.Game.Entities;
-using Sandbox.Game.Entities.Character;
-using Sandbox.Game.Entities.Planet;
-using Sandbox.Game.EntityComponents;
-using Sandbox.Game.GameSystems;
-using Sandbox.Game.GameSystems.BankingAndCurrency;
-using Sandbox.Game.Lights;
-using Sandbox.Game.Screens.Helpers;
-using Sandbox.Game.World;
-using Sandbox.Game.WorldEnvironment.Modules;
-using Sandbox.Graphics.GUI;
 using Sandbox.ModAPI;
 using Sandbox.ModAPI.Ingame;
 using Sandbox.ModAPI.Interfaces;
-using SpaceEngineers.Game.Entities.Blocks;
-using SpaceEngineers.Game.ModAPI;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
 using System.Linq;
-using System.Reflection;
-using System.Security.Cryptography;
 using System.Text.RegularExpressions;
-using System.Threading;
+using System.Xml.Serialization;
 using VRage;
-using VRage.Collections;
 using VRage.Game;
 using VRage.Game.Components;
-using VRage.Game.Components.Interfaces;
 using VRage.Game.Entity;
 using VRage.Game.ModAPI;
 using VRage.Game.ModAPI.Ingame;
 using VRage.Game.ModAPI.Ingame.Utilities;
-using VRage.Game.ObjectBuilders.Definitions;
 using VRage.Input;
 using VRage.Library.Utils;
 using VRage.ModAPI;
@@ -220,6 +200,14 @@ namespace EliDangHUD
         public double RadarPingMaxActiveRange { get; set; }
 
 		public bool RadarPingHasPower { get; set; }
+
+        public int BlockCount { get; set; }
+
+        public MyCubeSize GridCubeSize { get; set; }
+
+        public MyStringId Material { get; set; } // Material used for rendering the ping
+
+
     }
 
 	public class RadarAnimation
@@ -286,6 +274,18 @@ namespace EliDangHUD
         public double holoBaseX = 0;
         public double holoBaseY = -0.5;
         public double holoBaseZ = 0;
+    }
+
+    public class BlockSizeTier
+    {
+        [XmlAttribute]
+        public int Min { get; set; }
+
+        [XmlAttribute]
+        public int Max { get; set; }
+
+        [XmlAttribute]
+        public int Size { get; set; }
     }
 
     /// <summary>
@@ -470,6 +470,24 @@ namespace EliDangHUD
         /// </summary>
         public int perspectiveViewKey = (int)MyKeys.NumPad3;
 		public string perspectiveViewKey_DESCRIPTION = "Key to set hologram view to Perspective cam (Only for target, Default is NumPad3)";
+
+        public int largeGridSizeOneMaxBlocks = 1500;
+        public int largeGridSizeTwoMaxBlocks = 2500;
+        public int largeGridSizeThreeMaxBlocks = 5000;
+        public int largeGridSizeFourMaxBlocks = 7500;
+        public int largeGridSizeFiveMaxBlocks = 15000;
+        public string largeGridSizeTiers_DESCRIPTION = "Set the various size in blocks for the tiers that determine blip icons used. There are six (6) large grid icons.";
+
+        public int smallGridSizeOneMaxBlocks = 600;
+        public int smallGridSizeTwoMaxBlocks = 1200;
+        public int smallGridSizeThreeMaxBlocks = 1800;
+        public string smallGridSizeTiers_DESCRIPTION = "Set the various size in blocks for the tiers that determine blip icons used. There are four (4) small grid icons.";
+
+        public bool renderHoloRadarsInSeat = false;
+        public string renderHoloRadarsInSeat_DESCRIPTION = "Whether holo table radars should still render if you are in a cockpit that has active hud.";
+
+        public bool renderHoloHologramInSeat = false;
+        public string renderHoloHologramsInSeat_DESCRIPTION = "Whether holo table holograms should still render if you are in a cockpit that has active hud.";
 
     }
 
@@ -1503,15 +1521,14 @@ namespace EliDangHUD
 			radarMatrix = gHandler.localGridControlledEntityMatrix; // Set the radar matrix = the localGrid controlled entity matrix, ie. the cockpit or control seat.
             worldRadarPos = Vector3D.Transform(radarOffset, radarMatrix) + _headPosition;
 
-            // Radar scale/range
-            _radarCurrentRangeTextPosition = worldRadarPos + radarMatrix.Up * -0.1 + radarMatrix.Left * 0.3;
-
+           
             // Positions
             // Power Load / Power Remaining
             _powerLoadCurrentPercentPosition = worldRadarPos + (radarMatrix.Forward * radarRadius * 0.4) + (radarMatrix.Left * radarRadius * 1.3) + (radarMatrix.Up * 0.0085);
             _powerLoadCurrentPercentDirection = Vector3D.Normalize(_powerLoadCurrentPercentPosition - worldRadarPos);
             _powerLoadCurrentPercentDirection = Vector3D.Normalize((_powerLoadCurrentPercentDirection + radarMatrix.Forward) / 2);
             _powerSecondsRemainingPosition = worldRadarPos + radarMatrix.Left * radarRadius * 0.88 + radarMatrix.Backward * radarRadius * 1.1 + radarMatrix.Down * _powerSecondsRemainingSizeModifier * 2;
+
 
 			// Speed / Hydrogen Remaining
             double speedSize = 0.0070;
@@ -1521,6 +1538,9 @@ namespace EliDangHUD
             Vector3D left = Vector3D.Cross(radarMatrix.Up, _speedDirection);
             _speedPosition = (left * speedSize * 7) + _speedPosition;
 			_hydrogenSecondsRemainingPosition = worldRadarPos + radarMatrix.Right * radarRadius * 0.88 + radarMatrix.Backward * radarRadius * 1.1 + radarMatrix.Down * _hydrogenSecondsRemainingSizeModifier * 2;
+
+            // Radar scale/range
+            _radarCurrentRangeTextPosition = _powerSecondsRemainingPosition + (radarMatrix.Down * radarRadius * 0.1);
 
             // Holograms
             _hologramPositionRight = worldRadarPos + radarMatrix.Left * -radarRadius + radarMatrix.Left * _hologramRightOffset_HardCode.X + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
@@ -2264,8 +2284,29 @@ namespace EliDangHUD
                 CheckPlayerInput();
 				
 				UpdateRadarDetections(); // Update some radar scaling/range values based on current target etc. Then loop through each entity and check if player can detect it, update relationships, store values like active radar range etc.
-				
 
+
+                if (theSettings.renderHoloHologramInSeat || theSettings.renderHoloRadarsInSeat) 
+                {
+                    IMyCharacter character = MyAPIGateway.Session.Player?.Character;
+                    if (character == null)
+                    {
+                        return;
+                    }
+                    _thePlayer = character;
+                    _nearestGridToPlayer = gHandler.localGrid;
+
+                    GetNearbyHoloTables();
+
+                    if (_nearestGridToPlayer != null)
+                    {
+                        if (theSettings.renderHoloRadarsInSeat && _holoTableRadarsOnGrid != null && _holoTableRadarsOnGrid.Count > 0)
+                        {
+                            UpdateRadarDetectionsHoloTable();
+                        }
+                    }
+                }
+               
 
                 if (EnableDust)
                 {
@@ -2319,8 +2360,8 @@ namespace EliDangHUD
                     {
                         UpdateRadarDetectionsHoloTable();
                     }
-                    
                 }
+
             }
             _distanceToCameraSqr = Vector3D.DistanceSquared(_cameraPosition, worldRadarPos);
 
@@ -2389,6 +2430,19 @@ namespace EliDangHUD
                     return;
                 }
                 DrawRadar();
+
+                if (_nearestGridToPlayer != null)
+                {
+                    if (theSettings.renderHoloRadarsInSeat && _holoTableRadarsOnGrid != null && _holoTableRadarsOnGrid.Count > 0)
+                    {
+                        DrawRadarHoloTable();
+                    }
+                    if (theSettings.renderHoloHologramInSeat && EnableHolograms && _holoTableHologramsOnGrid != null && _holoTableHologramsOnGrid.Count > 0)
+                    {
+                        HG_UpdateHolo();
+                        HG_DrawHolo();
+                    }
+                }
 
                 //if dust ----------------------------------------------------------------------------------
                 if (EnableDust)
@@ -4169,7 +4223,7 @@ namespace EliDangHUD
 
 
 			Vector4 color_Current = color_VoxelBase; // Default to voxelbase color
-			float scale_Current = 1.0f;
+			
 
 			// Radar Pulse Timer for the pulse animation
             double radarPulseTime = this.timerRadarElapsedTimeTotal.Elapsed.TotalSeconds / 3;
@@ -4296,10 +4350,8 @@ namespace EliDangHUD
                 {
                     continue;
                 }
-
-                double gridWidth = radarPings[i].Width;
-                scale_Current = Math.Max(min_blip_scale, (float)gridWidth); // If gridWidth is something ridiculous like 0.0f then fall back on min scale. 
-                if (scale_Current <= 0.000001 || double.IsNaN(scale_Current)) // Compare to EPS rather than 0. If invalid skip now.
+                // If gridWidth is something ridiculous like 0.0f then fall back on min scale. 
+                if (radarPings[i].Width <= 0.000001 || double.IsNaN(radarPings[i].Width)) // Compare to EPS rather than 0. If invalid skip now.
                 {
                     continue;
                 }
@@ -4334,39 +4386,16 @@ namespace EliDangHUD
                 }
                 pulseTimer = Math.Max(pulseTimer * 2, 1);
 
-				// Set drawMaterial based on type of entity/relationship.
-                MyStringId drawMat = MaterialCircle;
-                switch (radarPings[i].Status)
-                {
-                    case RelationshipStatus.Friendly:
-                        drawMat = MaterialSquare;
-                        break;
-                    case RelationshipStatus.Hostile:
-                        drawMat = MaterialTriangle;
-                        break;
-                    case RelationshipStatus.Neutral:
-                        drawMat = MaterialSquare;
-                        break;
-                    case RelationshipStatus.Vox:
-                        drawMat = MaterialCircle;
-                        color_Current = theSettings.lineColor;
-                        break;
-                    case RelationshipStatus.FObj:
-                        drawMat = MaterialDiamond;
-                        break;
-                    default:
-                        drawMat = MaterialCircle;
-                        break;
-                }
+                // Set drawMaterial based on type of entity/relationship.
+                MyStringId drawMat = radarPings[i].Material;
 
                 // Draw each entity as a billboard on the radar
-                float blipSize = 0.005f * fadeDimmer * scale_Current * radarScannerScale; // Scale blip size based on radar scale
+                float blipSize = 0.004f * fadeDimmer * radarPings[i].Width * radarScannerScale; // Scale blip size based on radar scale
                 Vector3D blipPos = radarEntityPos + (lineDir * vertDistance);
                 // Draw the blip with vertical elevation +/- relative to radar plane, with line connecting it to the radar plane.
                 DrawLineBillboard(MaterialSquare, color_Current * 0.25f * fadeDimmer * pulseTimer, radarEntityPos, lineDir, vertDistance, 0.001f * fadeDimmer);
-                DrawQuad(blipPos, radarUp, blipSize, MaterialCircle, color_Current * upDownDimmer * 0.25f * pulseTimer * 0.5f);
-				// Add blip "shadow" on radar plane
-                MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, 0.0025f * fadeDimmer * scale_Current);
+                DrawQuad(blipPos, radarUp, blipSize * 0.75f, MaterialCircle, color_Current * upDownDimmer * 0.5f * pulseTimer * 0.5f); // Add blip "shadow" on radar plane
+                MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize);
 
                 // DONE UNTESTED: need to check that they have it AND it can reach us, if we aren't being painted by it don't show it. For situations where our active radar is set far enough to pickup grids
 				// that also have active radar and thus the bool would be true but it's range is low enough they can't reach us (see us). As in only show grids that can see us. 
@@ -4554,7 +4583,6 @@ namespace EliDangHUD
                 Vector3D holoBackward = holoTableMatrix.Backward;
 
                 Vector4 color_Current = color_VoxelBase; // Default to voxelbase color
-                float scale_Current = 1.0f;
 
                 // Radar Pulse Timer for the pulse animation
                 double radarPulseTime = this.timerRadarElapsedTimeTotal.Elapsed.TotalSeconds / 3;
@@ -4688,9 +4716,7 @@ namespace EliDangHUD
                         continue;
                     }
 
-                    double gridWidth = radarPings[i].Width;
-                    scale_Current = Math.Max(min_blip_scale, (float)gridWidth); // If gridWidth is something ridiculous like 0.0f then fall back on min scale. 
-                    if (scale_Current <= 0.000001 || double.IsNaN(scale_Current)) // Compare to EPS rather than 0. If invalid skip now.
+                    if (radarPings[i].Width <= 0.000001 || double.IsNaN(radarPings[i].Width)) // Compare to EPS rather than 0. If invalid skip now.
                     {
                         continue;
                     }
@@ -4722,34 +4748,10 @@ namespace EliDangHUD
                     pulseTimer = Math.Max(pulseTimer * 2, 1);
 
                     // Set drawMaterial based on type of entity/relationship.
-                    MyStringId drawMat = MaterialCircle;
-                    switch (radarPings[i].Status)
-                    {
-                        case RelationshipStatus.Friendly:
-                            drawMat = MaterialSquare;
-                            break;
-                        case RelationshipStatus.Hostile:
-                            drawMat = MaterialTriangle;
-                            break;
-                        case RelationshipStatus.Neutral:
-                            drawMat = MaterialSquare;
-                            break;
-                        case RelationshipStatus.Vox:
-                            drawMat = MaterialCircle;
-                            color_Current = theSettings.lineColor;
-                            break;
-                        case RelationshipStatus.FObj:
-                            drawMat = MaterialDiamond;
-                            break;
-                        default:
-                            drawMat = MaterialCircle;
-                            break;
-                    }
-
-                    
+                    MyStringId drawMat = radarPings[i].Material;
 
                     // Draw each entity as a billboard on the radar
-                    float blipSize = 0.005f * fadeDimmer * scale_Current * holoRadarRadius; // was 0.005f
+                    float blipSize = 0.015f * fadeDimmer * radarPings[i].Width * holoRadarRadius; // was 0.005f
                     Vector3D blipPos = radarEntityPos + (lineDir * vertDistance);
                     // Draw the blip with vertical elevation +/- relative to radar plane, with line connecting it to the radar plane.
 
@@ -4757,20 +4759,18 @@ namespace EliDangHUD
                     {
                         color_Current = (Color.Yellow).ToVector4() * 2;
                         drawMat = MaterialCircle;
-                        blipSize = 0.005f * fadeDimmer * holoRadarRadius; // Make local grid static size
-
+                        blipSize = blipSize * 0.66f;
                         //DrawLineBillboard(MaterialSquare, color_Current * 0.25f * fadeDimmer * pulseTimer, radarEntityPos, lineDir, vertDistance, 0.004f * fadeDimmer);
-                        DrawQuad(blipPos, holoUp, (blipSize * 1.25f), MaterialCircle, color_Current * upDownDimmer * 0.25f * pulseTimer * 0.5f);
-                        // Add blip "shadow" on radar plane
-                        MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize * fadeDimmer * scale_Current);
+                        DrawQuad(blipPos, holoUp, holoRadarRadius * 1.15f, MaterialCircle, radiusColor * 0.5f); // Add blip "shadow" on radar plane
+                        MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize);
 
                     }
                     else 
                     {
                         DrawLineBillboard(MaterialSquare, color_Current * 0.25f * fadeDimmer * pulseTimer, radarEntityPos, lineDir, vertDistance, 0.004f * fadeDimmer);
-                        DrawQuad(blipPos, holoUp, (blipSize * 1.25f) * 1.25, MaterialCircle, color_Current * upDownDimmer * 0.25f * pulseTimer * 0.5f);
+                        DrawQuad(blipPos, holoUp, blipSize * 0.75f, MaterialCircle, color_Current * upDownDimmer * 0.5f * pulseTimer * 0.5f);
                         // Add blip "shadow" on radar plane
-                        MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize * fadeDimmer * scale_Current);
+                        MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize);
 
                     }
                     // DONE UNTESTED: need to check that they have it AND it can reach us, if we aren't being painted by it don't show it. For situations where our active radar is set far enough to pickup grids
@@ -4779,7 +4779,11 @@ namespace EliDangHUD
                     {
                         float pulseScale = 1.0f + (haloPulse * 0.20f); // Scale the halo by 15% at max pulse
                         float pulseAlpha = 1.0f * (1.0f - haloPulse); // Alpha goes from 0.25 to 0 at max pulse, so it fades out as pulse increases.
-                        float ringSize = (3.14f * blipSize) * pulseScale; // Scale the ring size based on the pulse
+                        float ringSize = blipSize * pulseScale; // Scale the ring size based on the pulse
+                        if (entity.GetTopMostParent() == playerGrid.GetTopMostParent()) 
+                        {
+                            ringSize = ringSize * 1.25f;
+                        }
 
                         DrawCircle(radarEntityPos, ringSize, holoUp, Color.WhiteSmoke, false, 1.0f * pulseAlpha, 0.0005f * holoRadarRadius); //0.5f * haloPulse
                     }
@@ -4838,7 +4842,7 @@ namespace EliDangHUD
                 RadarPing ping = newRadarPing(entity);
 
                 // Only add if width is valid
-                if (ping.Width > 0.00001f && ping.Width < 4f) // safety bounds
+                if (ping.Width > 0.00001f && ping.Width <= 4f) // safety bounds
                     radarPings.Add(ping);
             }
         }
@@ -5304,8 +5308,57 @@ namespace EliDangHUD
 			SP_BOOTUP = 	new MySoundPair (SOUND_BOOTUP);
 			SP_MONEY = 		new MySoundPair (SOUND_MONEY);
 		}
-		//-------------------------------------------------------------------------------------------
+        //-------------------------------------------------------------------------------------------
 
+        private MyStringId GetBlipMaterial(int blockCount, MyCubeSize gridCubeSize) 
+        {
+            if (gridCubeSize == MyCubeSize.Large)
+            {
+                if (blockCount <= theSettings.largeGridSizeOneMaxBlocks)
+                {
+                    return MaterialLG_1;
+                }
+                else if (blockCount <= theSettings.largeGridSizeTwoMaxBlocks)
+                {
+                    return MaterialLG_2;
+                }
+                else if (blockCount <= theSettings.largeGridSizeThreeMaxBlocks)
+                {
+                    return MaterialLG_3;
+                }
+                else if (blockCount <= theSettings.largeGridSizeFourMaxBlocks)
+                {
+                    return MaterialLG_4;
+                }
+                else if (blockCount <= theSettings.largeGridSizeFiveMaxBlocks)
+                {
+                    return MaterialLG_5;
+                }
+                else
+                {
+                    return MaterialLG_6;
+                }
+            }
+            else 
+            {
+                if (blockCount <= theSettings.smallGridSizeOneMaxBlocks)
+                {
+                    return MaterialSG_1;
+                }
+                else if (blockCount <= theSettings.smallGridSizeTwoMaxBlocks)
+                {
+                    return MaterialSG_2;
+                }
+                else if (blockCount <= theSettings.smallGridSizeThreeMaxBlocks)
+                {
+                    return MaterialSG_3;
+                }
+                else
+                {
+                    return MaterialSG_4;
+                }
+            }
+        }
 		private void UpdateNewRadarPingStatus(ref RadarPing ping) 
 		{
 			VRage.ModAPI.IMyEntity entity = ping.Entity;
@@ -5316,8 +5369,18 @@ namespace EliDangHUD
 
                 if (gridEntity != null)
                 {
-                    double gridWidth = gridEntity.PositionComp.WorldVolume.Radius;
-                    ping.Width = (float)gridWidth / 25;
+                    //double gridWidth = gridEntity.PositionComp.WorldVolume.Radius;
+                    ping.Width = 2f; //(float)gridWidth / 25;
+
+                    // Get Grid size (Large/Small and block count).
+                    MyCubeGrid cubeGrid = gridEntity as MyCubeGrid;
+                    if (cubeGrid != null) 
+                    {
+                        ping.BlockCount = cubeGrid.BlocksCount;
+                    }
+                    ping.GridCubeSize = gridEntity.GridSizeEnum;
+                    ping.Material = GetBlipMaterial(ping.BlockCount, ping.GridCubeSize);
+
 
                     long lpID = GetLocalPlayerId();
                     if (lpID != -1)
@@ -5352,7 +5415,6 @@ namespace EliDangHUD
                         ping.Status = RelationshipStatus.Neutral;
                         ping.Announced = true;
                     }
-                    ping.Width = Clamped(ping.Width, 1f, 3f);
                 }
             }
             else if (entity is IMyFloatingObject)
@@ -5360,6 +5422,7 @@ namespace EliDangHUD
                 ping.Color = color_FloatingObject * GLOW;
                 ping.Status = RelationshipStatus.FObj;
                 ping.Width = 0.5f;
+                ping.Material = MaterialDiamond;
             }
             else if (entity is MyPlanet)
             {
@@ -5367,6 +5430,7 @@ namespace EliDangHUD
                 ping.Status = RelationshipStatus.FObj;
                 ping.Width = 0.00001f;
                 ping.Announced = true;
+                ping.Material = MaterialCircle;
             }
             else if (entity is IMyVoxelBase)
             {
@@ -5377,7 +5441,8 @@ namespace EliDangHUD
                 {
                     double voxelWidth = voxelEntity.PositionComp.WorldVolume.Radius;
                     ping.Width = (float)voxelWidth / 250;
-                    ping.Width = Clamped(ping.Width, 1f, 3f);
+                    ping.Width = Clamped(ping.Width, 1f, 4f);
+                    ping.Material = MaterialCircle;
                 }
             }
         }
@@ -5426,6 +5491,14 @@ namespace EliDangHUD
 					{
 						ping.Announced = false;
 					}
+
+                    MyCubeGrid cubeGrid = gridEntity as MyCubeGrid;
+                    if (cubeGrid != null) 
+                    {
+                        ping.BlockCount = cubeGrid.BlocksCount;
+                    }
+                    ping.GridCubeSize = gridEntity.GridSizeEnum;
+                    ping.Material = GetBlipMaterial(ping.BlockCount, ping.GridCubeSize);
                 }
             }
         }

@@ -212,3 +212,6 @@ public enum MyKeys : byte
     PA1 = 253,
     OEMClear = 254
 }
+
+Credits
+Ship radar icons from Grandsome https://www.nexusmods.com/x4foundations/mods/895 used with attribution as per requirements. 
