@@ -113,6 +113,10 @@ But doesn't do all the active vs passive radar stuff.
 DONE: More minor optimizations: only checks if entity has power if you can already detect it based on range and the setting to only show powered grids is true. 
 
 --TODO--
+TODO: Top priority: Optimize the holograms! Will use a Dictionary of blocks on the grid, then have event handlers for add or remove of block, or damage of block instead of
+scanning all blocks each tick. So we initialize it using getBlocks once, then only update it when something changes. When it comes to drawing their positions we will
+have the grid relative positions, so for local grid this is easy. For target grid we will need to offset based on the current grid positions at Draw() time.
+
 TODO: I'd like to do further settings to allow users to more specifically choose to filter our floating items of name 'Stone' for eg, or only voxels (asteroids and deposits) of certain types or sizes even. 
 TODO: Figure out all this DamageAmount/AttachGrid/DetachGrid event handler stuff. It looks... incomplete? Eg GetDamageAmount if called would re-set the amount to zero. It is used to get a damage amount to add to glitch amount overload.
 but the way it is configured all that happens prior to this is attaching event handlers for on function changed. So amount would always be 0?
@@ -6531,7 +6535,6 @@ namespace EliDangHUD
 			Echo_String_Prev = message;
 		}
 
-
 		public class BlockTracker
 		{
 			public VRage.Game.ModAPI.IMySlimBlock Block;
@@ -6547,8 +6550,11 @@ namespace EliDangHUD
 			public Sandbox.ModAPI.Ingame.IMyJumpDrive JumpDrive;
 		}
 
-		private List<BlockTracker> localGridBlocks = new List<BlockTracker>();
-		private List<BlockTracker> targetGridBlocks = new List<BlockTracker>();
+        private Dictionary<Vector3I, BlockTracker> _localGridBlocksDict = new Dictionary<Vector3I, BlockTracker>();
+        private List<BlockTracker> localGridBlocks = new List<BlockTracker>();
+
+        private Dictionary<Vector3I, BlockTracker> _targetGridBlocksDict = new Dictionary<Vector3I, BlockTracker>();
+        private List<BlockTracker> targetGridBlocks = new List<BlockTracker>();
 
 		private List<BlockTracker> localGridDrives = new List<BlockTracker>();
 		private List<BlockTracker> targetGridDrives = new List<BlockTracker>();
@@ -6742,15 +6748,13 @@ namespace EliDangHUD
                 HG_InitializeLocalGridHolo();
                 HG_initialized = true;
                 HG_activationTime = 0;
-
-
             }
             if (_nearestGridToPlayer != null && theSettings.enableHologramsGlobal && EnableHolograms_you)
             {
                 HG_UpdateLocalGridHolo();
                 HG_UpdateHologramLocalHolo(_nearestGridToPlayer, localGridBlocks);
                 //UpdateHologramStatus(ref HG_activationTime, ref localGridShieldsLast, ref localGridShieldsCurrent,
-                //        ref localGridShieldsMax, ref localGridHealthCurrent, deltaTimeSinceLastTick, localGridDrives, localGridBlocks, ref localGridTimeToReady, ref localGridBlockCounter);
+                //ref localGridShieldsMax, ref localGridHealthCurrent, deltaTimeSinceLastTick, localGridDrives, localGridBlocks, ref localGridTimeToReady, ref localGridBlockCounter);
             }
         }
 
@@ -7063,7 +7067,7 @@ namespace EliDangHUD
             }
         }
 
-        private void HG_InitializeGridHolo(ref List<BlockTracker> blockList, ref List<BlockTracker> driveList, ref MatrixD scalingMatrixHG, ref double gridHealthCurrent, ref double gridHealthMax)
+        private void HG_InitializeGridHolo(ref List<BlockTracker> blockList, ref Dictionary<Vector3I, BlockTracker> blockDict, ref List<BlockTracker> driveList, ref MatrixD scalingMatrixHG, ref double gridHealthCurrent, ref double gridHealthMax)
         {
             if (_nearestGridToPlayer == null || !(_nearestGridToPlayer is VRage.Game.ModAPI.IMyCubeGrid))
             {
@@ -7075,6 +7079,8 @@ namespace EliDangHUD
                 blockList = new List<BlockTracker>();
                 driveList = new List<BlockTracker>();
                 blockList = HG_GetBlockInfo(_nearestGridToPlayer, ref gridHealthCurrent, ref gridHealthMax);
+                blockDict = HG_GetBlockInfoDict(_nearestGridToPlayer, ref gridHealthCurrent, ref gridHealthMax);
+
                 // Define a scaling matrix for positioning on the dashboard
                 double thicc = HG_scaleFactor / (_nearestGridToPlayer.WorldVolume.Radius / _nearestGridToPlayer.GridSize); // HG_scaleFactor is global.
                 scalingMatrixHG = MatrixD.CreateScale(HG_Scale * thicc); //HG_Scale is global
@@ -7160,7 +7166,7 @@ namespace EliDangHUD
                 localGridBlockCounter = 0;
                 localGridShieldsMax = 0;
                 localGridShieldsCurrent = 0;
-                HG_InitializeGridHolo(ref localGridBlocks, ref localGridDrives, ref HG_scalingMatrix, ref localGridHealthCurrent, ref localGridHealthMax);
+                HG_InitializeGridHolo(ref localGridBlocks, ref _localGridBlocksDict, ref localGridDrives, ref HG_scalingMatrix, ref localGridHealthCurrent, ref localGridHealthMax);
             }
         }
 
@@ -7294,9 +7300,48 @@ namespace EliDangHUD
 			return blockInfo;
 		}
 
-		
+        private Dictionary<Vector3I, BlockTracker> HG_GetBlockInfoDict(VRage.Game.ModAPI.IMyCubeGrid grid, ref double gridHealthCurrent, ref double gridHealthMax)
+        {
+            Dictionary<Vector3I, BlockTracker> blockInfo = new Dictionary<Vector3I, BlockTracker>();
 
-		private bool IsJumpDrive(VRage.Game.ModAPI.IMyCubeBlock block)
+            List<VRage.Game.ModAPI.IMySlimBlock> blocks = new List<VRage.Game.ModAPI.IMySlimBlock>();
+            grid.GetBlocks(blocks);
+
+            foreach (VRage.Game.ModAPI.IMySlimBlock block in blocks)
+            {
+                double Health_Max = block.MaxIntegrity;
+                double Health_Cur = block.Integrity;
+
+                // Store block related info in the BlockTracker
+                BlockTracker blockTracker = new BlockTracker();
+                blockTracker.HealthMax = Health_Max;
+                blockTracker.HealthCurrent = Health_Cur;
+                blockTracker.HealthLast = Health_Cur;
+                gridHealthCurrent += Health_Cur;
+                gridHealthMax += Health_Max;
+
+                blockTracker.IsJumpDrive = false;
+
+                if (IsJumpDrive(block.FatBlock))
+                {
+                    Sandbox.ModAPI.Ingame.IMyJumpDrive jumpDrive = block.FatBlock as Sandbox.ModAPI.Ingame.IMyJumpDrive;
+                    if (jumpDrive != null)
+                    {
+                        blockTracker.IsJumpDrive = true;
+                        blockTracker.JumpDrive = jumpDrive;
+                        blockTracker.JumpDriveLastStoredPower = 0;
+                    }
+                }
+
+                blockInfo.Add(block.Position, blockTracker);
+            }
+
+            return blockInfo;
+        }
+
+
+
+        private bool IsJumpDrive(VRage.Game.ModAPI.IMyCubeBlock block)
 		{
 			if (block == null)
 			{
