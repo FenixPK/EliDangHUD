@@ -1,18 +1,22 @@
-using System;
-using Sandbox.Game;
-using Sandbox.ModAPI;
-using VRage.Game.Components;
-using VRage.ModAPI;
-using VRage.ObjectBuilders;
-using VRage.Game.ModAPI.Interfaces;
-using VRage.Game.ModAPI;
-using VRageMath;
-using VRage.Utils;
-using System.Collections.Generic;
 using Sandbox.Definitions;
+using Sandbox.Game;
+using Sandbox.Game.Entities;
+using Sandbox.ModAPI;
 using SpaceEngineers.Game.ModAPI;
+using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using VRage.Game.Components;
+using VRage.Game.Entity;
+using VRage.Game.ModAPI;
+using VRage.Game.ModAPI.Interfaces;
+using VRage.ModAPI;
+using VRage.ObjectBuilders;
+using VRage.Utils;
+using VRageMath;
+using static EliDangHUD.CircleRenderer;
+using static VRageRender.Utils.MyWingedEdgeMesh;
 
 namespace EliDangHUD
 {
@@ -25,29 +29,9 @@ namespace EliDangHUD
 
 		//----THE CONTROLLED ENTITY----//
 		/// <summary>
-		/// We find the entity the player is controlling and store it here, which is a cockpit or control block (or perhaps even a passenger seat?)
+		/// We find the entity the player is controlling and store it here, which is a cockpit or control block (or perhaps even a passenger seat?) This is an IMyCockpit entity only.
 		/// </summary>
-		public IMyEntity localGridControlledEntity;
-
-        /// <summary>
-        /// Name of the controlled entity block (seat/cockpit)
-        /// </summary>
-        public string localGridControlledEntityName;
-
-		/// <summary>
-		/// Custom Name of the controlled entity block (seat/cockpit)
-		/// </summary>
-		public string localGridControlledEntityCustomName = "";
-
-        /// <summary>
-        /// The matrix of the controlled entity (seat/cockpit) in worldspace
-        /// </summary>
-        public MatrixD localGridControlledEntityMatrix;
-
-        /// <summary>
-        /// The position of the controlled entity (seat/cockpit) in worldspace
-        /// </summary>
-        public Vector3D localGridControlledEntityPosition;
+		public IMyCockpit localGridControlledEntity;
 
 		/// <summary>
 		/// Stores the current CustomData for the controlled entity (seat/cockpit)
@@ -86,26 +70,6 @@ namespace EliDangHUD
         public IMyCubeGrid localGrid;
 
         /// <summary>
-        /// Name of the CubeGrid the localGridControlledEntity belongs to
-        /// </summary>
-        public string localGridName;
-
-        /// <summary>
-        /// The matrix in world space of the CubeGrid the localGridControlledEntity belongs to
-        /// </summary>
-        public MatrixD localGridMatrix;
-
-        /// <summary>
-        /// The position in world space of the CubeGrid the localGridControlledEntity belongs to
-        /// </summary>
-        public Vector3D localGridPosition;
-
-		/// <summary>
-		/// Current damage to local grid calculated by incrementing +1 when a block is damaged to the point of being non-functional. 
-		/// </summary>
-        private float damageAmount = 0;
-
-        /// <summary>
         /// Stores max possible output of batteries and power producers for the CubeGrid the localGridControlledEntity belongs to
         /// </summary>
         public float localGridPowerProduced;
@@ -130,6 +94,10 @@ namespace EliDangHUD
         /// </summary>
         public float localGridPowerHoursRemaining;
 
+		public float localGridCurrentIntegrity = 0f;
+
+		public float localGridMaxIntegrity = 0f;
+
         /// <summary>
         /// Stopwatch used for calculating elapsed time since last check performed, stored in deltaTime as a double
         /// </summary>
@@ -141,10 +109,47 @@ namespace EliDangHUD
 		/// </summary>
 		private double deltaTimeSinceLastTick = 0;
 
-		/// <summary>
-		/// Initializes the singleton instance upon loading data
-		/// </summary>
-		public override void LoadData()
+		// New idea is to consolidate everything into gHandler, we will loop through all blocks once and store them into dictionaries by type.
+		// Then OnBlockAdded or OnBlockRemoved event handlers at the grid level we can add or remove from dictionaries as needed.
+		// We can also add OnDamage handlers for each block to track damage changes. Especially required if we use Slices instead of individual blocks so we can separate out damaged blocks from undamaged slices.
+		// And we can add event handlers for custom name changes and custom data changes if they are holo tables or cockpits/seats. 
+
+		// IMPORTANT: must handle IMyCubeGrid.OnGridSplit = triggered when grids separate.
+		// IMyCubeGrid.OnGridMerge = triggered when grids merge(e.g., merge blocks, welding).
+		// For rotors/pistons/connectors = you usually check Block.OnClose(for detached heads) or use IMyMechanicalConnectionBlock’s TopGridChanged event.
+		// Connectors: IMyShipConnector has IsConnectedChanged event. 
+		// I need to give this some thought... on the one hand the idea of connecting a battery pack, or external tank, or external jump ring, exeternal reactor etc. is appealing.
+		// On the other hand docking to a station/grid that has a huge number of tanks/batteries/reactors/jump drives would mean a lot more overhead. 
+		// Yeah on second thought I think we should only handle the merges, not connectors/rotors/pistons. 
+
+        public bool localGridBlocksInitialized = false;
+        public Dictionary<Vector3I, IMySlimBlock> localGridAllBlocksDict = new Dictionary<Vector3I, IMySlimBlock>();
+		public Dictionary<IMyComponentStack, Vector3I> localGridBlockComponentStacks = new Dictionary<IMyComponentStack, Vector3I>();
+        public Dictionary<Vector3I, IMyGasTank> localGridHydrogenTanksDict = new Dictionary<Vector3I, IMyGasTank>();
+		public Dictionary<Vector3I, IMyPowerProducer> localGridPowerProducersDict = new Dictionary<Vector3I, IMyPowerProducer>();
+		public Dictionary<Vector3I, IMyBatteryBlock> localGridBatteriesDict = new Dictionary<Vector3I, IMyBatteryBlock>();
+		public Dictionary<Vector3I, IMyJumpDrive> localGridJumpDrivesDict = new Dictionary<Vector3I, IMyJumpDrive>(); // TODO check if the FrameShiftDrive is a subtype of this or new block type? Want support for that mod over time. 
+		public Dictionary<Vector3I, IMyTerminalBlock> localGridEligibleTerminals = new Dictionary<Vector3I, IMyTerminalBlock>();
+		public Dictionary<Vector3I, IMyTerminalBlock> localGridRadarTerminals = new Dictionary<Vector3I, IMyTerminalBlock>();
+		public Dictionary<Vector3I, IMyTerminalBlock> localGridHologramTerminals = new Dictionary<Vector3I, IMyTerminalBlock>();
+		
+		// TODO handle the custom data of the terminals eligible as a dictionary as well. 
+
+		// TODO add shield generators from shield mods? Midnight something or other was a new one I saw?
+
+		public bool localGridClustersNeedRefresh = false;
+		public bool localGridClusterSlicesNeedRefresh = false;
+
+
+		// I may not leave this in the gHandler...
+		public bool targetGridBlocksInitialized = false;
+        public Dictionary<Vector3I, IMySlimBlock> targetGridAllBlocksDict = new Dictionary<Vector3I, IMySlimBlock>();
+
+
+        /// <summary>
+        /// Initializes the singleton instance upon loading data
+        /// </summary>
+        public override void LoadData()
 		{   
 			Instance = this;
 		}
@@ -168,13 +173,290 @@ namespace EliDangHUD
 			Instance = null;
 			base.UnloadData();
 			// Ensure we detach from any grid we might still be attached to
-			DetachDamageHandlerFromGrid();
+			ResetLocalGrid();
 		}
 
-		/// <summary>
-		/// Updates local grid information, to be called each game tick to update stored positions, velocities, names, and calculate remaining hydrogen based on current consumption
-		/// </summary>
-		public void UpdateLocalGrid()
+        private void OnLocalBlockAdded(VRage.Game.ModAPI.IMySlimBlock block)
+        {
+			if (localGridBlocksInitialized && localGrid != null) // Safety check
+			{
+				
+                localGridAllBlocksDict[block.Position] = block;
+				localGridBlockComponentStacks[block.ComponentStack] = block.Position;
+                block.ComponentStack.IntegrityChanged += OnBlockIntegrityChanged;
+				if (block.FatBlock is IMyTerminalBlock terminal)
+				{
+					localGridEligibleTerminals[block.Position] = terminal;
+					// If for some reason already tagged (welding/merging existing block?) add them to appropriate Dict. 
+					if (terminal.CustomName.Contains("[ELI_LOCAL]"))
+					{
+						localGridHologramTerminals[block.Position] = terminal;
+					}
+					if (terminal.CustomName.Contains("[ELI_HOLO]"))
+                    {
+						localGridRadarTerminals[block.Position] = terminal;
+                    }
+                }
+                if (block.FatBlock is IMyGasTank tank)
+				{
+					localGridHydrogenTanksDict[block.Position] = tank;
+				}
+				else if (block.FatBlock is IMyPowerProducer producer)
+				{
+					localGridPowerProducersDict[block.Position] = producer;
+                }
+				else if (block.FatBlock is IMyBatteryBlock battery)
+				{
+					localGridBatteriesDict[block.Position] = battery;
+                }
+				else if (block.FatBlock is IMyJumpDrive jumpDrive)
+				{
+					localGridJumpDrivesDict[block.Position] = jumpDrive;
+                }
+                localGridCurrentIntegrity += block.Integrity;
+                localGridMaxIntegrity += block.MaxIntegrity;
+
+                localGridClustersNeedRefresh = true; // In case we are using block clusters instead of slices
+				localGridClusterSlicesNeedRefresh = true; // In case we are using cluster slices instead of block clusters
+            }
+        }
+
+        private void OnLocalBlockRemoved(VRage.Game.ModAPI.IMySlimBlock block)
+        {
+			if (localGridBlocksInitialized && localGrid != null) // Safety check
+			{
+                block.ComponentStack.IntegrityChanged -= OnBlockIntegrityChanged;
+                localGridBlockComponentStacks.Remove(block.ComponentStack);
+				localGridAllBlocksDict.Remove(block.Position);
+
+                if (block.FatBlock is IMyTerminalBlock terminal)
+                {
+					localGridEligibleTerminals.Remove(terminal.Position);
+					localGridHologramTerminals.Remove(terminal.Position);
+					localGridRadarTerminals.Remove(terminal.Position); 
+                }
+                if (block.FatBlock is IMyGasTank tank)
+				{
+					localGridHydrogenTanksDict.Remove(tank.Position);
+				}
+				else if (block.FatBlock is IMyPowerProducer producer)
+				{
+					localGridPowerProducersDict.Remove(producer.Position);
+                }
+				else if (block.FatBlock is IMyBatteryBlock battery)
+				{
+					localGridBatteriesDict.Remove(battery.Position);
+                }
+				else if (block.FatBlock is IMyJumpDrive jumpDrive)
+				{
+					localGridJumpDrivesDict.Remove(jumpDrive.Position);
+                }
+				localGridCurrentIntegrity -= block.Integrity;
+				localGridMaxIntegrity -= block.MaxIntegrity;
+
+				localGridClustersNeedRefresh = true; // In case we are using block clusters instead of slices
+                localGridClusterSlicesNeedRefresh = true; // In case we are using cluster slices instead of block clusters
+            }
+        }
+
+        private void OnBlockIntegrityChanged(IMyComponentStack stack, float oldIntegrity, float newIntegrity)
+        {
+			if (localGridBlocksInitialized && localGrid != null) // Safety Check
+			{
+				IMySlimBlock block = null;
+				Vector3I stackPositionKey = Vector3I.Zero;
+				if (localGridBlockComponentStacks.TryGetValue(stack, out stackPositionKey))
+				{
+					block = localGridAllBlocksDict[stackPositionKey];
+					if (block != null) 
+					{
+                        localGridClustersNeedRefresh = true; // In case we are using block clusters instead of slices
+                        localGridClusterSlicesNeedRefresh = true; // In case we are using cluster slices instead of block clusters
+                    }
+				}
+			}
+        }
+
+
+        public void InitializeLocalGrid()
+        {
+            if (localGrid != null) // Safety check
+            {
+				// Process blocks on grid
+				InitializeLocalGridBlocks();
+
+				// Add Event Handlers
+				localGrid.OnBlockAdded += OnLocalBlockAdded;
+				localGrid.OnBlockRemoved += OnLocalBlockRemoved;
+            }
+        }
+
+        public void ResetLocalGrid()
+		{
+			if (localGrid != null) // Safety check
+			{
+				// Remove event handlers
+				foreach (MyComponentStack componentStack in localGridBlockComponentStacks.Keys) 
+				{
+					componentStack.IntegrityChanged -= OnBlockIntegrityChanged;
+				}
+                localGrid.OnBlockAdded -= OnLocalBlockAdded;
+                localGrid.OnBlockRemoved -= OnLocalBlockRemoved;
+            }
+
+			// Local grid and controlled entity if applicable
+			localGrid = null;
+			localGridControlledEntity = null;
+
+			// Local grid blocks
+			localGridAllBlocksDict.Clear();
+			localGridBlockComponentStacks.Clear();
+			localGridHydrogenTanksDict.Clear();
+			localGridPowerProducersDict.Clear();
+			localGridBatteriesDict.Clear();
+			localGridJumpDrivesDict.Clear();
+			localGridEligibleTerminals.Clear();
+			localGridHologramTerminals.Clear();
+			localGridRadarTerminals.Clear();
+            localGridBlocksInitialized = false;
+
+			// Local Grid vars
+			localGridCurrentIntegrity = 0f;
+			localGridMaxIntegrity = 0f;
+
+			localGridPowerConsumed = 0f;
+			localGridPowerHoursRemaining = 0f;
+			localGridPowerProduced = 0f;
+			localGridPowerStored = 0f;
+			localGridPowerStoredMax = 0f;
+
+			localGridVelocity = Vector3D.Zero;
+            localGridVelocityAngular = Vector3D.Zero;
+			localGridSpeed = 0f;
+
+            // Target grid (if no local grid implies no target grid possible)
+            targetGridAllBlocksDict.Clear();
+            targetGridBlocksInitialized = false;
+        }
+
+		public void CheckForLocalGrid()
+		{
+			// Check if the player is currently controlling a grid entity, if so it becomes the local grid.
+            IsPlayerControlling = IsLocalPlayerControllingGrid();
+			if (IsPlayerControlling)
+			{
+				// Retrieve the current entity being controlled.
+				localGridControlledEntity = GetLocalPlayerControlledEntity(); // Store the controlled entity
+				if (localGridControlledEntity != null)
+				{
+					IMyCockpit cockpit = localGridControlledEntity;
+
+					// At this point we know the player is controlling a seat that belongs to a grid entity or IsPlayerControlling would be false (remote control/no grid = false)
+					// We also know that they are controlling SOME entity or localGridControlledEntity would be null.
+					// So now we are checking if it is a cockpit block versus some seat that can't control the grid?
+					if (localGrid != null && localGrid != cockpit.CubeGrid)
+					{
+						// If the current grid we are controlling is not the same as the last local grid we were a part of we need to re-init everything.
+						ResetLocalGrid();
+
+						// We just reset everything so we re-store the localGridControlledEntity and the localGrid it belongs to.
+						localGridControlledEntity = cockpit;
+						localGrid = cockpit.CubeGrid;
+					}
+					else 
+					{
+                        localGrid = localGridControlledEntity.CubeGrid; // Store the parent CubeGrid of the controlled entity
+                    }
+				}
+				else 
+				{
+					// If somehow we are controlling an entity, which checks if it is IMyCockpit, but then fail to get that entity as IMyCockpit we reset everything. This should be redundant. 
+					ResetLocalGrid();
+                }
+			}
+			else
+			{
+				// If not directly controlling a grid we find out if the player is inside the AABB of a grid, and if inside multiple AABB we use the nearest one. 
+				localGridControlledEntity = null;
+				IMyCubeGrid nearestGrid = GetNearestGridToPlayer();
+				if (nearestGrid == null)
+				{
+					// If no nearest grid then we re-set everything
+					ResetLocalGrid();
+				}
+				else if (localGrid != null && localGrid != nearestGrid) 
+				{
+                    // If the current grid we are controlling is not the same as the last local grid we were a part of we need to re-init everything.
+                    ResetLocalGrid();
+					localGrid = nearestGrid;
+				}
+            }
+        }
+
+        private void InitializeLocalGridBlocks()
+        {
+            if (localGrid == null)
+            {
+                return;
+            }
+
+            Dictionary<Vector3I, BlockTracker> blockInfo = new Dictionary<Vector3I, BlockTracker>();
+
+            List<VRage.Game.ModAPI.IMySlimBlock> blocks = new List<VRage.Game.ModAPI.IMySlimBlock>();
+            localGrid.GetBlocks(blocks);
+
+            foreach (VRage.Game.ModAPI.IMySlimBlock block in blocks)
+            {
+                localGridAllBlocksDict[block.Position] = block;
+                localGridBlockComponentStacks[block.ComponentStack] = block.Position;
+                block.ComponentStack.IntegrityChanged += OnBlockIntegrityChanged;
+                if (block.FatBlock is IMyTerminalBlock terminal)
+                {
+                    localGridEligibleTerminals[block.Position] = terminal;
+                    // If for some reason already tagged (welding/merging existing block?) add them to appropriate Dict. 
+                    if (terminal.CustomName.Contains("[ELI_LOCAL]"))
+                    {
+                        localGridHologramTerminals[block.Position] = terminal;
+                    }
+                    if (terminal.CustomName.Contains("[ELI_HOLO]"))
+                    {
+                        localGridRadarTerminals[block.Position] = terminal;
+                    }
+                }
+                if (block.FatBlock is IMyGasTank tank)
+                {
+                    localGridHydrogenTanksDict[block.Position] = tank;
+                }
+                else if (block.FatBlock is IMyPowerProducer producer)
+                {
+                    localGridPowerProducersDict[block.Position] = producer;
+					// TODO handle updating power like integrity on initialize instead of only on repeating update
+                }
+                else if (block.FatBlock is IMyBatteryBlock battery)
+                {
+                    localGridBatteriesDict[block.Position] = battery;
+                    // TODO handle updating power like integrity on initialize instead of only on repeating update
+                }
+                else if (block.FatBlock is IMyJumpDrive jumpDrive)
+                {
+                    localGridJumpDrivesDict[block.Position] = jumpDrive;
+                }
+
+				localGridCurrentIntegrity += block.Integrity;
+				localGridMaxIntegrity += block.MaxIntegrity;
+            }
+        }
+
+        public void UpdateLocalGrid() 
+		{ 
+		
+		}
+
+
+        /// <summary>
+        /// Updates local grid information, to be called each game tick to update stored positions, velocities, names, and calculate remaining hydrogen based on current consumption
+        /// </summary>
+        public void UpdateLocalGridOLD()
 		{
 			// Check if the local player is controlling a grid entity.
 			IsPlayerControlling = IsLocalPlayerControllingGrid();
@@ -182,7 +464,7 @@ namespace EliDangHUD
 			if (IsPlayerControlling) 
 			{
 				// Retrieve the current entity being controlled.
-				localGridControlledEntity = LocalPlayerEntity(); // Store the controlled entity for re-use
+				localGridControlledEntity = GetLocalPlayerControlledEntity(); // Store the controlled entity for re-use
 				if (localGridControlledEntity != null) 
 				{
                     IMyCockpit cockpit = localGridControlledEntity as Sandbox.ModAPI.IMyCockpit;
@@ -213,10 +495,19 @@ namespace EliDangHUD
 
                     localGridName = localGrid.DisplayName;
 
-					CalculateLocalGridAndSubgridHydrogenTime();
-				} 
-				else 
+					if (!localGridHydrogenTanksInitialized)
+					{
+						InitializeLocalGridAndSubgridHydrogenTanks();
+                    }
+					else 
+					{
+                        CalculateLocalGridAndSubgridHydrogenTime();
+                    }
+						
+				}
+				else
 				{
+
 					// Reset values if the entity is not available.
 					localGridVelocity = Vector3D.Zero;
 					localGridControlledEntityPosition = Vector3D.Zero;
@@ -232,7 +523,6 @@ namespace EliDangHUD
 		/// <returns></returns>
 		public bool IsLocalPlayerControllingGrid()
 		{
-
             IMyShipController controlledObj = MyAPIGateway.Session?.ControlledObject as IMyShipController;
 			if (controlledObj == null)
 			{ 
@@ -259,21 +549,92 @@ namespace EliDangHUD
 				return false; 
 			}
 
+			IMyCockpit cockpit = controlledObj as IMyCockpit;
+			if (cockpit == null) 
+			{
+				return false;
+			}
+            
             return true; // Physically sitting in this grid
-
-            // Returns true if the controlled object is a ship controller.
-            //return MyAPIGateway.Session.ControlledObject is IMyShipController;
 		}
 
-		/// <summary>
-		/// Retrieves the current entity controlled by the local player, a cockpit or seat for eg
-		/// </summary>
-		/// <returns></returns>
-		public IMyEntity LocalPlayerEntity()
+        /// <summary>
+        /// Get and return the nearest grid to the player, returns null if none nearby or player not found
+        /// </summary>
+        private IMyCubeGrid GetNearestGridToPlayer()
+        {
+            IMyCharacter character = MyAPIGateway.Session.Player?.Character;
+            if (character == null)
+            {
+                return null;
+            }
+
+            Vector3D playerPos = character.GetPosition();
+            BoundingSphereD sphere = new BoundingSphereD(playerPos, 100); // Get all grids within 100m of the player
+            List<VRage.Game.Entity.MyEntity> entities = new List<VRage.Game.Entity.MyEntity>();
+            MyGamePruningStructure.GetAllTopMostEntitiesInSphere(ref sphere, entities); // This should use the AABB (bounding box) of the grid, so if even a corner of the AABB is in the sphere it returns it.
+
+            VRage.Game.ModAPI.IMyCubeGrid nearestGrid = null;
+
+            if (entities == null)
+            {
+                return null;
+            }
+			if (entities.Count == 1)
+			{
+				MyEntity entity = entities[0];
+				VRage.Game.ModAPI.IMyCubeGrid grid = entity as VRage.Game.ModAPI.IMyCubeGrid;
+				if (grid?.Physics == null || grid.MarkedForClose)
+				{
+                    return null;
+                }
+				if (grid.WorldAABB.Contains(playerPos) == ContainmentType.Disjoint)
+				{
+                    return null;
+                }
+				nearestGrid = grid;
+			}
+			else 
+			{
+                double closestDistSqr = double.MaxValue;
+                foreach (MyEntity entity in entities)
+                {
+                    VRage.Game.ModAPI.IMyCubeGrid grid = entity as VRage.Game.ModAPI.IMyCubeGrid;
+                    if (grid?.Physics == null || grid.MarkedForClose)
+                    {
+                        continue;
+                    }
+                    if (grid.WorldAABB.Contains(playerPos) == ContainmentType.Disjoint)
+                    {
+                        continue; // Not inside or intersecting this grid's AABB
+                    }
+                    double distSqr = Vector3D.DistanceSquared(playerPos, grid.WorldAABB.Center);
+                    if (distSqr < closestDistSqr)
+                    {
+                        closestDistSqr = distSqr;
+                        nearestGrid = grid;
+                    }
+                }
+            }
+			return nearestGrid;
+        }
+
+        /// <summary>
+        /// Retrieves the current entity controlled by the local player, a cockpit or seat for eg. Only returns IMyCockpit entities to alleviate all the extra casts to IMyCockpit the original author was doing later on.
+        /// </summary>
+        /// <returns></returns>
+        public IMyCockpit GetLocalPlayerControlledEntity()
 		{
-			IMyControllableEntity controlledEntity = MyAPIGateway.Session.ControlledObject;
-			// Return the entity if available; otherwise, null.
-			return controlledEntity?.Entity;
+			VRage.Game.ModAPI.Interfaces.IMyControllableEntity controlledEntity = MyAPIGateway.Session.ControlledObject;
+			IMyCockpit cockpit = controlledEntity?.Entity as IMyCockpit;
+			if (cockpit != null)
+			{
+				return cockpit;
+			}
+			else
+			{
+				return null;
+			}
 		}
 
 		/// <summary>
@@ -331,111 +692,13 @@ namespace EliDangHUD
 		}
 
 
-        
 
-		//==============DAMAGE HANDLER===========================================================
-		//private Queue<IMySlimBlock> blocksToCheck = new Queue<IMySlimBlock>();
-		private HashSet<IMySlimBlock> damageHandlerMonitoredBlocks = new HashSet<IMySlimBlock>();
-		public IMyCubeGrid damageHandlerCurrentGrid;
-
-		/// <summary>
-		/// Should only be called once upon loading onto a grid to initialize the event handlers that monitor for damage changes.
-		/// </summary>
-		public void InitializeLocalGridDamageHandler()
-		{
-            IMyCockpit cockpit = MyAPIGateway.Session.ControlledObject as Sandbox.ModAPI.IMyCockpit;
-			if (cockpit == null) 
-			{
-                return;
-            }
-			IMyCubeGrid grid = cockpit.CubeGrid;
-
-			if (grid != null && grid != damageHandlerCurrentGrid)
-			{
-				// Detach from the previous grid
-				DetachDamageHandlerFromGrid();
-				// Attach to the new grid
-				AttachDamageHandlerToGrid(grid);
-			}
-		}
-
-
-		private void AttachDamageHandlerToGrid(IMyCubeGrid grid)
-		{
-			// 2025-07-24 This appears currently like the only useful component is attaching the event handler to OnBlockFunctionalChanged. 
-			// Otherwise it enques each block in the grid to the blocksToCheck Queue, which when CheckNextBlock is called will check a block and de-queue then re-queue it. But what is currently done with
-			// that is nothing, it calculates a damage differential and then does nothing with it...?
-			// Now monitoredBlocks IS used, when we detach from a grid later we remove the event handler on each block in that list. 
-			// I suspect the old way was periodic integrity check but the original author added event handlers instead and didn't remove the old queing of blocks?
-			var blocks = new List<IMySlimBlock>();
-			grid.GetBlocks(blocks);
-
-			foreach (var block in blocks)
-			{
-				if (block.FatBlock != null)
-				{
-					block.ComponentStack.IsFunctionalChanged += OnBlockFunctionalChanged;
-					damageHandlerMonitoredBlocks.Add(block);
-				}
-				//blocksToCheck.Enqueue(block);  // Enqueue all blocks for periodic integrity check
-			}
-            damageHandlerCurrentGrid = grid;
-        }
-
-		private void DetachDamageHandlerFromGrid()
-		{
-			foreach (var block in damageHandlerMonitoredBlocks)
-			{
-				block.ComponentStack.IsFunctionalChanged -= OnBlockFunctionalChanged;
-			}
-			damageHandlerMonitoredBlocks.Clear();
-			//blocksToCheck.Clear();
-			damageHandlerCurrentGrid = null;
-		}
-
-		private void OnBlockFunctionalChanged()
-		{
-			//MyAPIGateway.Utilities.ShowMessage("Damage", "A block on your grid has been destroyed.");
-			damageAmount += 1;
-		}
-
-		//private void CheckNextBlock()
-		//{
-		//	if (blocksToCheck.Count > 0)
-		//	{
-		//		IMySlimBlock block = blocksToCheck.Dequeue();
-		//		blocksToCheck.Enqueue(block);  // Re-enqueue the block for continuous checking
-
-		//		if (block.MaxIntegrity > block.Integrity)
-		//		{
-		//			float integrityDif = block.Integrity/block.MaxIntegrity;
-		//			//damageAmount += (1-integrityDif)*0.01f;
-
-		//			//string displayName = block.BlockDefinition.DisplayNameText;
-		//			//MyAPIGateway.Utilities.ShowMessage(displayName, Convert.ToString(Math.Round(integrityDif*100)) + "%");
-		//		}
-		//	}
-		//}
-			
-		/// <summary>
-		/// Returns the current damage amount and re-sets it to 0. Ie. stores the current value, resets global var to 0, then returns current value stored.
-		/// </summary>
-		/// <returns></returns>
-		public double GetDamageAmount()
-		{
-			double value = damageAmount;
-			damageAmount = 0;
-			return value;
-		}
-
-		
-
-		/// <summary>
-		/// Calculate the grid power produced vs consumed. For batteries we use Current Output as consumed and Max Output as produced. For power producers (reactors, solar) we use Current Output as consumed and Max Output as produced.
-		/// </summary>
-		/// <param name="grid"></param>
-		/// <returns>The percentage of power being used currently vs max total capable</returns>
-		public float GetGridPowerUsagePercentage(IMyCubeGrid grid)
+        /// <summary>
+        /// Calculate the grid power produced vs consumed. For batteries we use Current Output as consumed and Max Output as produced. For power producers (reactors, solar) we use Current Output as consumed and Max Output as produced.
+        /// </summary>
+        /// <param name="grid"></param>
+        /// <returns>The percentage of power being used currently vs max total capable</returns>
+        public float GetGridPowerUsagePercentage(IMyCubeGrid grid)
 		{
 			float totalPowerProduced = 0f;
 			float totalPowerConsumed = 0f;
@@ -507,34 +770,70 @@ namespace EliDangHUD
             return tank.Capacity > 0 && (tank.DetailedInfo.Contains("Hydrogen") || tank.DefinitionDisplayNameText.Contains("Hydrogen") || tank.BlockDefinition.SubtypeName.Contains("Hydrogen"));
         }
 
+		private void InitializeLocalGridAndSubgridHydrogenTanks() 
+		{
+            List<IMyCubeGrid> grids = new List<IMyCubeGrid>();
+
+            // Use the below logic to calculate the hydrogen capacity of the grid the player controlls and any attached subgrids. 
+            MyAPIGateway.GridGroups.GetGroup(MyAPIGateway.Session.LocalHumanPlayer.Controller.ControlledEntity.Entity.GetTopMostParent() as IMyCubeGrid, GridLinkTypeEnum.Logical, grids);
+
+            double totalCapacity = 0;
+            double currentHydrogen = 0;
+            double totalConsumptionRate = 0;
+
+            // Loop through grid and subgrids
+            foreach (IMyCubeGrid grid in grids)
+            {
+                List<IMySlimBlock> blocks = new List<IMySlimBlock>();
+                grid.GetBlocks(blocks, block => block.FatBlock is IMyGasTank);
+
+                foreach (IMySlimBlock block in blocks)
+                {
+                    IMyGasTank tank = block.FatBlock as IMyGasTank;
+                    if (tank.IsWorking && IsHydrogenTank(tank))
+                    {
+						localGridHydrogenTanksDict[block.Position] = tank;
+                        totalCapacity += tank.Capacity;
+                        currentHydrogen += tank.Capacity * tank.FilledRatio;
+                    }
+                   
+                }
+            }
+
+            remainingH2 = currentHydrogen;
+            if (remainingH2 != remainingH2_prev)
+            {
+                // If we have lower currentHydrogen than we did last check, calculate consumption based on time elapsed.
+                HydrogenThrusterConsumptionRate = (remainingH2_prev - remainingH2) / deltaTimeSinceLastTick;
+            }
+            remainingH2_prev = currentHydrogen;
+
+            double timeRemaining = totalConsumptionRate > 0 ? (currentHydrogen * 1000) / totalConsumptionRate : 0;
+
+
+            timeRemaining = currentHydrogen / HydrogenThrusterConsumptionRate;
+
+            // Display the result to the player (HUD message, etc.)
+            //Echo($"Hydrogen Time Remaining: {timeRemaining} seconds");
+            //Echo ($"Capacity: {totalCapacity} - Current: {currentHydrogen} - Consumption: {HydrogenThrusterConsumptionRate}");
+
+            H2powerSeconds = timeRemaining;
+
+            H2Ratio = (float)(remainingH2 / totalCapacity);
+        }
         private void CalculateLocalGridAndSubgridHydrogenTime()
 		{
-			var grids = new List<IMyCubeGrid>();
-
-			// Use the below logic to calculate the hydrogen capacity of the grid the player controlls and any attached subgrids. 
-			MyAPIGateway.GridGroups.GetGroup(MyAPIGateway.Session.LocalHumanPlayer.Controller.ControlledEntity.Entity.GetTopMostParent() as IMyCubeGrid, GridLinkTypeEnum.Logical, grids);
-
 			double totalCapacity = 0;
 			double currentHydrogen = 0;
 			double totalConsumptionRate = 0;
 
-			// Loop through grid and subgrids
-			foreach (var grid in grids)
+			foreach (KeyValuePair<Vector3I, IMyGasTank> blockKeyPair in localGridHydrogenTanksDict)
 			{
-				var blocks = new List<IMySlimBlock>();
-				grid.GetBlocks(blocks, block => block.FatBlock is IMyGasTank || block.FatBlock is IMyThrust);
-
-				foreach (var block in blocks)
-				{
-					if (block.FatBlock is IMyGasTank)
-					{
-						IMyGasTank tank = block.FatBlock as IMyGasTank;
-						if(tank.IsWorking && IsHydrogenTank(tank))
-                        {
-							totalCapacity += tank.Capacity;
-							currentHydrogen += tank.Capacity * tank.FilledRatio;
-						}
-					}
+				IMyGasTank tank = blockKeyPair.Value;
+				if(tank.IsWorking && IsHydrogenTank(tank))
+                {
+					totalCapacity += tank.Capacity;
+					currentHydrogen += tank.Capacity * tank.FilledRatio;
 				}
 			}
 
