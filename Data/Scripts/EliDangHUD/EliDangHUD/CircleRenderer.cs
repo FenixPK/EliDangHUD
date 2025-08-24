@@ -516,6 +516,9 @@ namespace EliDangHUD
         public bool renderHoloHologramInSeat = false;
         public string renderHoloHologramsInSeat_DESCRIPTION = "Whether holo table holograms should still render if you are in a cockpit that has active hud.";
 
+        public bool useClusterSlices = false;
+        public string useClusterSlices_DESCRIPTION = "When true will use slices of grouped blocks that expand in the XZ direction one Y level at a time, draws holographic boxes instead of each block. For performance reasons.";
+
     }
 
     [MySessionComponentDescriptor(MyUpdateOrder.BeforeSimulation | MyUpdateOrder.AfterSimulation)]
@@ -549,7 +552,7 @@ namespace EliDangHUD
 		/// <summary>
 		/// This holds the settings that the mod uses globally, not per ship/seat. "theSettings" gets saved to XML in the save world folder.
 		/// </summary>
-        private ModSettings theSettings = new ModSettings(); // Is instantiated with default values as a new ModSettings object, which is then overwritten by the settings file if it exists.
+        public ModSettings theSettings = new ModSettings(); // Is instantiated with default values as a new ModSettings object, which is then overwritten by the settings file if it exists.
 		// For multiplayer the client requests this from the server. For single player it loads from the saved world folder. 
 		// This means I've completely overhauled the code so any reference to static constants like "someConstant" are now "theSettings.someConstant" instead. 
 		// Saves having to update 4 places when adding a new setting for eg.
@@ -758,10 +761,10 @@ namespace EliDangHUD
         private MatrixD HG_scalingMatrixTarget;
         private bool HG_initialized = false;
         private bool HG_initializedTarget = false;
-        private double HG_Scale = 0.0075;//0.0125;
+        //public double HG_Scale = 0.0075;//0.0125;
         private Vector3D _hologramRightOffset_HardCode = new Vector3D(-0.2, 0.075, 0);
         //private Vector3D _hologramOffsetLeft_HardCode = new Vector3D(0.2, 0.075, 0);
-        private double HG_scaleFactor = 10;
+        //public double HG_scaleFactor = 10;
         private double HG_activationTime = 0;
         private double HG_activationTimeTarget = 0;
 
@@ -1098,12 +1101,12 @@ namespace EliDangHUD
 			DrawArc(worldRadarPos-radarMatrix.Up*0.0025, radarRadius*1.27, radarMatrix.Up, 360-30-arcLength, 360-30, theSettings.lineColor, 0.007f, 0.5f);
 
 			
-			double powerSeconds = (double)gHandler.H2powerSeconds;
+			double powerSeconds = (double)gHandler.localGridHydrogenRemainingSeconds;
 			string powerSecondsS = "@" + FormatSecondsToReadableTime(powerSeconds);
 			Vector3D hydrogenSecondsRemainingPos = _hydrogenSecondsRemainingPosition + radarMatrix.Left * powerSecondsS.Length * _hydrogenSecondsRemainingSizeModifier * 1.8;
 			DrawText (powerSecondsS, _hydrogenSecondsRemainingSizeModifier, hydrogenSecondsRemainingPos, radarMatrix.Forward, LINECOLOR_Comp, 1);
 
-			float powerPer = 56f*gHandler.H2Ratio;
+			float powerPer = 56f*gHandler.localGridHydrogenFillRatio;
 			DrawArc(worldRadarPos-radarMatrix.Up*0.0025, radarRadius*1.27 + 0.01, radarMatrix.Up, 360-37-powerPer, 360-37, LINECOLOR_Comp, 0.002f, 0.75f);
 		}
 
@@ -1594,14 +1597,14 @@ namespace EliDangHUD
 
                 // Get the head position from the head matrix
                 _headPosition = _headMatrix.Translation;
-                _headPosition -= gHandler.localGridControlledEntityPosition;
+                _headPosition -= gHandler.localGridControlledEntity.GetPosition();
             }
 			//==============================================================
 
 
 			// COCKPIT RADAR SCREEN POSITION AND OFFSET //
 			// Apply the radar offset to the ship's position
-			radarMatrix = gHandler.localGridControlledEntityMatrix; // Set the radar matrix = the localGrid controlled entity matrix, ie. the cockpit or control seat.
+			radarMatrix = gHandler.localGridControlledEntity.WorldMatrix; // Set the radar matrix = the localGrid controlled entity matrix, ie. the cockpit or control seat.
             worldRadarPos = Vector3D.Transform(radarOffset, radarMatrix) + _headPosition;
 
            
@@ -1670,9 +1673,9 @@ namespace EliDangHUD
             bool isInGravity = gravity.LengthSquared() > 0.0001;
 			if (isInGravity)
 			{
-				MyPlanet planet = MyGamePruningStructure.GetClosestPlanet(gHandler.localGridPosition);
-				Vector3D surfacePosition = planet.GetClosestSurfacePointGlobal(gHandler.localGridPosition);
-				gHandler.localGridAltitude = Vector3D.Distance(gHandler.localGridPosition, surfacePosition);
+				MyPlanet planet = MyGamePruningStructure.GetClosestPlanet(gHandler.localGrid.GetPosition());
+				Vector3D surfacePosition = planet.GetClosestSurfacePointGlobal(gHandler.localGrid.GetPosition());
+				gHandler.localGridAltitude = Vector3D.Distance(gHandler.localGrid.GetPosition(), surfacePosition);
 			}
 			else 
 			{
@@ -1863,9 +1866,9 @@ namespace EliDangHUD
             _currentTargetPositionReturned = new Vector3D(); // Will reuse this.
             if (currentTarget != null && !currentTarget.Closed)
             {
-                
+
                 // In here we will check if the player can still actively or passively target the current target and release them if not, or adjust range brackets accordingly if still targetted. 
-                CanGridRadarDetectEntity(_playerHasPassiveRadar, _playerHasActiveRadar, _playerMaxPassiveRange, _playerMaxActiveRange, gHandler.localGridPosition,
+                CanGridRadarDetectEntity(_playerHasPassiveRadar, _playerHasActiveRadar, _playerMaxPassiveRange, _playerMaxActiveRange, gHandler.localGrid.GetPosition(),
                     currentTarget, out _playerCanDetectCurrentTarget, out _currentTargetPositionReturned, out _distanceToCurrentTargetSqr, out _currentTargetHasActiveRadar, out _currentTargetMaxActiveRange);
 
                 VRage.Game.ModAPI.IMyCubeGrid targetGrid = currentTarget as VRage.Game.ModAPI.IMyCubeGrid;
@@ -1958,7 +1961,7 @@ namespace EliDangHUD
                 bool entityHasActiveRadar = false;
                 double entityMaxActiveRange = 0;
 
-                CanGridRadarDetectEntity(_playerHasPassiveRadar, _playerHasActiveRadar, _playerMaxPassiveRange, _playerMaxActiveRange, gHandler.localGridPosition,
+                CanGridRadarDetectEntity(_playerHasPassiveRadar, _playerHasActiveRadar, _playerMaxPassiveRange, _playerMaxActiveRange, gHandler.localGrid.GetPosition(),
                     entity, out playerCanDetect, out entityPos, out entityDistanceSqr, out entityHasActiveRadar, out entityMaxActiveRange);
 
 				radarPings[i].PlayerCanDetect = playerCanDetect;
@@ -2285,14 +2288,9 @@ namespace EliDangHUD
 
             if (gHandler != null)
             {
+                gHandler.theSettings = theSettings; // Keep settings in sync
                 gHandler.UpdateLocalGrid(); // Always update current grid each tick
 
-                if (gHandler.damageHandlerCurrentGrid == null)
-                {
-                    // Only if not already initialized call this method, as it adds event handlers on each BLOCK of the grid for if the Functional status changes (ie. is damaged to non-functional).
-                    // Not quite sure how this plays into the total damage variable for the grid and how it affects glitch just yet...
-                    //gHandler.InitializeLocalGridDamageHandler(); // 2025-08-22 disabled for now
-                }
             }
 
             // Each tick check if the player is controlling a grid
@@ -2335,7 +2333,7 @@ namespace EliDangHUD
                 }
 				else 
 				{
-                    if (!gHandler.localGridControlledEntityCustomName.Contains("[ELI_HUD]"))
+                    if (!gHandler.localGridControlledEntity.CustomName.Contains("[ELI_HUD]"))
                     {
                         Echo("Include [ELI_HUD] tag in cockpit block name to enable Scanner.");
                         _controlledBlockTaggedForMod = false;
@@ -4231,7 +4229,7 @@ namespace EliDangHUD
             // So we will split this into three positions, three offsets. And it solves a request where users wanted to move all of this stuff around independently too. If I can finish it in time haha.
 
             // Fetch the player's cockpit entity and it's world position (ie. the block the player is controlling). 
-            Vector3D playerGridPos = gHandler.localGridControlledEntityPosition;
+            Vector3D playerGridControlledEntityPosition = gHandler.localGridControlledEntity.GetPosition();
 
             // CAMERA POSITION //
             // Get the camera's vectors
@@ -4366,7 +4364,7 @@ namespace EliDangHUD
 			DrawQuad(radarPos-(radarUp*0.010), radarUp, (double)radarRadius*2.25, MaterialCircleSeeThrough, new Vector4(0, 0, 0, 0.75f)); //Dim Backing
 			DrawQuad(radarPos + (radarUp*0.025), viewBackward, 0.25, MaterialCircleSeeThroughAdd, theSettings.lineColor*0.075f, true);
 
-            UpdateRadarAnimations(playerGridPos);
+            UpdateRadarAnimations(playerGridControlledEntityPosition);
 
             // Okay I had to do some research on this. The way this works is Math.Sin() returns a value between -1 and 1, so we add 1 to it to get a value between 0 and 2, then divide by 2 to get a value between 0 and 1.
 			// Basically shifting the wave up so we are into positive value only territory, and then scaling it to a 0-1 range where 0 is completely invisible and 1 is fully visible. Neat.
@@ -4413,7 +4411,7 @@ namespace EliDangHUD
 				{
                     fadeDimmer = 1 - Clamped(1 - (float)((_fadeDistanceSqr - radarPings[i].RadarPingDistanceSqr) / (_fadeDistanceSqr - _radarShownRangeSqr)), 0, 1);
                 }
-                Vector3D scaledPos = ApplyLogarithmicScaling(radarPings[i].RadarPingPosition, playerGridPos); // Apply radar scaling
+                Vector3D scaledPos = ApplyLogarithmicScaling(radarPings[i].RadarPingPosition, playerGridControlledEntityPosition); // Apply radar scaling
 
                 // Position on the radar
                 Vector3D radarEntityPos = radarPos + scaledPos;
@@ -4553,7 +4551,7 @@ namespace EliDangHUD
                 double dotProduct = Vector3D.Dot(radarMatrix.Forward, targetDir);
 
                 Vector3D targetPipPos = radarPos;
-                Vector3D targetPipDir = Vector3D.Normalize(currentTarget.WorldVolume.Center - playerGridPos) * ((double)radarRadius * crossSize * 0.55);
+                Vector3D targetPipDir = Vector3D.Normalize(currentTarget.WorldVolume.Center - playerGridControlledEntityPosition) * ((double)radarRadius * crossSize * 0.55);
 
                 // Calculate the component of the position along the forward vector
                 Vector3D forwardComponent = Vector3D.Dot(targetPipDir, radarMatrix.Forward) * radarMatrix.Forward;
@@ -7046,8 +7044,8 @@ namespace EliDangHUD
                 driveList = new List<BlockTracker>();
                 blockList = HG_GetBlockInfo(hologramGrid, ref gridHealthCurrent, ref gridHealthMax);
                 // Define a scaling matrix for positioning on the dashboard
-                double thicc = HG_scaleFactor / (hologramGrid.WorldVolume.Radius / hologramGrid.GridSize); // HG_scaleFactor is global.
-                scalingMatrixHG = MatrixD.CreateScale(HG_Scale * thicc); //HG_Scale is global
+                double thicc = gHandler.hologramScaleFactor / (hologramGrid.WorldVolume.Radius / hologramGrid.GridSize); 
+                scalingMatrixHG = MatrixD.CreateScale(gHandler.hologramScale * thicc);
 
                 for (int b = 0; b < blockList.Count; b++)
                 {
@@ -7074,8 +7072,8 @@ namespace EliDangHUD
                 blockDict = HG_GetBlockInfoDict(_nearestGridToPlayer, ref gridHealthCurrent, ref gridHealthMax);
 
                 // Define a scaling matrix for positioning on the dashboard
-                double thicc = HG_scaleFactor / (_nearestGridToPlayer.WorldVolume.Radius / _nearestGridToPlayer.GridSize); // HG_scaleFactor is global.
-                scalingMatrixHG = MatrixD.CreateScale(HG_Scale * thicc); //HG_Scale is global
+                double thicc = gHandler.hologramScaleFactor / (_nearestGridToPlayer.WorldVolume.Radius / _nearestGridToPlayer.GridSize); 
+                scalingMatrixHG = MatrixD.CreateScale(gHandler.hologramScale * thicc); 
 
                 foreach (KeyValuePair<Vector3I, BlockTracker> blockKeyPair in blockDict)
                 {
@@ -7098,8 +7096,8 @@ namespace EliDangHUD
                 driveList = new List<BlockTracker>();
                 blockList = HG_GetBlockInfo(hologramGrid, ref gridHealthCurrent, ref gridHealthMax);
                 // Define a scaling matrix for positioning on the dashboard
-                double thicc = HG_scaleFactor / (hologramGrid.WorldVolume.Radius / hologramGrid.GridSize); // HG_scaleFactor is global.
-                scalingMatrixHG = MatrixD.CreateScale(HG_Scale * thicc); //HG_Scale is global
+                double thicc = gHandler.hologramScaleFactor / (hologramGrid.WorldVolume.Radius / hologramGrid.GridSize); // HG_scaleFactor is global.
+                scalingMatrixHG = MatrixD.CreateScale(gHandler.hologramScale * thicc); //HG_Scale is global
 
                 for (int b = 0; b < blockList.Count; b++)
                 {
@@ -7119,8 +7117,8 @@ namespace EliDangHUD
                 driveList = new List<BlockTracker>();
                 blockList = HG_GetBlockInfo(_nearestGridToPlayer, ref gridHealthCurrent, ref gridHealthMax);
                 // Define a scaling matrix for positioning on the dashboard
-                double thicc = HG_scaleFactor / (_nearestGridToPlayer.WorldVolume.Radius / _nearestGridToPlayer.GridSize); // HG_scaleFactor is global.
-                scalingMatrixHG = MatrixD.CreateScale(HG_Scale * thicc); //HG_Scale is global
+                double thicc = gHandler.hologramScaleFactor / (_nearestGridToPlayer.WorldVolume.Radius / _nearestGridToPlayer.GridSize); // HG_scaleFactor is global.
+                scalingMatrixHG = MatrixD.CreateScale(gHandler.hologramScale * thicc); //HG_Scale is global
 
                 for (int b = 0; b < blockList.Count; b++)
                 {
@@ -7598,8 +7596,8 @@ namespace EliDangHUD
                 color.W = LerpF(cRed.W, cYel.W, (float)HP);
             }
 
-            double thicc = HG_scaleFactor / (grid.WorldVolume.Radius / grid.GridSize);
-            var size = (float)HG_Scale * 0.65f * (float)thicc;//*grid.GridSize;
+            double thicc = gHandler.hologramScaleFactor / (grid.WorldVolume.Radius / grid.GridSize);
+            var size = (float)gHandler.hologramScale * 0.65f * (float)thicc;//*grid.GridSize;
             var material = MaterialSquare;
 
             double flipperAxis = 1;
@@ -7738,96 +7736,96 @@ namespace EliDangHUD
             return cluster;
         }
 
-        public static List<ClusterBox> ClusterBlocksIntoClusterBox(Dictionary<Vector3I, BlockTracker> blocks)
-        {
-            var visited = new HashSet<Vector3I>();
-            var clusters = new List<ClusterBox>();
+        //public static List<ClusterBox> ClusterBlocksIntoClusterBox(Dictionary<Vector3I, BlockTracker> blocks)
+        //{
+        //    var visited = new HashSet<Vector3I>();
+        //    var clusters = new List<ClusterBox>();
 
-            foreach (var kvp in blocks)
-            {
-                Vector3I start = kvp.Key;
+        //    foreach (var kvp in blocks)
+        //    {
+        //        Vector3I start = kvp.Key;
 
-                if (visited.Contains(start))
-                    continue;
+        //        if (visited.Contains(start))
+        //            continue;
 
-                ClusterBox cluster = ExpandCluster(start, blocks, visited);
-                clusters.Add(cluster);
-            }
+        //        ClusterBox cluster = ExpandCluster(start, blocks, visited);
+        //        clusters.Add(cluster);
+        //    }
 
-            return clusters;
-        }
+        //    return clusters;
+        //}
 
-        private static ClusterBox ExpandCluster(Vector3I start, Dictionary<Vector3I, BlockTracker> blocks, HashSet<Vector3I> visited)
-        {
-            Vector3I min = start;
-            Vector3I max = start;
+        //private static ClusterBox ExpandCluster(Vector3I start, Dictionary<Vector3I, BlockTracker> blocks, HashSet<Vector3I> visited)
+        //{
+        //    Vector3I min = start;
+        //    Vector3I max = start;
 
-            // expand in +X
-            while (true)
-            {
-                Vector3I next = new Vector3I(max.X + 1, max.Y, max.Z);
-                if (blocks.ContainsKey(next) && !visited.Contains(next))
-                    max.X++;
-                else break;
-            }
+        //    // expand in +X
+        //    while (true)
+        //    {
+        //        Vector3I next = new Vector3I(max.X + 1, max.Y, max.Z);
+        //        if (blocks.ContainsKey(next) && !visited.Contains(next))
+        //            max.X++;
+        //        else break;
+        //    }
 
-            // expand in +Y
-            bool canExpandY = true;
-            while (canExpandY)
-            {
-                int newY = max.Y + 1;
-                for (int x = min.X; x <= max.X; x++)
-                {
-                    if (!blocks.ContainsKey(new Vector3I(x, newY, min.Z)) || visited.Contains(new Vector3I(x, newY, min.Z)))
-                    {
-                        canExpandY = false;
-                        break;
-                    }
-                }
-                if (canExpandY) max.Y++;
-            }
+        //    // expand in +Y
+        //    bool canExpandY = true;
+        //    while (canExpandY)
+        //    {
+        //        int newY = max.Y + 1;
+        //        for (int x = min.X; x <= max.X; x++)
+        //        {
+        //            if (!blocks.ContainsKey(new Vector3I(x, newY, min.Z)) || visited.Contains(new Vector3I(x, newY, min.Z)))
+        //            {
+        //                canExpandY = false;
+        //                break;
+        //            }
+        //        }
+        //        if (canExpandY) max.Y++;
+        //    }
 
-            // expand in +Z
-            bool canExpandZ = true;
-            while (canExpandZ)
-            {
-                int newZ = max.Z + 1;
-                for (int x = min.X; x <= max.X; x++)
-                {
-                    for (int y = min.Y; y <= max.Y; y++)
-                    {
-                        if (!blocks.ContainsKey(new Vector3I(x, y, newZ)) || visited.Contains(new Vector3I(x, y, newZ)))
-                        {
-                            canExpandZ = false;
-                            break;
-                        }
-                    }
-                    if (!canExpandZ) break;
-                }
-                if (canExpandZ) max.Z++;
-            }
+        //    // expand in +Z
+        //    bool canExpandZ = true;
+        //    while (canExpandZ)
+        //    {
+        //        int newZ = max.Z + 1;
+        //        for (int x = min.X; x <= max.X; x++)
+        //        {
+        //            for (int y = min.Y; y <= max.Y; y++)
+        //            {
+        //                if (!blocks.ContainsKey(new Vector3I(x, y, newZ)) || visited.Contains(new Vector3I(x, y, newZ)))
+        //                {
+        //                    canExpandZ = false;
+        //                    break;
+        //                }
+        //            }
+        //            if (!canExpandZ) break;
+        //        }
+        //        if (canExpandZ) max.Z++;
+        //    }
 
-            // mark all blocks inside cuboid as visited
-            ClusterBox cluster = new ClusterBox { Min = min, Max = max };
+        //    // mark all blocks inside cuboid as visited
+        //    ClusterBox cluster = new ClusterBox { Min = min, Max = max };
 
-            for (int x = min.X; x <= max.X; x++)
-            {
-                for (int y = min.Y; y <= max.Y; y++)
-                {
-                    for (int z = min.Z; z <= max.Z; z++)
-                    {
-                        Vector3I pos = new Vector3I(x, y, z);
-                        if (blocks.ContainsKey(pos))
-                        {
-                            visited.Add(pos);
-                            cluster.Blocks.Add(blocks[pos]);
-                        }
-                    }
-                }
-            }
+        //    for (int x = min.X; x <= max.X; x++)
+        //    {
+        //        for (int y = min.Y; y <= max.Y; y++)
+        //        {
+        //            for (int z = min.Z; z <= max.Z; z++)
+        //            {
+        //                Vector3I pos = new Vector3I(x, y, z);
+        //                if (blocks.ContainsKey(pos))
+        //                {
+        //                    visited.Add(pos);
+        //                    cluster.Blocks.Add(blocks[pos]);
+        //                }
+        //            }
+        //        }
+        //    }
 
-            return cluster;
-        }
+        //    return cluster;
+        //}
 
         //---------------
 
@@ -8092,7 +8090,7 @@ namespace EliDangHUD
                         Vector3D holoTableOffset = new Vector3D(theData.holoX, theData.holoY, theData.holoZ);
                         Vector3D holoTablePos = holoTableMatrix.Translation + Vector3D.TransformNormal(holoTableOffset, holoTableMatrix);
 
-                        double thicc = HG_scaleFactor / (localGrid.WorldVolume.Radius / localGrid.GridSize);
+                        double thicc = gHandler.hologramScaleFactor / (localGrid.WorldVolume.Radius / localGrid.GridSize);
                         MatrixD scalingMatrixHG = MatrixD.CreateScale(theData.holoScale * thicc);
 
                         // Handle rotations per holo table side setting.
@@ -8210,7 +8208,7 @@ namespace EliDangHUD
                 Vector3D holoTableBaseOffset = new Vector3D(theData.holoBaseX, theData.holoBaseY, theData.holoBaseZ);
                 Vector3D holoTablePos = holoTableMatrix.Translation + Vector3D.TransformNormal(holoTableOffset, holoTableMatrix);
 
-                double thicc = HG_scaleFactor / (grid.WorldVolume.Radius / grid.GridSize);
+                double thicc = gHandler.hologramScaleFactor / (grid.WorldVolume.Radius / grid.GridSize);
                 var size = (float)theData.holoScale * 0.65f * (float)thicc;
                 MatrixD scalingMatrixHG = MatrixD.CreateScale(theData.holoScale * thicc);
 
