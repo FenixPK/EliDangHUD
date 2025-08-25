@@ -1,8 +1,5 @@
-using Sandbox.Definitions;
-using Sandbox.Game;
 using Sandbox.Game.Entities;
 using Sandbox.ModAPI;
-using SpaceEngineers.Game.ModAPI;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -10,13 +7,11 @@ using System.Linq;
 using VRage.Game.Components;
 using VRage.Game.Entity;
 using VRage.Game.ModAPI;
-using VRage.Game.ModAPI.Interfaces;
+using VRage.Game.ModAPI.Ingame.Utilities;
 using VRage.ModAPI;
-using VRage.ObjectBuilders;
 using VRage.Utils;
 using VRageMath;
 using static EliDangHUD.CircleRenderer;
-using static VRageRender.Utils.MyWingedEdgeMesh;
 
 namespace EliDangHUD
 {
@@ -34,10 +29,7 @@ namespace EliDangHUD
         /// </summary>
         public IMyCockpit localGridControlledEntity;
 
-        /// <summary>
-        /// Stores the current CustomData for the controlled entity (seat/cockpit)
-        /// </summary>
-        public string localGridControlledEntityCustomData;
+        public ControlledEntityCustomData localGridControlledEntityCustomData;
 
         /// <summary>
         /// Stores the linear velocity of the CubeGrid belonging to the controlled entity (seat/cockpit)
@@ -90,10 +82,19 @@ namespace EliDangHUD
         /// </summary>
         public float localGridPowerStoredMax;
 
+        public float localGridPowerUsagePercentage;
+
+        public float localGridJumpDrivePowerStoredPrevious;
+        public float localGridJumpDrivePowerStoredMax;
+        public float localGridJumpDrivePowerStored;
+        public double localGridJumpDriveTimeToReady = 0;
+
         /// <summary>
         /// Stores the result of dividing localGridPowerStored / localGridPowerConsumed. Ie at current rate of consumption how long will stored battery power last?
         /// </summary>
         public float localGridPowerHoursRemaining;
+
+        public bool localGridHasPower;
 
         public float localGridCurrentIntegrity = 0f;
 
@@ -115,6 +116,9 @@ namespace EliDangHUD
         private double localGridRemainingOxygen = 0;
         private double localGridRemainingOxygenPrevious = 0;
         public float localGridOxygenFillRatio = 0;
+
+        
+        
 
         /// <summary>
         /// Stopwatch used for calculating elapsed time since last check performed, stored in deltaTime as a double
@@ -141,6 +145,7 @@ namespace EliDangHUD
         // Yeah on second thought I think we should only handle the merges, not connectors/rotors/pistons. 
 
         public bool localGridInitialized = false;
+        public bool localGridControlledEntityInitialized = false; 
         public bool localGridBlocksInitialized = false;
         public Dictionary<Vector3I, IMySlimBlock> localGridAllBlocksDict = new Dictionary<Vector3I, IMySlimBlock>();
         public Dictionary<int, Dictionary<Vector3I, IMySlimBlock>> localGridAllBlocksDictByFloor = new Dictionary<int, Dictionary<Vector3I, IMySlimBlock>>();
@@ -152,9 +157,9 @@ namespace EliDangHUD
         public Dictionary<Vector3I, IMyJumpDrive> localGridJumpDrivesDict = new Dictionary<Vector3I, IMyJumpDrive>(); // TODO check if the FrameShiftDrive is a subtype of this or new block type? Want support for that mod over time. 
         public Dictionary<Vector3I, IMyTerminalBlock> localGridEligibleTerminals = new Dictionary<Vector3I, IMyTerminalBlock>();
         public Dictionary<Vector3I, IMyTerminalBlock> localGridRadarTerminals = new Dictionary<Vector3I, IMyTerminalBlock>();
+        public Dictionary<Vector3I, HoloRadarCustomData> localGridRadarTerminalsData = new Dictionary<Vector3I, HoloRadarCustomData>();
         public Dictionary<Vector3I, IMyTerminalBlock> localGridHologramTerminals = new Dictionary<Vector3I, IMyTerminalBlock>();
-
-        // TODO handle the custom data of the terminals eligible as a dictionary as well. 
+        public Dictionary<Vector3I, HologramCustomData> localGridHologramTerminalsData = new Dictionary<Vector3I, HologramCustomData>();
 
         // TODO add shield generators from shield mods? Midnight something or other was a new one I saw?
 
@@ -166,8 +171,11 @@ namespace EliDangHUD
         public Dictionary<Vector3I, Vector3I> localGridBlockToClusterMap = new Dictionary<Vector3I, Vector3I>();
 
         public bool localGridClusterSlicesNeedRefresh = false;
-        public List<ClusterBox> localGridBlockClusterSlices = new List<ClusterBox>();
-        public Dictionary<Vector3I, int> localGridBlockToClusterSliceIndexMap = new Dictionary<Vector3I, int>(); // WIP, probably will re-factor the slice logic first before doing more.
+        //public List<ClusterBox> localGridBlockClusterSlices = new List<ClusterBox>();
+        //public Dictionary<Vector3I, int> localGridBlockToClusterSliceIndexMap = new Dictionary<Vector3I, int>(); // WIP, probably will re-factor the slice logic first before doing more.
+
+        public Dictionary<int, List<ClusterBox>> localGridFloorClusterSlices = new Dictionary<int, List<ClusterBox>>();
+        public Dictionary<Vector3I, ClusterBox> localGridBlockToFloorClusterSlicesMap = new Dictionary<Vector3I, ClusterBox>();
 
 
         // I may not leave this in the gHandler...
@@ -203,10 +211,9 @@ namespace EliDangHUD
         // Cleans up the singleton instance when data is unloaded.
         protected override void UnloadData()
         {
-            Instance = null;
-            base.UnloadData();
-            // Ensure we detach from any grid we might still be attached to
             ResetLocalGrid();
+            Instance = null;
+            base.UnloadData();  
         }
 
         /// <summary>
@@ -235,22 +242,32 @@ namespace EliDangHUD
         {
             if (localGridBlocksInitialized && localGrid != null) // Safety check
             {
-
                 localGridAllBlocksDict[block.Position] = block;
                 localGridAllBlocksDictByFloor[block.Position.Y][block.Position] = block;
                 localGridBlockComponentStacks[block.ComponentStack] = block.Position;
                 block.ComponentStack.IntegrityChanged += OnBlockIntegrityChanged;
+
                 if (block.FatBlock is IMyTerminalBlock terminal)
                 {
-                    localGridEligibleTerminals[block.Position] = terminal;
-                    // If for some reason already tagged (welding/merging existing block?) add them to appropriate Dict. 
-                    if (terminal.CustomName.Contains("[ELI_LOCAL]"))
+                    if (!(terminal is IMyCockpit))
                     {
-                        localGridHologramTerminals[block.Position] = terminal;
-                    }
-                    if (terminal.CustomName.Contains("[ELI_HOLO]"))
-                    {
-                        localGridRadarTerminals[block.Position] = terminal;
+                        // Don't add cockpits
+                        localGridEligibleTerminals[block.Position] = terminal;
+                        terminal.CustomNameChanged += OnTerminalCustomNameChanged;
+                        terminal.CustomDataChanged += OnTerminalCustomDataChanged;
+                        // If for some reason already tagged (welding/merging existing block?) add them to appropriate Dict. 
+                        if (terminal.CustomName.Contains("[ELI_LOCAL]"))
+                        {
+                            localGridHologramTerminals[block.Position] = terminal;
+                            HologramCustomData theData = InitializeCustomDataHologram(terminal);
+                            localGridHologramTerminalsData[block.Position] = theData;
+                        }
+                        if (terminal.CustomName.Contains("[ELI_HOLO]"))
+                        {
+                            localGridRadarTerminals[block.Position] = terminal;
+                            HoloRadarCustomData theData = InitializeCustomDataHoloRadar(terminal);
+                            localGridRadarTerminalsData[block.Position] = theData;
+                        }
                     }
                 }
                 if (block.FatBlock is IMyGasTank tank)
@@ -287,7 +304,7 @@ namespace EliDangHUD
                 else
                 {
                     // TODO might want to change this to only fill a list of Y levels that need to be rebuilt, and have that done in update instead of every time a block is removed. It could then fire every x seconds too. 
-                    RebuildFloorClustersForY(localGridAllBlocksDictByFloor[block.Position.Y], block.Position.Y);
+                    RebuildFloorClustersForGridFloor(localGridAllBlocksDictByFloor[block.Position.Y], block.Position.Y);
                     localGridClusterSlicesNeedRefresh = true; // In case we are using cluster slices instead of block clusters
                 }
             }
@@ -304,9 +321,17 @@ namespace EliDangHUD
 
                 if (block.FatBlock is IMyTerminalBlock terminal)
                 {
-                    localGridEligibleTerminals.Remove(terminal.Position);
-                    localGridHologramTerminals.Remove(terminal.Position);
-                    localGridRadarTerminals.Remove(terminal.Position);
+                    if (!(terminal is IMyCockpit))
+                    {
+                        // Only handle non-cockpits
+                        terminal.CustomNameChanged -= OnTerminalCustomNameChanged;
+                        terminal.CustomDataChanged -= OnTerminalCustomDataChanged;
+                        localGridEligibleTerminals.Remove(terminal.Position);
+                        localGridHologramTerminals.Remove(terminal.Position);
+                        localGridRadarTerminals.Remove(terminal.Position);
+                        localGridHologramTerminalsData.Remove(terminal.Position);
+                        localGridRadarTerminalsData.Remove(terminal.Position);
+                    }  
                 }
                 if (block.FatBlock is IMyGasTank tank)
                 {
@@ -342,7 +367,7 @@ namespace EliDangHUD
                 else
                 {
                     // TODO might want to change this to only fill a list of Y levels that need to be rebuilt, and have that done in update instead of every time a block is removed. It could then fire every x seconds too. 
-                    RebuildFloorClustersForY(localGridAllBlocksDictByFloor[block.Position.Y], block.Position.Y);
+                    RebuildFloorClustersForGridFloor(localGridAllBlocksDictByFloor[block.Position.Y], block.Position.Y);
                     localGridClusterSlicesNeedRefresh = true; // In case we are using cluster slices instead of block clusters
                 }
             }
@@ -428,7 +453,7 @@ namespace EliDangHUD
 
                                 if (oldSliceIndex != newSliceIndex) 
                                 {
-                                    RebuildFloorClustersForY(localGridAllBlocksDictByFloor[block.Position.Y], block.Position.Y);
+                                    RebuildFloorClustersForGridFloor(localGridAllBlocksDictByFloor[block.Position.Y], block.Position.Y);
                                     localGridClusterSlicesNeedRefresh = true; // In case we are using cluster slices instead of block clusters
                                     // If we are using cluster slices we can trigger a refresh, since we want slices to contain only blocks of the same integrity. So if one in a slice gets damaged it
                                     // breaks off the slice it was a part of and becomes it's own slice. 
@@ -440,6 +465,111 @@ namespace EliDangHUD
             }
         }
 
+        private void OnTerminalCustomNameChanged(IMyTerminalBlock terminal)
+        {
+            if (localGridBlocksInitialized && localGrid != null) // Safety check
+            {
+                if (terminal.CustomName.Contains("[ELI_LOCAL]"))
+                {
+                    localGridHologramTerminals[terminal.Position] = terminal;
+                    localGridRadarTerminals.Remove(terminal.Position);
+                    localGridRadarTerminalsData.Remove(terminal.Position);
+                }
+                else if (terminal.CustomName.Contains("[ELI_HOLO]"))
+                {
+                    localGridRadarTerminals[terminal.Position] = terminal;
+                    localGridHologramTerminals.Remove(terminal.Position);
+                    localGridHologramTerminalsData.Remove(terminal.Position);
+                }
+                else 
+                {
+                    localGridRadarTerminals.Remove(terminal.Position);
+                    localGridRadarTerminalsData.Remove(terminal.Position);
+                    localGridHologramTerminals.Remove(terminal.Position);
+                    localGridHologramTerminalsData.Remove(terminal.Position);
+                }
+            }
+        }
+
+        private void OnTerminalCustomDataChanged(IMyTerminalBlock terminal)
+        {
+            if (localGridBlocksInitialized && localGrid != null) // Safety check
+            {
+                if (localGridHologramTerminals.ContainsKey(terminal.Position))
+                {
+                    HologramCustomData theData = new HologramCustomData();
+                    if (!localGridHologramTerminalsData.TryGetValue(terminal.Position, out theData)) // Get current values if present
+                    { 
+                        theData = new HologramCustomData();
+                    } 
+
+                    MyIni ini = new MyIni();
+                    MyIniParseResult result;
+                    ini.TryParse(terminal.CustomData, out result);
+                    ReadCustomDataHologram(ini, theData, terminal); // Might trigger OnTerminalCustomDataChanged again but only once and only if it writes new default values for new keys etc. 
+
+                    localGridHologramTerminalsData[terminal.Position] = theData;
+                }
+                else if (localGridRadarTerminals.ContainsKey(terminal.Position)) 
+                {
+                    HoloRadarCustomData theData = new HoloRadarCustomData();
+                    if (!localGridRadarTerminalsData.TryGetValue(terminal.Position, out theData)) // Get current values if present
+                    {
+                        theData = new HoloRadarCustomData();
+                    }
+
+                    MyIni ini = new MyIni();
+                    MyIniParseResult result;
+                    ini.TryParse(terminal.CustomData, out result);
+                    ReadCustomDataHoloRadar(ini, theData, terminal); // Might trigger OnTerminalCustomDataChanged again but only once and only if it writes new default values for new keys etc. 
+
+                    localGridRadarTerminalsData[terminal.Position] = theData;
+                }
+            }
+        }
+
+        private void OnControlledEntityCustomDataChanged(IMyTerminalBlock terminal)
+        {
+            if (localGridBlocksInitialized && localGrid != null && localGridControlledEntity != null) // Safety check
+            {
+                ControlledEntityCustomData theData = new ControlledEntityCustomData();
+                if (localGridControlledEntityCustomData != null)
+                {
+                    theData = localGridControlledEntityCustomData;
+                }
+
+                MyIni ini = new MyIni();
+                MyIniParseResult result;
+                ini.TryParse(terminal.CustomData, out result);
+                ReadCustomDataControlledEntity(ini, theData, terminal); // Might trigger OnTerminalCustomDataChanged again but only once and only if it writes new default values for new keys etc. 
+
+                localGridControlledEntityCustomData = theData;
+            }
+        }
+
+        public HologramCustomData InitializeCustomDataHologram(IMyTerminalBlock terminal) 
+        {
+            HologramCustomData theData = new HologramCustomData();
+
+            MyIni ini = new MyIni();
+            MyIniParseResult result;
+            ini.TryParse(terminal.CustomData, out result);
+            ReadCustomDataHologram(ini, theData, terminal); // Might trigger OnTerminalCustomDataChanged again but only once and only if it writes new default values for new keys etc. 
+
+            return theData;
+        }
+
+        public HoloRadarCustomData InitializeCustomDataHoloRadar(IMyTerminalBlock terminal)
+        {
+            HoloRadarCustomData theData = new HoloRadarCustomData();
+
+            MyIni ini = new MyIni();
+            MyIniParseResult result;
+            ini.TryParse(terminal.CustomData, out result);
+            ReadCustomDataHoloRadar(ini, theData, terminal); // Might trigger OnTerminalCustomDataChanged again but only once and only if it writes new default values for new keys etc. 
+
+            return theData;
+        }
 
         public void InitializeLocalGrid()
         {
@@ -448,11 +578,42 @@ namespace EliDangHUD
                 // Process blocks on grid
                 InitializeLocalGridBlocks();
 
+                if (!theSettings.useClusterSlices)
+                {
+                    ClusterLocalBlocks();
+                }
+                else 
+                {
+                    ClusterLocalBlocksIntoSlices();
+                }
+
                 // Add Event Handlers
                 localGrid.OnBlockAdded += OnLocalBlockAdded;
                 localGrid.OnBlockRemoved += OnLocalBlockRemoved;
 
                 localGridInitialized = true;
+            }
+        }
+
+        public void InitializeLocalGridControlledEntity() 
+        {
+            if (localGridControlledEntity != null) 
+            {
+                ControlledEntityCustomData theData = new ControlledEntityCustomData();
+                if (localGridControlledEntityCustomData != null)
+                {
+                    theData = localGridControlledEntityCustomData;
+                }
+
+                MyIni ini = new MyIni();
+                MyIniParseResult result;
+                ini.TryParse(localGridControlledEntity.CustomData, out result);
+                ReadCustomDataControlledEntity(ini, theData, localGridControlledEntity); // Might trigger OnTerminalCustomDataChanged again but only once and only if it writes new default values for new keys etc. 
+
+                localGridControlledEntityCustomData = theData;
+                localGridControlledEntity.CustomDataChanged += OnControlledEntityCustomDataChanged;
+
+                localGridControlledEntityInitialized = true;
             }
         }
 
@@ -465,28 +626,60 @@ namespace EliDangHUD
                 {
                     componentStack.IntegrityChanged -= OnBlockIntegrityChanged;
                 }
+                foreach (IMyTerminalBlock terminal in localGridEligibleTerminals.Values) 
+                {
+                    terminal.CustomDataChanged -= OnTerminalCustomDataChanged;
+                    terminal.CustomNameChanged -= OnTerminalCustomNameChanged;
+                }
                 localGrid.OnBlockAdded -= OnLocalBlockAdded;
                 localGrid.OnBlockRemoved -= OnLocalBlockRemoved;
+            }
+
+            if (localGridControlledEntity != null) 
+            {
+                localGridControlledEntityCustomData = null;
+                localGridControlledEntity.CustomDataChanged -= OnControlledEntityCustomDataChanged;
             }
 
             // Local grid and controlled entity if applicable
             localGrid = null;
             localGridControlledEntity = null;
+            localGridControlledEntityInitialized = false;
             localGridInitialized = false;
 
             // Local grid blocks
             localGridAllBlocksDict.Clear();
             localGridAllBlocksDictByFloor.Clear();
             localGridBlockComponentStacks.Clear();
+
+            // Local grid clusters
+            localGridBlockClusters.Clear();
+            localGridBlockToClusterMap.Clear();
+            localGridClustersNeedRefresh = false;
+
+            // Local grid cluster slices
+            localGridFloorClusterSlices.Clear();
+            localGridBlockToFloorClusterSlicesMap.Clear();
+            localGridClusterSlicesNeedRefresh = false;
+
+            // Local grid tanks/containers
             localGridHydrogenTanksDict.Clear();
             localGridOxygenTanksDict.Clear();
+
+            // Local grid power
             localGridPowerProducersDict.Clear();
             localGridBatteriesDict.Clear();
+
+            // Local grid jump drives
             localGridJumpDrivesDict.Clear();
+
+            // Local grid terminals
             localGridEligibleTerminals.Clear();
             localGridHologramTerminals.Clear();
+            localGridHologramTerminalsData.Clear();
             localGridRadarTerminals.Clear();
-            localGridBlockToClusterMap.Clear();
+            localGridRadarTerminalsData.Clear();
+
             localGridBlocksInitialized = false;
 
             // Local Grid vars
@@ -546,7 +739,13 @@ namespace EliDangHUD
             else
             {
                 // If not directly controlling a grid we find out if the player is inside the AABB of a grid, and if inside multiple AABB we use the nearest one. 
-                localGridControlledEntity = null;
+                if (localGridControlledEntity != null) 
+                {
+                    // If we were controlling a grid prior, and aren't anymore, clear the localGridControlledEntity and eventHandlers. 
+                    localGridControlledEntity.CustomDataChanged -= OnControlledEntityCustomDataChanged;
+                    localGridControlledEntity = null;
+                }
+
                 IMyCubeGrid nearestGrid = GetNearestGridToPlayer();
                 if (nearestGrid == null)
                 {
@@ -582,15 +781,25 @@ namespace EliDangHUD
                 block.ComponentStack.IntegrityChanged += OnBlockIntegrityChanged;
                 if (block.FatBlock is IMyTerminalBlock terminal)
                 {
-                    localGridEligibleTerminals[block.Position] = terminal;
-                    // If for some reason already tagged (welding/merging existing block?) add them to appropriate Dict. 
-                    if (terminal.CustomName.Contains("[ELI_LOCAL]"))
+                    if (!(terminal is IMyCockpit)) 
                     {
-                        localGridHologramTerminals[block.Position] = terminal;
-                    }
-                    if (terminal.CustomName.Contains("[ELI_HOLO]"))
-                    {
-                        localGridRadarTerminals[block.Position] = terminal;
+                        // don't add cockpits
+                        localGridEligibleTerminals[block.Position] = terminal;
+                        terminal.CustomNameChanged += OnTerminalCustomNameChanged;
+                        terminal.CustomDataChanged += OnTerminalCustomDataChanged;
+                        // If for some reason already tagged (welding/merging existing block?) add them to appropriate Dict. 
+                        if (terminal.CustomName.Contains("[ELI_LOCAL]"))
+                        {
+                            localGridHologramTerminals[block.Position] = terminal;
+                            HologramCustomData theData = InitializeCustomDataHologram(terminal);
+                            localGridHologramTerminalsData[block.Position] = theData;
+                        }
+                        if (terminal.CustomName.Contains("[ELI_HOLO]"))
+                        {
+                            localGridRadarTerminals[block.Position] = terminal;
+                            HoloRadarCustomData theData = InitializeCustomDataHoloRadar(terminal);
+                            localGridRadarTerminalsData[block.Position] = theData;
+                        }
                     }
                 }
                 if (block.FatBlock is IMyGasTank tank)
@@ -626,16 +835,21 @@ namespace EliDangHUD
                 {
                     InitializeLocalGrid();
                 }
+                if (!localGridControlledEntityInitialized) 
+                {
+                    InitializeLocalGridControlledEntity();
+                }
 
                 UpdateElapsedTimeDeltaTimerGHandler();
 
-                localGridVelocity = GetEntityCubeGridVelocity(localGridControlledEntity);
-                localGridVelocityAngular = GetEntityCubeGridVelocityAngular(localGridControlledEntity);
+                localGridVelocity = GetCubeGridVelocity(localGrid);
+                localGridVelocityAngular = GetCubeGridVelocityAngular(localGrid);
                 localGridSpeed = localGridVelocity.Length();
 
                 UpdateLocalGridPower();
                 UpdateLocalGridHydrogen();
                 UpdateLocalGridOxygen();
+                UpdateLocalGridJumpDrives();
 
                 if (localHologramScaleNeedsRefresh)
                 {
@@ -660,6 +874,7 @@ namespace EliDangHUD
                 float totalPowerConsumed = 0f;
                 float currentCharge = 0f;
                 float maxCharge = 0f;
+                bool gridHasPower = false;
 
                 foreach (IMyPowerProducer producer in localGridPowerProducersDict.Values)
                 {
@@ -667,7 +882,13 @@ namespace EliDangHUD
                     {
                         totalPowerConsumed += producer.CurrentOutput;
                         totalPowerProduced += producer.MaxOutput;
+                        if (producer.Enabled && producer.CurrentOutput > 0.01f)
+                        {
+                            gridHasPower = true;
+                        }
                     }
+                    
+
                 }
                 foreach (IMyBatteryBlock battery in localGridBatteriesDict.Values)
                 {
@@ -677,7 +898,12 @@ namespace EliDangHUD
                         totalPowerProduced += battery.MaxOutput;
                         currentCharge += battery.CurrentStoredPower;
                         maxCharge += battery.MaxStoredPower;
+                        if (battery.Enabled && battery.CurrentStoredPower > 0.01f) 
+                        {
+                            gridHasPower = true;
+                        }
                     }
+
                 }
 
                 float powerUsagePercentage = 0f;
@@ -690,10 +916,12 @@ namespace EliDangHUD
                 localGridPowerConsumed = totalPowerConsumed;
                 localGridPowerStored = currentCharge;
                 localGridPowerStoredMax = maxCharge;
+                localGridPowerUsagePercentage = powerUsagePercentage;
 
                 // Estimate time remaining
                 float timeRemaining = currentCharge / totalPowerConsumed;
                 localGridPowerHoursRemaining = timeRemaining;
+                localGridHasPower = gridHasPower;
             }
         }
 
@@ -758,6 +986,52 @@ namespace EliDangHUD
             localGridOxygenRemainingSeconds = timeRemaining;
 
             localGridOxygenFillRatio = (float)(localGridRemainingOxygen / totalOxygenCapacity);
+        }
+
+        private void UpdateLocalGridJumpDrives()
+        {
+            float jumpDriveChargeCurrent = 0;
+            float jumpDriveChargeMax = 0;
+
+            double minTime = double.MaxValue;
+
+            foreach (IMyJumpDrive jumpDrive in localGridJumpDrivesDict.Values)
+            {
+                bool isReady = jumpDrive.Status == Sandbox.ModAPI.Ingame.MyJumpDriveStatus.Ready;
+                if (jumpDrive.IsWorking && isReady)
+                {
+                    jumpDriveChargeCurrent += jumpDrive.CurrentStoredPower;
+                }
+                jumpDriveChargeMax += jumpDrive.MaxStoredPower;
+            }
+            if (jumpDriveChargeMax != jumpDriveChargeCurrent)
+            {
+                float currentStoredPower = jumpDriveChargeCurrent;
+                float lastStoredPower = localGridJumpDrivePowerStoredPrevious;
+                float difPower = (currentStoredPower - lastStoredPower);
+
+                if (difPower > 0)
+                {
+                    double powerPerSecond = (currentStoredPower - lastStoredPower) / deltaTimeSinceLastTick;
+
+                    if (powerPerSecond > 0)
+                    {
+                        double timeRemaining = ((jumpDriveChargeMax - currentStoredPower) / powerPerSecond) * 100;
+
+                        if (timeRemaining < minTime)
+                        {
+                            minTime = timeRemaining;
+                        }
+                    }
+
+                    localGridJumpDrivePowerStoredPrevious = currentStoredPower;
+
+                }
+            }
+            localGridJumpDrivePowerStored = jumpDriveChargeCurrent;
+            localGridJumpDrivePowerStoredMax = jumpDriveChargeMax;
+
+            localGridJumpDriveTimeToReady = minTime != double.MaxValue ? minTime : 0;
         }
 
         public void UpdateLocalGridScalingMatrix()
@@ -899,23 +1173,20 @@ namespace EliDangHUD
         }
 
         /// <summary>
-        /// Retrieves the linear velocity of the CubeGrid the entity belongs to, if entity is an IMyCockpit block
+        /// Retrieves the linear velocity of the CubeGrid
         /// </summary>
-        /// <param name="entity"></param>
+        /// <param name="cubeGrid"></param>
         /// <returns></returns>
-        public Vector3D GetEntityCubeGridVelocity(IMyEntity entity)
+        public Vector3D GetCubeGridVelocity(IMyCubeGrid cubeGrid)
         {
-            if (entity == null)
+            if (cubeGrid == null)
             {
                 return Vector3D.Zero; // Return zero velocity if the entity is null.
             }
-
-            // Attempt to cast the entity to IMyCockpit if it's part of a cockpit.
-            IMyCockpit cockpit = entity as IMyCockpit;
-            if (cockpit != null && cockpit.CubeGrid != null && cockpit.CubeGrid.Physics != null)
+            if (cubeGrid.Physics != null)
             {
                 // Return the linear velocity if the physics component is available.
-                return cockpit.CubeGrid.Physics.LinearVelocity;
+                return cubeGrid.Physics.LinearVelocity;
             }
             else
             {
@@ -926,23 +1197,20 @@ namespace EliDangHUD
         }
 
         /// <summary>
-        /// Retrieves the angular velocity of the CubeGrid the entity belongs to, if entity is an IMyCockpit block
+        /// Retrieves the angular velocity of the CubeGrid
         /// </summary>
-        /// <param name="entity"></param>
+        /// <param name="cubeGrid"></param>
         /// <returns></returns>
-        public Vector3D GetEntityCubeGridVelocityAngular(IMyEntity entity)
+        public Vector3D GetCubeGridVelocityAngular(IMyCubeGrid cubeGrid)
         {
-            if (entity == null)
+            if (cubeGrid == null)
             {
                 return Vector3D.Zero; // Return zero velocity if the entity is null.
             }
-
-            // Attempt to cast the entity to IMyCockpit if it's part of a cockpit.
-            IMyCockpit cockpit = entity as IMyCockpit;
-            if (cockpit != null && cockpit.CubeGrid != null && cockpit.CubeGrid.Physics != null)
+            if (cubeGrid.Physics != null)
             {
                 // Return the linear velocity if the physics component is available.
-                return cockpit.CubeGrid.Physics.AngularVelocityLocal;
+                return cubeGrid.Physics.AngularVelocityLocal;
             }
             else
             {
@@ -952,9 +1220,6 @@ namespace EliDangHUD
             }
         }
 
-
-
-      
         public class BlockCluster
         {
             public float Integrity = 0f;
@@ -1110,46 +1375,45 @@ namespace EliDangHUD
             public int IntegrityBucket; // which bucket this cluster belongs to
         }
 
-        public Dictionary<int, List<ClusterBox>> floorClusters = new Dictionary<int, List<ClusterBox>>();
-        public Dictionary<Vector3I, ClusterBox> blockToClusterMap = new Dictionary<Vector3I, ClusterBox>();
-
         public void ClusterLocalBlocksIntoSlices()
         {
-            floorClusters.Clear();
-            blockToClusterMap.Clear();
+            localGridFloorClusterSlices.Clear();
+            localGridBlockToFloorClusterSlicesMap.Clear();
 
             // Group blocks by Y level
-            IEnumerable<IGrouping<int, KeyValuePair<Vector3I, IMySlimBlock>>> groupedByY = localGridAllBlocksDict.GroupBy(kvp => kvp.Key.Y);
+            IEnumerable<IGrouping<int, KeyValuePair<Vector3I, IMySlimBlock>>> groupedByFloor = localGridAllBlocksDict.GroupBy(kvp => kvp.Key.Y);
 
-            foreach (IGrouping<int, KeyValuePair<Vector3I, IMySlimBlock>> yGroup in groupedByY)
+            foreach (IGrouping<int, KeyValuePair<Vector3I, IMySlimBlock>> yGroup in groupedByFloor)
             {
-                int y = yGroup.Key;
+                int gridFloor = yGroup.Key;
 
                 // further group by integrity bucket
-                var groupedByIntegrity = yGroup.GroupBy(kvp => GetIntegrityBucket(kvp.Value));
+                IEnumerable<IGrouping<int, KeyValuePair<Vector3I, IMySlimBlock>>> groupedByIntegrity = yGroup.GroupBy(kvp => GetIntegrityBucket(kvp.Value));
 
                 List<ClusterBox> clustersThisFloor = new List<ClusterBox>();
-                floorClusters[y] = clustersThisFloor;
+                localGridFloorClusterSlices[gridFloor] = clustersThisFloor;
 
-                foreach (var bucketGroup in groupedByIntegrity)
+                foreach (IGrouping<int, KeyValuePair<Vector3I, IMySlimBlock>> bucketGroup in groupedByIntegrity)
                 {
                     int bucket = bucketGroup.Key;
                     HashSet<Vector3I> visited = new HashSet<Vector3I>();
 
-                    foreach (var kvp in bucketGroup)
+                    foreach (KeyValuePair<Vector3I, IMySlimBlock> kvp in bucketGroup)
                     {
                         Vector3I start = kvp.Key;
 
                         if (visited.Contains(start))
+                        {
                             continue;
+                        }
 
-                        ClusterBox cluster = ExpandXZCluster(start, y, bucketGroup.ToDictionary(x => x.Key, x => x.Value), visited, bucket);
+                        ClusterBox cluster = ExpandXZCluster(start, gridFloor, bucketGroup.ToDictionary(x => x.Key, x => x.Value), visited, bucket);
                         clustersThisFloor.Add(cluster);
 
                         // Map all blocks in this cluster to it
                         foreach (IMySlimBlock b in cluster.Blocks)
                         {
-                            blockToClusterMap[b.Position] = cluster;
+                            localGridBlockToFloorClusterSlicesMap[b.Position] = cluster;
                         }
                     }
                 }
@@ -1157,7 +1421,7 @@ namespace EliDangHUD
             localGridClusterSlicesNeedRefresh = false;
         }
 
-        private ClusterBox ExpandXZCluster(Vector3I start, int y, Dictionary<Vector3I, IMySlimBlock> blocks, HashSet<Vector3I> visited, int bucket)
+        private ClusterBox ExpandXZCluster(Vector3I start, int gridFloor, Dictionary<Vector3I, IMySlimBlock> blocks, HashSet<Vector3I> visited, int bucket)
         {
             Vector3I min = start;
             Vector3I max = start;
@@ -1165,11 +1429,15 @@ namespace EliDangHUD
             // expand in +X
             while (true)
             {
-                Vector3I next = new Vector3I(max.X + 1, y, max.Z);
+                Vector3I next = new Vector3I(max.X + 1, gridFloor, max.Z);
                 if (blocks.ContainsKey(next) && !visited.Contains(next))
+                {
                     max.X++;
+                }
                 else
+                { 
                     break;
+                }
             }
 
             // expand in +Z
@@ -1179,7 +1447,7 @@ namespace EliDangHUD
                 int newZ = max.Z + 1;
                 for (int x = min.X; x <= max.X; x++)
                 {
-                    Vector3I pos = new Vector3I(x, y, newZ);
+                    Vector3I pos = new Vector3I(x, gridFloor, newZ);
                     if (!blocks.ContainsKey(pos) || visited.Contains(pos))
                     {
                         canExpandZ = false;
@@ -1196,7 +1464,7 @@ namespace EliDangHUD
             {
                 for (int z = min.Z; z <= max.Z; z++)
                 {
-                    Vector3I pos = new Vector3I(x, y, z);
+                    Vector3I pos = new Vector3I(x, gridFloor, z);
                     if (blocks.TryGetValue(pos, out IMySlimBlock block))
                     {
                         visited.Add(pos);
@@ -1220,60 +1488,422 @@ namespace EliDangHUD
             return 4;
         }
 
-        public void RebuildFloorClustersForY(Dictionary<Vector3I, IMySlimBlock> allBlocks, int y)
+        public void RebuildFloorClustersForGridFloor(Dictionary<Vector3I, IMySlimBlock> floorBlocks, int gridFloor)
         {
             // Remove old clusters for this Y if present
-            if (floorClusters.ContainsKey(y))
+            if (localGridFloorClusterSlices.ContainsKey(gridFloor))
             {
                 // Also clear block->cluster mappings for this floor
-                foreach (var cluster in floorClusters[y])
+                foreach (ClusterBox cluster in localGridFloorClusterSlices[gridFloor])
                 {
-                    foreach (var b in cluster.Blocks)
+                    foreach (IMySlimBlock block in cluster.Blocks)
                     {
-                        blockToClusterMap.Remove(b.Position);
+                        localGridBlockToFloorClusterSlicesMap.Remove(block.Position);
                     }
                 }
-                floorClusters.Remove(y);
+                localGridFloorClusterSlices.Remove(gridFloor);
             }
 
-            // Collect all blocks at this Y
-            var yBlocks = allBlocks
-                .Where(kvp => kvp.Key.Y == y)
-                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+            //// Collect all blocks at this Y
+            //Dictionary<Vector3I, IMySlimBlock> floorBlocks = allBlocks
+            //    .Where(kvp => kvp.Key.Y == gridFloor)
+            //    .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
 
-            if (yBlocks.Count == 0)
+            if (floorBlocks.Count == 0)
+            {
                 return; // nothing left on this floor
+            }
+
 
             // Group by integrity bucket
-            var groupedByIntegrity = yBlocks.GroupBy(kvp => GetIntegrityBucket(kvp.Value));
+            IEnumerable<IGrouping<int, KeyValuePair<Vector3I, IMySlimBlock>>> groupedByIntegrity = floorBlocks.GroupBy(kvp => GetIntegrityBucket(kvp.Value));
 
             List<ClusterBox> clustersThisFloor = new List<ClusterBox>();
-            floorClusters[y] = clustersThisFloor;
+            localGridFloorClusterSlices[gridFloor] = clustersThisFloor;
 
-            foreach (var bucketGroup in groupedByIntegrity)
+            foreach (IGrouping<int, KeyValuePair<Vector3I, IMySlimBlock>> bucketGroup in groupedByIntegrity)
             {
                 int bucket = bucketGroup.Key;
                 HashSet<Vector3I> visited = new HashSet<Vector3I>();
 
-                var bucketDict = bucketGroup.ToDictionary(x => x.Key, x => x.Value);
+                Dictionary<Vector3I, IMySlimBlock> bucketDict = bucketGroup.ToDictionary(x => x.Key, x => x.Value);
 
-                foreach (var kvp in bucketGroup)
+                foreach (KeyValuePair<Vector3I, IMySlimBlock> kvp in bucketGroup)
                 {
                     Vector3I start = kvp.Key;
 
-                    if (visited.Contains(start))
+                    if (visited.Contains(start)) 
+                    {
                         continue;
+                    }
 
-                    ClusterBox cluster = ExpandXZCluster(start, y, bucketDict, visited, bucket);
+                    ClusterBox cluster = ExpandXZCluster(start, gridFloor, bucketDict, visited, bucket);
                     clustersThisFloor.Add(cluster);
 
                     // Map all blocks in this cluster
-                    foreach (IMySlimBlock b in cluster.Blocks)
+                    foreach (IMySlimBlock block in cluster.Blocks)
                     {
-                        blockToClusterMap[b.Position] = cluster;
+                        localGridBlockToFloorClusterSlicesMap[block.Position] = cluster;
                     }
                 }
             }
+        }
+
+        private Color ParseColor(string colorString)
+        {
+            if (string.IsNullOrEmpty(colorString))
+            {
+                return new Vector3(1f, 0.5f, 0.0) * GLOW;  // Default color if no data
+            }
+
+
+            string[] parts = colorString.Split(',');
+            if (parts.Length == 3)
+            {
+                byte r, g, b;
+                if (byte.TryParse(parts[0], out r) &&
+                    byte.TryParse(parts[1], out g) &&
+                    byte.TryParse(parts[2], out b))
+                {
+                    return new Color(r, g, b);
+                }
+            }
+            return new Vector3(1f, 0.5f, 0.0) * GLOW;  // Default color on parse failure
+        }
+
+        public void RGBtoHSV(float r, float g, float b, out float h, out float s, out float v)
+        {
+            float max = Math.Max(r, Math.Max(g, b));
+            float min = Math.Min(r, Math.Min(g, b));
+            v = max; // value is maximum of r, g, b
+
+            float delta = max - min;
+            if (delta < 0.00001f)
+            {
+                s = 0;
+                h = 0; // undefined, maybe nan?
+                return;
+            }
+
+            if (max > 0.0f)
+            {
+                s = delta / max; // saturation
+            }
+            else
+            {
+                // r = g = b = 0		// s = 0, v is undefined
+                s = 0;
+                h = float.NaN; // its now undefined
+                return;
+            }
+
+            if (r >= max)
+                h = (g - b) / delta; // between yellow & magenta
+            else if (g >= max)
+                h = 2.0f + (b - r) / delta; // between cyan & yellow
+            else
+                h = 4.0f + (r - g) / delta; // between magenta & cyan
+
+            h *= 60.0f; // convert to degrees
+            if (h < 0.0f)
+                h += 360.0f;
+        }
+
+        public float GetComplementaryHue(float hue)
+        {
+            return (hue + 180.0f) % 360.0f;
+        }
+
+        public void HSVtoRGB(float h, float s, float v, out float r, out float g, out float b)
+        {
+            if (s == 0)
+            {
+                // Achromatic (grey)
+                r = g = b = v;
+                return;
+            }
+
+            int i = (int)(h / 60.0f) % 6;
+            float f = (h / 60.0f) - i;
+            float p = v * (1 - s);
+            float q = v * (1 - f * s);
+            float t = v * (1 - (1 - f) * s);
+
+            switch (i)
+            {
+                case 0:
+                    r = v;
+                    g = t;
+                    b = p;
+                    break;
+                case 1:
+                    r = q;
+                    g = v;
+                    b = p;
+                    break;
+                case 2:
+                    r = p;
+                    g = v;
+                    b = t;
+                    break;
+                case 3:
+                    r = p;
+                    g = q;
+                    b = v;
+                    break;
+                case 4:
+                    r = t;
+                    g = p;
+                    b = v;
+                    break;
+                default:
+                    r = v;
+                    g = p;
+                    b = q;
+                    break;
+            }
+        }
+        public Vector3 secondaryColor(Vector3 color)
+        {
+            float h, s, v;
+            float r = color.X, g = color.Y, b = color.Z; // Red color example
+            RGBtoHSV(r, g, b, out h, out s, out v); // Convert from RGB to HSV
+            float complementaryHue = GetComplementaryHue(h); // Get complementary hue
+            HSVtoRGB(complementaryHue, s, v, out r, out g, out b); // Convert back to RGB
+
+            Vector3 retColor = new Vector3(r, g, b);
+            return retColor;
+        }
+
+        public class ControlledEntityCustomData
+        {
+            public bool masterEnabled = true;
+            public bool enableHolograms = true;
+            public bool enableHologramsLocalGrid = true;
+            public bool enableHologramsTargetGrid = true;
+            public HologramView_Side localGridHologramSide = HologramView_Side.Rear;
+            public HologramView_Side targetGridHologramSide = HologramView_Side.Perspective;
+            public bool localGridHologramAngularWiggle = true;
+            public bool enableToolbars = true;
+            public bool enableGauges = true;
+            public bool enableMoney = true;
+            public double scannerX = 0.0;
+            public double scannerY = -0.2;
+            public double scannerZ = -0.575;
+            public Vector3D radarOffset = new Vector3D(0.0, -0.2, -0.575);
+            public float radarScale = 1;
+            public float radarRadius = 1f * 0.125f;
+            public float radarBrightness = 1;
+            public Color scannerColor = new Vector3(1f, 0.5f, 0.0);
+            public Vector3 lineColorRGB = new Vector3(1f, 0.5f, 0.0);
+            public Vector3 lineColorRGBComplimentary = (new Vector3(0f, 0.5f, 1f) * 2) + new Vector3(0.01f, 0.01f, 0.01f);
+            public Vector4 lineColorComp = new Vector4((new Vector3(0f, 0.5f, 1f) * 2) + new Vector3(0.01f, 0.01f, 0.01f), 1f);
+            public bool enableVelocityLines = true;
+            public float orbitSpeedThreshold = 500;
+            public bool scannerShowVoxels = true;
+            public bool scannerOnlyPoweredGrids = true;
+        }
+
+
+        private void ReadCustomDataControlledEntity(MyIni ini, ControlledEntityCustomData theData, IMyTerminalBlock block)
+        {
+            string mySection = "EliDang";
+
+            // Master
+            theData.masterEnabled = ini.Get(mySection, "ScannerEnable").ToBoolean(true);
+            ini.Set(mySection, "ScannerEnable", theData.masterEnabled.ToString());
+
+            // Holograms Master
+            theData.enableHolograms = ini.Get(mySection, "ScannerHolo").ToBoolean(true);
+            ini.Set(mySection, "ScannerHolo", theData.enableHolograms.ToString());
+
+            // Hologram Local Grid
+            theData.enableHologramsLocalGrid = ini.Get(mySection, "ScannerHoloYou").ToBoolean(true);
+            ini.Set(mySection, "ScannerHoloYou", theData.enableHologramsLocalGrid.ToString());
+
+            // Hologram Target Grid
+            theData.enableHologramsTargetGrid = ini.Get(mySection, "ScannerHoloThem").ToBoolean(true);
+            ini.Set(mySection, "ScannerHoloThem", theData.enableHologramsTargetGrid.ToString());
+
+            // Local Hologram view
+            HologramView_Side theLocalSide;
+            string hologramViewLocal_CurrentString = ini.Get(mySection, "HologramViewLocal_Current").ToString("0");
+            if (Enum.TryParse<HologramView_Side>(hologramViewLocal_CurrentString, out theLocalSide))
+            {
+                theData.localGridHologramSide = theLocalSide;
+            }
+            ini.Set(mySection, "HologramViewLocal_Current", theData.localGridHologramSide.ToString());
+
+            // Target Hologram view
+            HologramView_Side theTargetSide;
+            string hologramViewTarget_CurrentString = ini.Get(mySection, "HologramViewTarget_Current").ToString("7");
+            if (Enum.TryParse<HologramView_Side>(hologramViewTarget_CurrentString, out theTargetSide))
+            {
+                theData.targetGridHologramSide = theTargetSide;
+            }
+            ini.Set(mySection, "HologramViewTarget_Current", theData.targetGridHologramSide.ToString());
+
+            // Local grid hologram angular velocity wiggle
+            theData.localGridHologramAngularWiggle = ini.Get(mySection, "HologramViewFlat_AngularWiggle").ToBoolean(true);
+            ini.Set(mySection, "HologramViewFlat_AngularWiggle", theData.localGridHologramAngularWiggle.ToString());
+
+            // Toolbars
+            theData.enableToolbars = ini.Get(mySection, "ScannerTools").ToBoolean(true);
+            ini.Set(mySection, "ScannerTools", theData.enableToolbars.ToString());
+
+            // Gauges
+            theData.enableGauges = ini.Get(mySection, "ScannerGauges").ToBoolean(true);
+            ini.Set(mySection, "ScannerGauges", theData.enableGauges.ToString());
+
+            // Money
+            theData.enableMoney = ini.Get(mySection, "ScannerMoney").ToBoolean(true);
+            ini.Set(mySection, "ScannerMoney", theData.enableMoney.ToString());
+
+            // Offset
+            theData.scannerX = ini.Get(mySection, "ScannerX").ToDouble(0d);
+            ini.Set(mySection, "ScannerX", theData.scannerX.ToString());
+
+            theData.scannerY = ini.Get(mySection, "ScannerY").ToDouble(-0.2d);
+            ini.Set(mySection, "ScannerY", theData.scannerY.ToString());
+
+            theData.scannerZ = ini.Get(mySection, "ScannerZ").ToDouble(-0.575d);
+            ini.Set(mySection, "ScannerZ", theData.scannerZ.ToString());
+            theData.radarOffset = new Vector3D(theData.scannerX, theData.scannerY, theData.scannerZ);
+
+            // Radar Scale and Radius
+            theData.radarScale = ini.Get(mySection, "ScannerS").ToSingle(1);
+            ini.Set(mySection, "ScannerS", theData.radarScale.ToString());
+            theData.radarRadius = 0.125f * theData.radarScale;
+
+            // Radar Brightness (glow)
+            theData.radarBrightness = ini.Get(mySection, "ScannerB").ToSingle(1f);
+            ini.Set(mySection, "ScannerB", theData.radarBrightness.ToString());
+
+            // Radar/HUD color
+            theData.scannerColor = ParseColor(ini.Get(mySection, "ScannerColor").ToString(Convert.ToString(new Vector3(1f, 0.5f, 0.0))));
+            ini.Set(mySection, "ScannerColor", $"{theData.scannerColor.R},{theData.scannerColor.G},{theData.scannerColor.B}");
+            Vector4 tempColor = (theData.scannerColor).ToVector4() * theData.radarBrightness;
+            theData.lineColorRGB = new Vector3(tempColor.X, tempColor.Y, tempColor.Z);
+            theData.lineColorRGBComplimentary = secondaryColor(theData.lineColorRGB) * 2 + new Vector3(0.01f, 0.01f, 0.01f);
+            theData.lineColorComp = new Vector4(theData.lineColorRGBComplimentary, 1f);
+
+            // Velocity Toggle
+            theData.enableVelocityLines = ini.Get(mySection, "ScannerLines").ToBoolean(true);
+            ini.Set(mySection, "ScannerLines", theData.enableVelocityLines.ToString());
+
+            // Orbit Line Speed Threshold
+            theData.orbitSpeedThreshold = ini.Get(mySection, "ScannerOrbits").ToSingle(500);
+            ini.Set(mySection, "ScannerOrbits", theData.orbitSpeedThreshold.ToString());
+
+            // Voxel toggle
+            theData.scannerShowVoxels = ini.Get(mySection, "ScannerShowVoxels").ToBoolean(true);
+            ini.Set(mySection, "ScannerShowVoxels", theData.scannerShowVoxels.ToString());
+
+            // Powered only toggle
+            theData.scannerOnlyPoweredGrids = ini.Get(mySection, "ScannerOnlyPoweredGrids").ToBoolean(true);
+            ini.Set(mySection, "ScannerOnlyPoweredGrids", theData.scannerOnlyPoweredGrids.ToString());
+
+            // Save custom data back to block (preserves EndContent too, so text and other config sections don't get eliminated)
+            block.CustomData = ini.ToString();
+        }
+
+        public class HoloRadarCustomData
+        {
+            public bool scannerEnable = true;
+            public double scannerX = 0;
+            public double scannerY = 0.7;
+            public double scannerZ = 0;
+            public float scannerRadius = 1;
+            public bool scannerShowVoxels = true;
+            public bool scannerOnlyPoweredGrids = true;
+        }
+
+        private void ReadCustomDataHoloRadar(MyIni ini, HoloRadarCustomData theData, IMyTerminalBlock block)
+        {
+            string mySection = "EliDang";
+
+            // Master
+            theData.scannerEnable = ini.Get(mySection, "ScannerEnable").ToBoolean(true);
+            ini.Set(mySection, "ScannerEnable", theData.scannerEnable.ToString());
+
+            // Offset
+            theData.scannerX = ini.Get(mySection, "ScannerX").ToDouble(0d);
+            ini.Set(mySection, "ScannerX", theData.scannerX.ToString());
+
+            theData.scannerY = ini.Get(mySection, "ScannerY").ToDouble(0.7d);
+            ini.Set(mySection, "ScannerY", theData.scannerY.ToString());
+
+            theData.scannerZ = ini.Get(mySection, "ScannerZ").ToDouble(0d);
+            ini.Set(mySection, "ScannerZ", theData.scannerZ.ToString());
+
+            // Radius
+            theData.scannerRadius = ini.Get(mySection, "ScannerRadius").ToSingle(1f);
+            ini.Set(mySection, "ScannerRadius", theData.scannerRadius.ToString());
+
+            // Voxel toggle
+            theData.scannerShowVoxels = ini.Get(mySection, "ScannerShowVoxels").ToBoolean(true);
+            ini.Set(mySection, "ScannerShowVoxels", theData.scannerShowVoxels.ToString());
+
+            // Powered only toggle
+            theData.scannerOnlyPoweredGrids = ini.Get(mySection, "ScannerOnlyPoweredGrids").ToBoolean(true);
+            ini.Set(mySection, "ScannerOnlyPoweredGrids", theData.scannerOnlyPoweredGrids.ToString());
+
+            // Save custom data back to block (preserves EndContent too, so text and other config sections don't get eliminated)
+            block.CustomData = ini.ToString();
+        }
+
+        public class HologramCustomData
+        {
+            public bool holoEnable = true;
+            public double holoX = 0;
+            public double holoY = 0.7;
+            public double holoZ = 0;
+            public float holoScale = 0.1f;
+            public int holoSide = 0;
+            public double holoBaseX = 0;
+            public double holoBaseY = -0.5;
+            public double holoBaseZ = 0;
+        }
+
+
+        private void ReadCustomDataHologram(MyIni ini, HologramCustomData theData, IMyTerminalBlock block)
+        {
+            string mySection = "EliDang";
+
+            // Master
+            theData.holoEnable = ini.Get(mySection, "HoloEnable").ToBoolean(true);
+            ini.Set(mySection, "HoloEnable", theData.holoEnable.ToString());
+
+            // Offset
+            theData.holoX = ini.Get(mySection, "HoloX").ToDouble(0d);
+            ini.Set(mySection, "HoloX", theData.holoX.ToString());
+
+            theData.holoY = ini.Get(mySection, "HoloY").ToDouble(0.7d);
+            ini.Set(mySection, "HoloY", theData.holoY.ToString());
+
+            theData.holoZ = ini.Get(mySection, "HoloZ").ToDouble(0d);
+            ini.Set(mySection, "HoloZ", theData.holoZ.ToString());
+
+            // Scale
+            theData.holoScale = ini.Get(mySection, "HoloScale").ToSingle(0.1f);
+            ini.Set(mySection, "HoloScale", theData.holoScale.ToString());
+
+            // Side
+            theData.holoSide = ini.Get(mySection, "HoloSide").ToInt32(0);
+            ini.Set(mySection, "HoloSide", theData.holoSide.ToString());
+
+            // Base
+            theData.holoBaseX = ini.Get(mySection, "HoloBaseX").ToDouble(0d);
+            ini.Set(mySection, "HoloBaseX", theData.holoBaseX.ToString());
+
+            theData.holoBaseY = ini.Get(mySection, "HoloBaseY").ToDouble(-0.5d);
+            ini.Set(mySection, "HoloBaseY", theData.holoBaseY.ToString());
+
+            theData.holoBaseZ = ini.Get(mySection, "HoloBaseZ").ToDouble(0d);
+            ini.Set(mySection, "HoloBaseZ", theData.holoBaseZ.ToString());
+
+            // Save custom data back to block (preserves EndContent too, so text and other config sections don't get eliminated)
+            block.CustomData = ini.ToString();
         }
 
 

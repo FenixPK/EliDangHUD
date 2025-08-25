@@ -673,145 +673,156 @@ public class CustomCockpitLogic : MyGameLogicComponent
 		return Entity.GetObjectBuilder(copy);
 	}
 
-	public void SetParameter(IMyTerminalBlock block, string key, string value)
-	{
-		// Write your specific data
-		string mySection = "EliDang"; 	// Your specific section
-		string myKey =		key; 		// Your specific key
-		string myValue = 	value; 		// Your specific value
+    public void SetParameter(IMyTerminalBlock block, string key, string value)
+    {
+        string mySection = "EliDang"; // Your section
+        MyIniParseResult result;
 
-		// Ensure CustomData is parsed
-		string customData = block.CustomData;
-		MyIniParseResult result;
-		ini.Clear();
+        ini.Clear();
+        ini.TryParse(block.CustomData, out result);
 
-		bool failboat = false;
-		bool doubleFailBoat = false;
+        // Set or update the key
+        ini.Set(mySection, key, value);
 
-		string updatedSection;
+        // Write back with preserved raw text (EndContent)
+        block.CustomData = ini.ToString();
+    }
 
-		if (!ini.TryParse(customData, out result)) {
-		} else {
-			ini.Set(mySection, myKey, myValue);
-			string updatedData = ini.ToString ();
-			if (!updatedData.EndsWith("---"))
-			{
-				if (ini.EndContent == "") {
-					updatedData += "---\n";
-				}
-			}
+    public string GetParameter(IMyTerminalBlock block, string key)
+    {
+        string mySection = "EliDang"; // Your section
+        MyIni ini = new MyIni();
+        MyIniParseResult result;
 
-			block.CustomData = updatedData;
-			return;
-		}
-			
+        if (ini.TryParse(block.CustomData, out result))
+        {
+            return ini.Get(mySection, key).ToString("");
+        }
 
-		// Pattern to match the section including the delimiter "---"
-		string pattern = $@"(\[{mySection}\].*?---\n)";
-		var match = Regex.Match(customData, pattern, RegexOptions.Singleline);
+        // Couldn’t parse or key missing
+        return "";
+    }
 
-		if (match.Success)
-		{
-			string sectionData = match.Groups[1].Value;
+    //public void SetParameter(IMyTerminalBlock block, string key, string value)
+    //{
+    //	// Write your specific data
+    //	string mySection = "EliDang"; 	// Your specific section
+    //	string myKey =		key; 		// Your specific key
+    //	string myValue = 	value; 		// Your specific value
 
-			if (!ini.TryParse(sectionData, out result))
-			{
+    //	// Ensure CustomData is parsed
+    //	string customData = block.CustomData;
+    //	MyIniParseResult result;
+    //	ini.Clear();
 
-				ini.Set(mySection, myKey, myValue);
-				updatedSection = ini.ToString() + "---\n";
+    //	string updatedSection;
 
-				customData =updatedSection + block.CustomData;
+    //	if (!ini.TryParse(customData, out result)) 
+    //	{
 
-				// Update the block's CustomData with the modified ini data
-				block.CustomData = customData;
-
-				return;
-			}else{
-
-				ini.Set(mySection, myKey, myValue);
-				string updatedData2 = ini.ToString () + "---\n";
-
-				customData = Regex.Replace(customData, pattern, updatedData2, RegexOptions.Singleline);
-
-				block.CustomData = customData;
-				return;
-			}
-		}else{
-			ini.Set(mySection, myKey, myValue);
-			updatedSection = ini.ToString() + "---\n";
-
-			customData =updatedSection + block.CustomData;
-
-			// Update the block's CustomData with the modified ini data
-			block.CustomData = customData;
-
-			return;
-		}
-	}
+    //	} 
+    //	else 
+    //	{
+    //		ini.Set(mySection, myKey, myValue);
+    //		string updatedData = ini.ToString ();
+    //		if (!updatedData.EndsWith("---"))
+    //		{
+    //			if (ini.EndContent == "") {
+    //				updatedData += "---\n";
+    //			}
+    //		}
+    //		block.CustomData = updatedData;
+    //		return;
+    //	}
 
 
+    //	// Pattern to match the section including the delimiter "---"
+    //	string pattern = $@"(\[{mySection}\].*?---\n)";
+    //	var match = Regex.Match(customData, pattern, RegexOptions.Singleline);
 
-	public string GetParameter(IMyTerminalBlock block, string key)
-	{
-		// Read your specific data
-		string mySection = "EliDang"; // Your specific section
-		string myKey = key;           // Your specific key
+    //	if (match.Success)
+    //	{
+    //		string sectionData = match.Groups[1].Value;
 
-		// Ensure CustomData is parsed
-		string customData = block.CustomData;
-		MyIni ini = new MyIni();
-		MyIniParseResult result;
+    //		if (!ini.TryParse(sectionData, out result))
+    //		{
+    //			ini.Set(mySection, myKey, myValue);
+    //			updatedSection = ini.ToString() + "---\n";
 
-		// Parse the entire CustomData
-		if (ini.TryParse(customData, out result))
-		{
-			return ini.Get(mySection, key).ToString("");
-		}
+    //			customData =updatedSection + block.CustomData;
 
-		// Pattern to match the section including the delimiter "---"
-		string pattern = $@"(\[{mySection}\].*?---\n)";
-		var match = Regex.Match(customData, pattern, RegexOptions.Singleline);
+    //			// Update the block's CustomData with the modified ini data
+    //			block.CustomData = customData;
 
-		if (match.Success)
-		{
-			string sectionData = match.Groups[1].Value;
+    //			return;
+    //		}
+    //		else
+    //		{
+    //			ini.Set(mySection, myKey, myValue);
+    //			string updatedData2 = ini.ToString () + "---\n";
 
-			if (ini.TryParse(sectionData, out result))
-			{
-				return ini.Get(mySection, key).ToString("");
-			}
-			else
-			{
-				// Section not found
-				return ""; // Or some default value or error indication
-			}
-		}
-		else
-		{
-			// Section not found
-			return ""; // Or some default value or error indication
-		}
-	}
+    //			customData = Regex.Replace(customData, pattern, updatedData2, RegexOptions.Singleline);
 
+    //			block.CustomData = customData;
+    //			return;
+    //		}
+    //	}
+    //	else
+    //	{
+    //		ini.Set(mySection, myKey, myValue);
+    //		updatedSection = ini.ToString() + "---\n";
 
-//	public string GetParameter(IMyTerminalBlock block, string key)
-//	{
-//		string customData = block.CustomData;
-//		string mySection = "EliDang"; // Your specific section
-//		MyIni ini = new MyIni();
-//		MyIniParseResult result;
-//
-//		// Parse the entire CustomData
-//		if (!ini.TryParse(customData, out result))
-//		{
-//			// Handle parse error if needed
-//			return "";
-//		}
-//
-//		// Retrieve your specific parameter
-//		return ini.Get(mySection, key).ToString("");
-//	}
+    //		customData =updatedSection + block.CustomData;
+
+    //		// Update the block's CustomData with the modified ini data
+    //		block.CustomData = customData;
+
+    //		return;
+    //	}
+    //}
 
 
+
+    //public string GetParameter(IMyTerminalBlock block, string key)
+    //{
+    //	// Read your specific data
+    //	string mySection = "EliDang"; // Your specific section
+    //	string myKey = key;           // Your specific key
+
+    //	// Ensure CustomData is parsed
+    //	string customData = block.CustomData;
+    //	MyIni ini = new MyIni();
+    //	MyIniParseResult result;
+
+    //	// Parse the entire CustomData
+    //	if (ini.TryParse(customData, out result))
+    //	{
+    //		return ini.Get(mySection, key).ToString("");
+    //	}
+
+    //	// Pattern to match the section including the delimiter "---"
+    //	string pattern = $@"(\[{mySection}\].*?---\n)";
+    //	var match = Regex.Match(customData, pattern, RegexOptions.Singleline);
+
+    //	if (match.Success)
+    //	{
+    //		string sectionData = match.Groups[1].Value;
+
+    //		if (ini.TryParse(sectionData, out result))
+    //		{
+    //			return ini.Get(mySection, key).ToString("");
+    //		}
+    //		else
+    //		{
+    //			// Section not found
+    //			return ""; // Or some default value or error indication
+    //		}
+    //	}
+    //	else
+    //	{
+    //		// Section not found
+    //		return ""; // Or some default value or error indication
+    //	}
+    //}
 
 }
