@@ -265,18 +265,13 @@ namespace EliDangHUD
 	}
 
     /// <summary>
-    /// This enum stores the different views the Target hologram (or to some degree, local hologram) can use.
+    /// This enum stores the different types of views there are for the holograms
     /// </summary>
-    public enum HologramView_Side
+    public enum HologramViewType
     {
-        Rear = 0,
-        Left = 1,
-        Front = 2,
-        Right = 3,
-        Top = 4,
-        Bottom = 5,
-        Orbit = 6,
-        Perspective = 7
+        Static = 0,
+        Orbit = 1,
+        Perspective = 2
     }
 
     public class HoloRadarCustomData 
@@ -459,7 +454,7 @@ namespace EliDangHUD
         /// <summary>
         /// Mouse button to use: 0 = Left, 1 = Right, 2 = Middle
         /// </summary>
-        public int selectTargetMouseButton = 1; // 0 = Left, 1 = Right, 2 = Middle
+        public int selectTargetMouseButton = 1;
 		public string selectTargetMouseButton_DESCRIPTION = "Mouse button to use: 0 = Left, 1 = Right, 2 = Middle. (Default is Right)";
 
         /// <summary>
@@ -469,22 +464,46 @@ namespace EliDangHUD
 		public string selectTargetKey_DESCRIPTION = "Key to select target, if mouse button is disabled (Default is T)";
 
         /// <summary>
-        /// Key to cycle hologram view back (Ctrl modifier cycles local hologram, no Ctrl cycles target)
+        /// Key to rotate the static hologram view in the +X axis
         /// </summary>
         public int rotateLeftKey = (int)MyKeys.NumPad4;
-		public string rotateLeftKey_DESCRIPTION = "Key to cycle hologram view back (Ctrl modifier cycles local hologram, no Ctrl cycles target, Default is NumPad4)";
+		public string rotateLeftKey_DESCRIPTION = "Key to rotate the static hologram view in the +X axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad4)";
 
         /// <summary>
-        /// Key to reset hologram view (Ctrl modifier cycles local hologram, no Ctrl cycles target)
+        /// Key to rotate the static hologram view in the -X axis
+        /// </summary>
+        public int rotateRightKey = (int)MyKeys.NumPad6;
+        public string rotateRightKey_DESCRIPTION = "Key to rotate the static hologram view in the -X axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad6)";
+
+        /// <summary>
+        /// Key to rotate the static hologram view in the +Y axis
+        /// </summary>
+        public int rotateUpKey = (int)MyKeys.NumPad8;
+        public string rotateUpKey_DESCRIPTION = "Key to rotate the static hologram view in the +Y axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad8)";
+
+        /// <summary>
+        /// Key to rotate the static hologram view in the -Y axis
+        /// </summary>
+        public int rotateDownKey = (int)MyKeys.NumPad2;
+        public string rotateDownKey_DESCRIPTION = "Key to rotate the static hologram view in the -Y axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad2)";
+
+        /// <summary>
+        /// Key to rotate the static hologram view in the +Z axis
+        /// </summary>
+        public int rotatePosZKey = (int)MyKeys.NumPad7;
+        public string rotatePosZKey_DESCRIPTION = "Key to rotate the static hologram view in the +Z axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad7)";
+
+        /// <summary>
+        /// Key to rotate the static hologram view in the -Z axis
+        /// </summary>
+        public int rotateNegZKey = (int)MyKeys.NumPad9;
+        public string rotateNegZKey_DESCRIPTION = "Key to rotate the static hologram view in the -Z axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad9)";
+
+        /// <summary>
+        /// Key to reset static hologram view (Ctrl modifier cycles local hologram, no Ctrl cycles target)
         /// </summary>
         public int resetKey = (int)MyKeys.NumPad5;
 		public string resetKey_DESCRIPTION = "Key to reset hologram view (Ctrl modifier cycles local hologram, no Ctrl cycles target, Default is NumPad5)";
-
-        /// <summary>
-        /// Key to cycle hologram view forward (Ctrl modifier cycles local hologram, no Ctrl cycles target)
-        /// </summary>
-        public int rotateRightKey = (int)MyKeys.NumPad6;
-		public string rotateRightKey_DESCRIPTION = "Key to cycle hologram view forward (Ctrl modifier cycles local hologram, no Ctrl cycles target, Default is NumPad6)";
 
         /// <summary>
         /// Key to set hologram view to Orbit cam (Only for target)
@@ -687,11 +706,9 @@ namespace EliDangHUD
 		public bool EnableToolbars = true;
 		public bool EnableSpeedLines = true;
 
-		public HologramView_Side HologramViewTarget_Current = HologramView_Side.Perspective; // 0 is back, 1 is left, 2 is right, 3 is front, 4 is top, 5 is bottom. 
-		private int HologramViewTarget_Current_MaxSide = 5; // In case we add more? - Max is still 5. 6 and 7 are reserved for orbit and perspective cams currently.
+		public HologramViewType HologramViewTarget_Current = HologramViewType.Perspective; 
 
-        public HologramView_Side HologramViewLocal_Current = HologramView_Side.Rear; // 0 is back, 1 is left, 2 is right, 3 is front, 4 is top, 5 is bottom. 
-        private int HologramViewLocal_Current_MaxSide = 5; // In case we add more? - Max is still 5. 6 and 7 are reserved for orbit and perspective cams currently.
+        public HologramViewType HologramViewLocal_Current = HologramViewType.Static;
         public bool HologramView_AngularWiggle = true;
 
         // The Rotation matrices for changing the view of the target or local grid holograms. This allows Slerp'ing smoothly from view to view so it doesn't snap when we switch the side being displayed. 
@@ -2494,6 +2511,8 @@ namespace EliDangHUD
             // Update visor effects (if enabled)
             UpdateVisor();
 
+
+
             // gHandler must be initialized, the player must be controlling something, that something (entity) must be initialized, and that entity must have a localGrid initialized that it belongs to. 
 			// localGridControlledntity will only be non-null if the player has control of a block (cockpit, seat etc.)
             bool IsPlayerControlling = (gHandler != null && gHandler.IsPlayerControlling && gHandler.localGridControlledEntity != null && gHandler.localGrid != null);
@@ -2559,6 +2578,10 @@ namespace EliDangHUD
 
                 if (EnableHolograms)
                 {
+                    // Update the final rotation matrix that will be re-used for each block in draw, takes a view rotation updated only in UpdateAfterSimulation and multiplies
+                    // it by the current grid world matrix. Call this in Draw() so it uses the latest worldMatrix for the grid(s). But the view matrix can lag behind without risk. 
+                    gHandler.UpdateFinalLocalGridHologramRotation();
+                    gHandler.UpdateFinalTargetHologramRotation();
                     // 2025-07-25 FenixPK has separated the block position calculations to UpdateAfterSimulation, this simply loops through the blocks and draws them now.
                     //HG_Update();
                     HG_Draw();
@@ -2829,18 +2852,18 @@ namespace EliDangHUD
             EnableHolograms_you = !theSettings.enableHologramsGlobal ? false : ini.Get(mySection, "ScannerHoloYou").ToBoolean(true); // If disabled at global level don't even check just default to false.
 
 			// Local Hologram view
-            HologramView_Side theLocalSide;
+            HologramViewType theLocalSide;
             string hologramViewLocal_CurrentString = ini.Get(mySection, "HologramViewLocal_Current").ToString();
-            if (Enum.TryParse<HologramView_Side>(hologramViewLocal_CurrentString, out theLocalSide))
+            if (Enum.TryParse<HologramViewType>(hologramViewLocal_CurrentString, out theLocalSide))
             {
                 HologramViewLocal_Current = theLocalSide;
             }
             HologramView_AngularWiggle = ini.Get(mySection, "HologramViewFlat_AngularWiggle").ToBoolean(true);
 
 			// Target Hologram view
-			HologramView_Side theTargetSide;
+			HologramViewType theTargetSide;
 			string hologramViewTarget_CurrentString = ini.Get(mySection, "HologramViewTarget_Current").ToString();
-			if (Enum.TryParse<HologramView_Side>(hologramViewTarget_CurrentString, out theTargetSide))
+			if (Enum.TryParse<HologramViewType>(hologramViewTarget_CurrentString, out theTargetSide))
 			{
 				HologramViewTarget_Current = theTargetSide;
             }
@@ -3038,65 +3061,65 @@ namespace EliDangHUD
 
 
 
-        //GET SET CUSTOMDATA=================================================================
-        public static void SetParameter(Sandbox.ModAPI.Ingame.IMyTerminalBlock block, string key, string value)
-		{
-			var cockpit = block as Sandbox.ModAPI.Ingame.IMyCockpit;
-			if (cockpit != null)
-			{
-				string customData = cockpit.CustomData;
+  //      //GET SET CUSTOMDATA=================================================================
+  //      public static void SetParameter(Sandbox.ModAPI.Ingame.IMyTerminalBlock block, string key, string value)
+		//{
+		//	var cockpit = block as Sandbox.ModAPI.Ingame.IMyCockpit;
+		//	if (cockpit != null)
+		//	{
+		//		string customData = cockpit.CustomData;
 
-				// Normalize new lines to ensure consistent handling
-				customData = customData.Replace("\r\n", "\n").Replace("\r", "\n");
-				string[] lines = customData.Split(new[] {'\n'}, StringSplitOptions.None);
+		//		// Normalize new lines to ensure consistent handling
+		//		customData = customData.Replace("\r\n", "\n").Replace("\r", "\n");
+		//		string[] lines = customData.Split(new[] {'\n'}, StringSplitOptions.None);
 
-				bool found = false;
-				// The key in the data should include the divider for clarity
-				string fullKey = key + ": ";  // Ensure there's a space after colon for readability
+		//		bool found = false;
+		//		// The key in the data should include the divider for clarity
+		//		string fullKey = key + ": ";  // Ensure there's a space after colon for readability
 
-				for (int i = 0; i < lines.Length; i++)
-				{
-					// Check if the current line starts with the full key including the divider
-					if (lines[i].StartsWith(fullKey))
-					{
-						// Key found, update the value
-						lines[i] = fullKey + value;
-						found = true;
-						break;
-					}
-				}
+		//		for (int i = 0; i < lines.Length; i++)
+		//		{
+		//			// Check if the current line starts with the full key including the divider
+		//			if (lines[i].StartsWith(fullKey))
+		//			{
+		//				// Key found, update the value
+		//				lines[i] = fullKey + value;
+		//				found = true;
+		//				break;
+		//			}
+		//		}
 
-				// If the key wasn't found, append it
-				if (!found)
-				{
-					Array.Resize(ref lines, lines.Length + 1);
-					lines[lines.Length - 1] = fullKey + value;
-				}
+		//		// If the key wasn't found, append it
+		//		if (!found)
+		//		{
+		//			Array.Resize(ref lines, lines.Length + 1);
+		//			lines[lines.Length - 1] = fullKey + value;
+		//		}
 
-				// Join all lines back to a single string with proper new lines
-				cockpit.CustomData = string.Join("\n", lines);
-			}
-
-
-		}
+		//		// Join all lines back to a single string with proper new lines
+		//		cockpit.CustomData = string.Join("\n", lines);
+		//	}
 
 
-        public static string GetParameter(Sandbox.ModAPI.Ingame.IMyTerminalBlock block, string key)
-		{
-			string customData = block.CustomData;
-			string pattern = $"\n{key}: ";
-			int startIndex = customData.IndexOf(pattern);
+		//}
 
-			if (startIndex != -1)
-			{
-				startIndex += pattern.Length;
-				int endIndex = customData.IndexOf("\n", startIndex);
-				endIndex = endIndex == -1 ? customData.Length : endIndex;
-				return customData.Substring(startIndex, endIndex - startIndex);
-			}
 
-			return null; // Key not found
-		}
+  //      public static string GetParameter(Sandbox.ModAPI.Ingame.IMyTerminalBlock block, string key)
+		//{
+		//	string customData = block.CustomData;
+		//	string pattern = $"\n{key}: ";
+		//	int startIndex = customData.IndexOf(pattern);
+
+		//	if (startIndex != -1)
+		//	{
+		//		startIndex += pattern.Length;
+		//		int endIndex = customData.IndexOf("\n", startIndex);
+		//		endIndex = endIndex == -1 ? customData.Length : endIndex;
+		//		return customData.Substring(startIndex, endIndex - startIndex);
+		//	}
+
+		//	return null; // Key not found
+		//}
 
 		private Color ParseColor(string colorString)
 		{
@@ -6012,8 +6035,12 @@ namespace EliDangHUD
         private void CheckPlayerInput()
 		{
             MyKeys rotateLeftKey = (MyKeys)theSettings.rotateLeftKey;
-            MyKeys resetKey = (MyKeys)theSettings.resetKey;
             MyKeys rotateRightKey = (MyKeys)theSettings.rotateRightKey;
+            MyKeys rotateUpKey = (MyKeys)theSettings.rotateUpKey;
+            MyKeys rotateDownKey = (MyKeys)theSettings.rotateDownKey;
+            MyKeys rotatePosZKey = (MyKeys)theSettings.rotatePosZKey;
+            MyKeys rotateNegZKey = (MyKeys)theSettings.rotateNegZKey;
+            MyKeys resetKey = (MyKeys)theSettings.resetKey;
             MyKeys orbitKey = (MyKeys)theSettings.orbitViewKey;
             MyKeys perspectiveKey = (MyKeys)theSettings.perspectiveViewKey;
 
@@ -6067,38 +6094,86 @@ namespace EliDangHUD
 			{
                 if (MyAPIGateway.Input.IsNewKeyPressed(rotateLeftKey))
                 {
-                    HologramViewLocal_Current = ((int)HologramViewLocal_Current - 1 < 0 ? HologramView_Side.Bottom : HologramViewLocal_Current - 1); // Step down, or roll over to max.
-                }
-                if (MyAPIGateway.Input.IsNewKeyPressed(resetKey))
-                {
-                    HologramViewLocal_Current = HologramView_Side.Rear; // Reset
+                    if (gHandler.localGridControlledEntityCustomData.localGridHologramSide != HologramViewType.Static) 
+                    {
+                        gHandler.SetHologramViewType(false, HologramViewType.Static);
+                    }
+                    gHandler.SetHologramRotation(false, 0, 90);
+                    //HologramViewLocal_Current = ((int)HologramViewLocal_Current - 1 < 0 ? HologramViewType.Bottom : HologramViewLocal_Current - 1); // Step down, or roll over to max.
                 }
                 if (MyAPIGateway.Input.IsNewKeyPressed(rotateRightKey))
                 {
-                    HologramViewLocal_Current = ((int)HologramViewLocal_Current + 1 > HologramViewLocal_Current_MaxSide ? HologramView_Side.Rear : HologramViewLocal_Current + 1); // Step up, or roll over to min.
+                    if (gHandler.localGridControlledEntityCustomData.localGridHologramSide != HologramViewType.Static)
+                    {
+                        gHandler.SetHologramViewType(false, HologramViewType.Static);
+                    }
+                    gHandler.SetHologramRotation(false, 0, -90);
+                    //HologramViewLocal_Current = ((int)HologramViewLocal_Current + 1 > HologramViewLocal_Current_MaxSide ? HologramViewType.Rear : HologramViewLocal_Current + 1); // Step up, or roll over to min.
+                }
+                if (MyAPIGateway.Input.IsNewKeyPressed(rotateUpKey))
+                {
+                    if (gHandler.localGridControlledEntityCustomData.localGridHologramSide != HologramViewType.Static)
+                    {
+                        gHandler.SetHologramViewType(false, HologramViewType.Static);
+                    }
+                    gHandler.SetHologramRotation(false, 1, 90);
+                }
+                if (MyAPIGateway.Input.IsNewKeyPressed(rotateDownKey))
+                {
+                    if (gHandler.localGridControlledEntityCustomData.localGridHologramSide != HologramViewType.Static)
+                    {
+                        gHandler.SetHologramViewType(false, HologramViewType.Static);
+                    }
+                    gHandler.SetHologramRotation(false, 1, -90);
+                }
+                if (MyAPIGateway.Input.IsNewKeyPressed(rotatePosZKey))
+                {
+                    if (gHandler.localGridControlledEntityCustomData.localGridHologramSide != HologramViewType.Static)
+                    {
+                        gHandler.SetHologramViewType(false, HologramViewType.Static);
+                    }
+                    gHandler.SetHologramRotation(false, 2, 90);
+                }
+                if (MyAPIGateway.Input.IsNewKeyPressed(rotateNegZKey))
+                {
+                    if (gHandler.localGridControlledEntityCustomData.localGridHologramSide != HologramViewType.Static)
+                    {
+                        gHandler.SetHologramViewType(false, HologramViewType.Static);
+                    }
+                    gHandler.SetHologramRotation(false, 2, -90);
+                }
+                if (MyAPIGateway.Input.IsNewKeyPressed(resetKey))
+                {
+                    if (gHandler.localGridControlledEntityCustomData.localGridHologramSide != HologramViewType.Static)
+                    {
+                        gHandler.SetHologramViewType(false, HologramViewType.Static);
+                    }
+                    gHandler.SetHologramRotation(false, 0, 361); // Anything >= 360 gets set back to 0.
+                    gHandler.SetHologramRotation(false, 1, 361); // Anything >= 360 gets set back to 0.
+                    gHandler.SetHologramRotation(false, 2, 361); // Anything >= 360 gets set back to 0.
                 }
             }
 			else 
 			{
                 if (MyAPIGateway.Input.IsNewKeyPressed(rotateLeftKey))
                 {
-                    HologramViewTarget_Current = ((int)HologramViewTarget_Current - 1 < 0 ? HologramView_Side.Bottom : HologramViewTarget_Current - 1); // Step down, or roll over to max.
+                    HologramViewTarget_Current = ((int)HologramViewTarget_Current - 1 < 0 ? HologramViewType.Bottom : HologramViewTarget_Current - 1); // Step down, or roll over to max.
                 }
                 if (MyAPIGateway.Input.IsNewKeyPressed(resetKey))
                 {
-                    HologramViewTarget_Current = HologramView_Side.Rear; // Reset
+                    HologramViewTarget_Current = HologramViewType.Rear; // Reset
                 }
                 if (MyAPIGateway.Input.IsNewKeyPressed(rotateRightKey))
                 {
-                    HologramViewTarget_Current = ((int)HologramViewTarget_Current + 1 > HologramViewTarget_Current_MaxSide ? HologramView_Side.Rear : HologramViewTarget_Current + 1); // Step up, or roll over to min.
+                    HologramViewTarget_Current = ((int)HologramViewTarget_Current + 1 > HologramViewTarget_Current_MaxSide ? HologramViewType.Rear : HologramViewTarget_Current + 1); // Step up, or roll over to min.
                 }
                 if (MyAPIGateway.Input.IsNewKeyPressed(orbitKey))
                 {
-                    HologramViewTarget_Current = HologramView_Side.Orbit;
+                    HologramViewTarget_Current = HologramViewType.Orbit;
                 }
                 if (MyAPIGateway.Input.IsNewKeyPressed(perspectiveKey))
                 {
-                    HologramViewTarget_Current = HologramView_Side.Perspective; // Perspective
+                    HologramViewTarget_Current = HologramViewType.Perspective; // Perspective
                 }
             }
 			
@@ -7448,27 +7523,27 @@ namespace EliDangHUD
                     // I actually think instead of just CreateRotationY/X/Z I need to do this relative to my cockpit blocks "up" direction, or it doesn't make any sense.
                     switch (HologramViewLocal_Current)
                     {
-                        case HologramView_Side.Rear:
+                        case HologramViewType.Rear:
                             // Rear (default - no rotation needed)
                             rotationMatrixForView = MatrixD.Identity;
                             break;
-                        case HologramView_Side.Left:
+                        case HologramViewType.Left:
                             // Left side (90° yaw left)
                             rotationMatrixForView = MatrixD.CreateFromAxisAngle(gHandler.localGridControlledEntity.WorldMatrix.Up, MathHelper.ToRadians(90)); // Use up so we pivot around that axis.
                             break;
-                        case HologramView_Side.Front:
+                        case HologramViewType.Front:
                             // Front (180° yaw)
                             rotationMatrixForView = MatrixD.CreateFromAxisAngle(gHandler.localGridControlledEntity.WorldMatrix.Up, MathHelper.ToRadians(180)); // Use up so we pivot around that axis.
                             break;
-                        case HologramView_Side.Right:
+                        case HologramViewType.Right:
                             // Right side (90° yaw right / 270° left)
                             rotationMatrixForView = MatrixD.CreateFromAxisAngle(gHandler.localGridControlledEntity.WorldMatrix.Up, MathHelper.ToRadians(-90)); // Use up so we pivot around that axis.
                             break;
-                        case HologramView_Side.Top:
+                        case HologramViewType.Top:
                             // Top view (90° pitch down)
                             rotationMatrixForView = MatrixD.CreateFromAxisAngle(gHandler.localGridControlledEntity.WorldMatrix.Right, MathHelper.ToRadians(-90)); // Use right so we pivot around that axis.
                             break;
-                        case HologramView_Side.Bottom:
+                        case HologramViewType.Bottom:
                             // Bottom view (90° pitch up)
                             rotationMatrixForView = MatrixD.CreateFromAxisAngle(gHandler.localGridControlledEntity.WorldMatrix.Right, MathHelper.ToRadians(90)); // Use right so we pivot around that axis.
                             break;
@@ -8096,19 +8171,19 @@ namespace EliDangHUD
                         MatrixD rotationMatrixForView = MatrixD.Identity;
                         switch (theData.holoSide)
                         {
-                            case (int)HologramView_Side.Left:
+                            case (int)HologramViewType.Left:
                                 rotationMatrixForView = MatrixD.CreateFromAxisAngle(Vector3D.Up, MathHelper.ToRadians(90));
                                 break;
-                            case (int)HologramView_Side.Front:
+                            case (int)HologramViewType.Front:
                                 rotationMatrixForView = MatrixD.CreateFromAxisAngle(Vector3D.Up, MathHelper.ToRadians(180));
                                 break;
-                            case (int)HologramView_Side.Right:
+                            case (int)HologramViewType.Right:
                                 rotationMatrixForView = MatrixD.CreateFromAxisAngle(Vector3D.Up, MathHelper.ToRadians(-90));
                                 break;
-                            case (int)HologramView_Side.Top:
+                            case (int)HologramViewType.Top:
                                 rotationMatrixForView = MatrixD.CreateFromAxisAngle(Vector3D.Right, MathHelper.ToRadians(-90));
                                 break;
-                            case (int)HologramView_Side.Bottom:
+                            case (int)HologramViewType.Bottom:
                                 rotationMatrixForView = MatrixD.CreateFromAxisAngle(Vector3D.Right, MathHelper.ToRadians(90));
                                 break;
                         }
@@ -8218,27 +8293,27 @@ namespace EliDangHUD
                 // TODO, wonder if this should be the holo table?
                 switch (theData.holoSide)
                 {
-                    case (int)HologramView_Side.Rear:
+                    case (int)HologramViewType.Rear:
                         // Rear (default - no rotation needed)
                         rotationMatrixForView = MatrixD.Identity;
                         break;
-                    case (int)HologramView_Side.Left:
+                    case (int)HologramViewType.Left:
                         // Left side (90° yaw left)
                         rotationMatrixForView = MatrixD.CreateFromAxisAngle(grid.WorldMatrix.Up, MathHelper.ToRadians(90)); // Use up so we pivot around that axis.
                         break;
-                    case (int)HologramView_Side.Front:
+                    case (int)HologramViewType.Front:
                         // Front (180° yaw)
                         rotationMatrixForView = MatrixD.CreateFromAxisAngle(grid.WorldMatrix.Up, MathHelper.ToRadians(180)); // Use up so we pivot around that axis.
                         break;
-                    case (int)HologramView_Side.Right:
+                    case (int)HologramViewType.Right:
                         // Right side (90° yaw right / 270° left)
                         rotationMatrixForView = MatrixD.CreateFromAxisAngle(grid.WorldMatrix.Up, MathHelper.ToRadians(-90)); // Use up so we pivot around that axis.
                         break;
-                    case (int)HologramView_Side.Top:
+                    case (int)HologramViewType.Top:
                         // Top view (90° pitch down)
                         rotationMatrixForView = MatrixD.CreateFromAxisAngle(grid.WorldMatrix.Right, MathHelper.ToRadians(-90)); // Use right so we pivot around that axis.
                         break;
-                    case (int)HologramView_Side.Bottom:
+                    case (int)HologramViewType.Bottom:
                         // Bottom view (90° pitch up)
                         rotationMatrixForView = MatrixD.CreateFromAxisAngle(grid.WorldMatrix.Right, MathHelper.ToRadians(90)); // Use right so we pivot around that axis.
                         break;
@@ -8371,31 +8446,31 @@ namespace EliDangHUD
                     // I actually think instead of just CreateRotationY/X/Z I need to do this relative to my cockpit blocks "up" direction, or it doesn't make any sense.
                     switch (HologramViewTarget_Current)
                     {
-                        case HologramView_Side.Rear:
+                        case HologramViewType.Rear:
                             // Rear (default - no rotation needed)
                             rotationMatrixForView = MatrixD.Identity;
                             break;
-                        case HologramView_Side.Left:
+                        case HologramViewType.Left:
                             // Left side (90° yaw left)
                             rotationMatrixForView = MatrixD.CreateFromAxisAngle(gridA.WorldMatrix.Up, MathHelper.ToRadians(90)); // Use up so we pivot around that axis.
                             break;
-                        case HologramView_Side.Front:
+                        case HologramViewType.Front:
                             // Front (180° yaw)
                             rotationMatrixForView = MatrixD.CreateFromAxisAngle(gridA.WorldMatrix.Up, MathHelper.ToRadians(180)); // Use up so we pivot around that axis.
                             break;
-                        case HologramView_Side.Right:
+                        case HologramViewType.Right:
                             // Right side (90° yaw right / 270° left)
                             rotationMatrixForView = MatrixD.CreateFromAxisAngle(gridA.WorldMatrix.Up, MathHelper.ToRadians(-90)); // Use up so we pivot around that axis.
                             break;
-                        case HologramView_Side.Top:
+                        case HologramViewType.Top:
                             // Top view (90° pitch down)
                             rotationMatrixForView = MatrixD.CreateFromAxisAngle(gridA.WorldMatrix.Right, MathHelper.ToRadians(-90)); // Use right so we pivot around that axis.
                             break;
-                        case HologramView_Side.Bottom:
+                        case HologramViewType.Bottom:
                             // Bottom view (90° pitch up)
                             rotationMatrixForView = MatrixD.CreateFromAxisAngle(gridA.WorldMatrix.Right, MathHelper.ToRadians(90)); // Use right so we pivot around that axis.
                             break;
-                        case HologramView_Side.Orbit:
+                        case HologramViewType.Orbit:
 
                             // This is technically an "Orbit" cam... It will show a hologram of the target grid EXACTLY as it appears in world space relative to your orientation
                             // but not your translation/position in the world. So you can rotate your ship around and see all sides of gridB from anywhere in the world.
@@ -8407,7 +8482,7 @@ namespace EliDangHUD
                             //Use this as the rotation (this naturally includes both position and orientation differences)
                             rotationMatrixForView = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(gridAToGridB));
                             break;
-                        case HologramView_Side.Perspective:
+                        case HologramViewType.Perspective:
                             // FenixPK 2025-07-28 there are still problems with this when gridA is rolled but this is sooo beyond my understanding at this point I give up haha. 
                             // Round 3, the winner, this perpendicular on the left/right being handled made all the difference. It has the effect I was hoping for. 
                             // Create proxy matrix: gridB's orientation at gridA's position
