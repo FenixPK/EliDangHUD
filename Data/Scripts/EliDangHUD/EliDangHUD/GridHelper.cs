@@ -13,6 +13,7 @@ using VRage.ModAPI;
 using VRage.Utils;
 using VRageMath;
 using static EliDangHUD.CircleRenderer;
+using static VRage.Game.MyObjectBuilder_CurveDefinition;
 
 namespace EliDangHUD
 {
@@ -98,7 +99,6 @@ namespace EliDangHUD
         public bool localGridHasPower;
 
         public float localGridCurrentIntegrity = 0f;
-
         public float localGridMaxIntegrity = 0f;
 
         public double hologramScale = 0.0075;//0.0125;
@@ -108,8 +108,6 @@ namespace EliDangHUD
         public MatrixD localHologramViewRotationCurrent = MatrixD.Identity;
         public MatrixD localHologramViewRotationGoal = MatrixD.Identity;
         public MatrixD localHologramFinalRotation = MatrixD.Identity;
-
-        
 
         public double localGridHydrogenRemainingSeconds;
         private double localGridHydrogenConsumptionRate = 0;
@@ -141,7 +139,7 @@ namespace EliDangHUD
 
         // IMPORTANT: must handle IMyCubeGrid.OnGridSplit = triggered when grids separate.
         // IMyCubeGrid.OnGridMerge = triggered when grids merge(e.g., merge blocks, welding).
-        // For rotors/pistons/connectors = you usually check Block.OnClose(for detached heads) or use IMyMechanicalConnectionBlock’s TopGridChanged event.
+        // For rotors/pistons/connectors = you usually check Block.OnClose(for detached heads) or use IMyMechanicalConnectionBlockâ€™s TopGridChanged event.
         // Connectors: IMyShipConnector has IsConnectedChanged event. 
         // I need to give this some thought... on the one hand the idea of connecting a battery pack, or external tank, or external jump ring, exeternal reactor etc. is appealing.
         // On the other hand docking to a station/grid that has a huge number of tanks/batteries/reactors/jump drives would mean a lot more overhead. 
@@ -150,6 +148,9 @@ namespace EliDangHUD
         public bool localGridInitialized = false;
         public bool localGridControlledEntityInitialized = false; 
         public bool localGridBlocksInitialized = false;
+        public bool localHologramScaleNeedsRefresh = false;
+        public bool targetHologramScaleNeedsRefresh = false;
+        
         public Dictionary<Vector3I, IMySlimBlock> localGridAllBlocksDict = new Dictionary<Vector3I, IMySlimBlock>();
         public Dictionary<int, Dictionary<Vector3I, IMySlimBlock>> localGridAllBlocksDictByFloor = new Dictionary<int, Dictionary<Vector3I, IMySlimBlock>>();
         public Dictionary<IMyComponentStack, Vector3I> localGridBlockComponentStacks = new Dictionary<IMyComponentStack, Vector3I>();
@@ -164,28 +165,39 @@ namespace EliDangHUD
         public Dictionary<Vector3I, IMyTerminalBlock> localGridHologramTerminals = new Dictionary<Vector3I, IMyTerminalBlock>();
         public Dictionary<Vector3I, HologramCustomData> localGridHologramTerminalsData = new Dictionary<Vector3I, HologramCustomData>();
         public Dictionary<Vector3I, MatrixD> localGridHologramTerminalRotations = new Dictionary<Vector3I, MatrixD>();
-
         // TODO add shield generators from shield mods? Midnight something or other was a new one I saw?
 
-        public bool localHologramScaleNeedsRefresh = false;
-        public bool targetHologramScaleNeedsRefresh = false;
+        public Dictionary<Vector3I, IMyRadioAntenna> localGridAntennasDict = new Dictionary<Vector3I, IMyRadioAntenna>();
+        public bool localGridHasPassiveRadar = false;
+        public bool localGridHasActiveRadar = false;
+        public double localGridMaxPassiveRadarRange = 0.0;
+        public double localGridMaxActiveRadarRange = 0.0;
+        public double maxRadarRange = 50000;
 
-        public bool localGridClustersNeedRefresh = false;
         public Dictionary<Vector3I, BlockCluster> localGridBlockClusters = new Dictionary<Vector3I, BlockCluster>();
         public Dictionary<Vector3I, Vector3I> localGridBlockToClusterMap = new Dictionary<Vector3I, Vector3I>();
+        public int localGridClusterSize = 1;
+        public bool localGridClustersNeedRefresh = false;
 
-        public bool localGridClusterSlicesNeedRefresh = false;
         //public List<ClusterBox> localGridBlockClusterSlices = new List<ClusterBox>();
         //public Dictionary<Vector3I, int> localGridBlockToClusterSliceIndexMap = new Dictionary<Vector3I, int>(); // WIP, probably will re-factor the slice logic first before doing more.
-
         public Dictionary<int, List<ClusterBox>> localGridFloorClusterSlices = new Dictionary<int, List<ClusterBox>>();
-        public Dictionary<Vector3I, ClusterBox> localGridBlockToFloorClusterSlicesMap = new Dictionary<Vector3I, ClusterBox>();
+        public Dictionary<int, Dictionary<Vector3I, int>> localGridBlockToFloorClusterSlicesMap = new Dictionary<int, Dictionary<Vector3I, int>>();
+        public bool localGridClusterSlicesNeedRefresh = false;
+
+        public double localGridHologramActivationTime = 0;
+        public double localGridHologramBootUpAlpha = 1;
+
+        public Vector4[] localGridHologramPalleteForClusterSlices;
 
 
-        // I may not leave this in the gHandler...
+        //--Target Grid--
         public bool targetGridInitialized = false;
         public bool targetGridBlocksInitialized = false;
         public IMyCubeGrid targetGrid = null;
+
+        public float targetGridCurrentIntegrity = 0f;
+        public float targetGridMaxIntegrity = 0f;
 
         public MatrixD targetHologramScalingMatrix = MatrixD.Identity;
         public MatrixD targetHologramViewRotationCurrent = MatrixD.Identity;
@@ -193,8 +205,25 @@ namespace EliDangHUD
         public MatrixD targetHologramFinalRotation = MatrixD.Identity;
 
         public Dictionary<Vector3I, IMySlimBlock> targetGridAllBlocksDict = new Dictionary<Vector3I, IMySlimBlock>();
+        public Dictionary<int, Dictionary<Vector3I, IMySlimBlock>> targetGridAllBlocksDictByFloor = new Dictionary<int, Dictionary<Vector3I, IMySlimBlock>>();
+        public Dictionary<IMyComponentStack, Vector3I> targetGridBlockComponentStacks = new Dictionary<IMyComponentStack, Vector3I>();
+        public Dictionary<Vector3I, IMyJumpDrive> targetGridJumpDrivesDict = new Dictionary<Vector3I, IMyJumpDrive>();
 
+        public Dictionary<Vector3I, BlockCluster> targetGridBlockClusters = new Dictionary<Vector3I, BlockCluster>();
+        public Dictionary<Vector3I, Vector3I> targetGridBlockToClusterMap = new Dictionary<Vector3I, Vector3I>();
+        public int targetGridClusterSize = 1;
+        public bool targetGridClustersNeedRefresh = false;
 
+        public Dictionary<int, List<ClusterBox>> targetGridFloorClusterSlices = new Dictionary<int, List<ClusterBox>>();
+        public Dictionary<int, Dictionary<Vector3I, int>> targetGridBlockToFloorClusterSlicesMap = new Dictionary<int, Dictionary<Vector3I, int>>();
+        public bool targetGridClusterSlicesNeedRefresh = false;
+
+        public double targetGridHologramActivationTime = 0;
+        public double targetGridHologramBootUpAlpha = 1;
+
+        public Vector4[] targetGridHologramPalleteForClusterSlices;
+
+        //----------------
 
         public ModSettings theSettings = new ModSettings();
 
@@ -224,6 +253,7 @@ namespace EliDangHUD
         protected override void UnloadData()
         {
             ResetLocalGrid();
+            ResetTargetGrid();
             Instance = null;
             base.UnloadData();  
         }
@@ -250,6 +280,32 @@ namespace EliDangHUD
             return tank.Capacity > 0 && (tank.DetailedInfo.Contains("Oxygen") || tank.DefinitionDisplayNameText.Contains("Oxygen") || tank.BlockDefinition.SubtypeName.Contains("Oxygen"));
         }
 
+        public int GetIntegrityIndex(float integrityRatio)
+        {
+            int sliceIndex = 0;
+            if (integrityRatio < 0.2f)
+            {
+                sliceIndex = 0;
+            }
+            if (integrityRatio < 0.4f)
+            {
+                sliceIndex = 1;
+            }
+            if (integrityRatio < 0.6f)
+            {
+                sliceIndex = 2;
+            }
+            if (integrityRatio < 0.8f)
+            {
+                sliceIndex = 3;
+            }
+            else
+            {
+                sliceIndex = 4;
+            }
+            return sliceIndex;
+        }
+
         private void OnLocalBlockAdded(VRage.Game.ModAPI.IMySlimBlock block)
         {
             if (localGridBlocksInitialized && localGrid != null) // Safety check
@@ -257,13 +313,13 @@ namespace EliDangHUD
                 localGridAllBlocksDict[block.Position] = block;
                 localGridAllBlocksDictByFloor[block.Position.Y][block.Position] = block;
                 localGridBlockComponentStacks[block.ComponentStack] = block.Position;
-                block.ComponentStack.IntegrityChanged += OnBlockIntegrityChanged;
+                block.ComponentStack.IntegrityChanged += OnLocalBlockIntegrityChanged;
 
                 if (block.FatBlock is IMyTerminalBlock terminal)
                 {
-                    if (!(terminal is IMyCockpit))
+                    if (!(terminal is IMyCockpit) && !(terminal is IMyRadioAntenna))
                     {
-                        // Don't add cockpits
+                        // Don't add cockpits or antennas
                         localGridEligibleTerminals[block.Position] = terminal;
                         terminal.CustomNameChanged += OnTerminalCustomNameChanged;
                         terminal.CustomDataChanged += OnTerminalCustomDataChanged;
@@ -280,6 +336,10 @@ namespace EliDangHUD
                             HoloRadarCustomData theData = InitializeCustomDataHoloRadar(terminal);
                             localGridRadarTerminalsData[block.Position] = theData;
                         }
+                    }
+                    if (terminal is IMyRadioAntenna antenna) 
+                    {
+                        localGridAntennasDict.Add(antenna.Position, antenna);
                     }
                 }
                 if (block.FatBlock is IMyGasTank tank)
@@ -316,8 +376,8 @@ namespace EliDangHUD
                 else
                 {
                     // TODO might want to change this to only fill a list of Y levels that need to be rebuilt, and have that done in update instead of every time a block is removed. It could then fire every x seconds too. 
-                    RebuildFloorClustersForGridFloor(block.Position.Y);
-                    localGridClusterSlicesNeedRefresh = true; // In case we are using cluster slices instead of block clusters
+                    RebuildFloorClustersForGridFloor(block.Position.Y, localGridFloorClusterSlices, localGridBlockToFloorClusterSlicesMap, localGridAllBlocksDictByFloor);
+                    //localGridClusterSlicesNeedRefresh = true; // In case we are using cluster slices instead of block clusters
                 }
             }
         }
@@ -326,14 +386,14 @@ namespace EliDangHUD
         {
             if (localGridBlocksInitialized && localGrid != null) // Safety check
             {
-                block.ComponentStack.IntegrityChanged -= OnBlockIntegrityChanged;
+                block.ComponentStack.IntegrityChanged -= OnLocalBlockIntegrityChanged;
                 localGridBlockComponentStacks.Remove(block.ComponentStack);
                 localGridAllBlocksDictByFloor[block.Position.Y].Remove(block.Position);
                 localGridAllBlocksDict.Remove(block.Position);
 
                 if (block.FatBlock is IMyTerminalBlock terminal)
                 {
-                    if (!(terminal is IMyCockpit))
+                    if (!(terminal is IMyCockpit) && !(terminal is IMyRadioAntenna))
                     {
                         // Only handle non-cockpits
                         terminal.CustomNameChanged -= OnTerminalCustomNameChanged;
@@ -343,7 +403,11 @@ namespace EliDangHUD
                         localGridRadarTerminals.Remove(terminal.Position);
                         localGridHologramTerminalsData.Remove(terminal.Position);
                         localGridRadarTerminalsData.Remove(terminal.Position);
-                    }  
+                    }
+                    if (terminal is IMyRadioAntenna antenna)
+                    {
+                        localGridAntennasDict.Remove(antenna.Position);
+                    }
                 }
                 if (block.FatBlock is IMyGasTank tank)
                 {
@@ -379,13 +443,13 @@ namespace EliDangHUD
                 else
                 {
                     // TODO might want to change this to only fill a list of Y levels that need to be rebuilt, and have that done in update instead of every time a block is removed. It could then fire every x seconds too. 
-                    RebuildFloorClustersForGridFloor(block.Position.Y);
-                    localGridClusterSlicesNeedRefresh = true; // In case we are using cluster slices instead of block clusters
+                    RebuildFloorClustersForGridFloor(block.Position.Y, localGridFloorClusterSlices, localGridBlockToFloorClusterSlicesMap, localGridAllBlocksDictByFloor);
+                    //localGridClusterSlicesNeedRefresh = true; // In case we are using cluster slices instead of block clusters
                 }
             }
         }
 
-        private void OnBlockIntegrityChanged(IMyComponentStack stack, float oldIntegrity, float newIntegrity)
+        private void OnLocalBlockIntegrityChanged(IMyComponentStack stack, float oldIntegrity, float newIntegrity)
         {
             if (localGridBlocksInitialized && localGrid != null) // Safety Check
             {
@@ -418,55 +482,13 @@ namespace EliDangHUD
                             {
                                 float oldRatio = oldIntegrity / block.MaxIntegrity;
                                 float newRatio = newIntegrity / block.MaxIntegrity;
-                                int oldSliceIndex = 0;
-                                int newSliceIndex = 0;
-
-                                if (oldRatio < 0.2f) 
-                                {
-                                    oldSliceIndex = 0;
-                                }
-                                if (oldRatio < 0.4f) 
-                                {
-                                    oldSliceIndex = 1;
-                                }
-                                if (oldRatio < 0.6f) 
-                                {
-                                    oldSliceIndex = 2;
-                                }
-                                if (oldRatio < 0.8f)
-                                {
-                                    oldSliceIndex = 3;
-                                }
-                                else 
-                                {
-                                    oldSliceIndex = 4;
-                                }
-
-                                if (newRatio < 0.2f)
-                                {
-                                    newSliceIndex = 0;
-                                }
-                                if (newRatio < 0.4f)
-                                {
-                                    newSliceIndex = 1;
-                                }
-                                if (newRatio < 0.6f)
-                                {
-                                    newSliceIndex = 2;
-                                }
-                                if (newRatio < 0.8f)
-                                {
-                                    newSliceIndex = 3;
-                                }
-                                else
-                                {
-                                    newSliceIndex = 4;
-                                }
+                                int oldSliceIndex = GetIntegrityIndex(oldRatio);
+                                int newSliceIndex = GetIntegrityIndex(newRatio);
 
                                 if (oldSliceIndex != newSliceIndex) 
                                 {
-                                    RebuildFloorClustersForGridFloor(block.Position.Y);
-                                    localGridClusterSlicesNeedRefresh = true; // In case we are using cluster slices instead of block clusters
+                                    RebuildFloorClustersForGridFloor(block.Position.Y, localGridFloorClusterSlices, localGridBlockToFloorClusterSlicesMap, localGridAllBlocksDictByFloor);
+                                    //localGridClusterSlicesNeedRefresh = true; // In case we are using cluster slices instead of block clusters
                                     // If we are using cluster slices we can trigger a refresh, since we want slices to contain only blocks of the same integrity. So if one in a slice gets damaged it
                                     // breaks off the slice it was a part of and becomes it's own slice. 
                                 }
@@ -556,8 +578,252 @@ namespace EliDangHUD
                 ReadCustomDataControlledEntity(ini, theData, terminal); // Might trigger OnTerminalCustomDataChanged again but only once and only if it writes new default values for new keys etc. 
 
                 localGridControlledEntityCustomData = theData;
+
+                localGridHologramPalleteForClusterSlices = BuildIntegrityColors(theData.scannerColor * 0.5f);
+                targetGridHologramPalleteForClusterSlices = BuildIntegrityColors(theData.lineColorComp * 0.5f);
             }
         }
+
+        private static Vector4[] BuildIntegrityColors(Vector4 hologramColor)
+        {
+            Vector4 yellow = new Vector4(1f, 1f, 0f, 1f);
+            Vector4 red = new Vector4(1f, 0f, 0f, 1f);
+
+            return new Vector4[]
+            {
+                red,                                 // Bucket 0
+                Vector4.Lerp(yellow, red, 0.5f),     // Bucket 1
+                yellow,                              // Bucket 2
+                Vector4.Lerp(hologramColor, yellow, 0.5f), // Bucket 3
+                hologramColor                        // Bucket 4
+            };
+        }
+
+        //--Target Grid
+
+        private void OnTargetBlockAdded(VRage.Game.ModAPI.IMySlimBlock block)
+        {
+            if (targetGridBlocksInitialized && targetGrid != null) // Safety check
+            {
+                targetGridAllBlocksDict[block.Position] = block;
+                targetGridAllBlocksDictByFloor[block.Position.Y][block.Position] = block;
+                targetGridBlockComponentStacks[block.ComponentStack] = block.Position;
+                block.ComponentStack.IntegrityChanged += OnTargetBlockIntegrityChanged;
+
+                if (block.FatBlock is IMyJumpDrive jumpDrive)
+                {
+                    targetGridJumpDrivesDict[block.Position] = jumpDrive;
+                }
+                targetGridCurrentIntegrity += block.Integrity;
+                targetGridMaxIntegrity += block.MaxIntegrity;
+
+                targetHologramScaleNeedsRefresh = true;
+                if (!theSettings.useClusterSlices)
+                {
+                    targetGridClustersNeedRefresh = true; // In case we are using block clusters instead of slices
+                }
+                else
+                {
+                    // TODO might want to change this to only fill a list of Y levels that need to be rebuilt, and have that done in update instead of every time a block is removed. It could then fire every x seconds too. 
+                    RebuildFloorClustersForGridFloor(block.Position.Y, targetGridFloorClusterSlices, targetGridBlockToFloorClusterSlicesMap, targetGridAllBlocksDictByFloor);
+                    //targetGridClusterSlicesNeedRefresh = true; // In case we are using cluster slices instead of block clusters
+                }
+            }
+        }
+
+        private void OnTargetBlockRemoved(VRage.Game.ModAPI.IMySlimBlock block)
+        {
+            if (targetGridBlocksInitialized && targetGrid != null) // Safety check
+            {
+                block.ComponentStack.IntegrityChanged -= OnTargetBlockIntegrityChanged;
+                targetGridBlockComponentStacks.Remove(block.ComponentStack);
+                targetGridAllBlocksDictByFloor[block.Position.Y].Remove(block.Position);
+                targetGridAllBlocksDict.Remove(block.Position);
+
+                if (block.FatBlock is IMyJumpDrive jumpDrive)
+                {
+                    targetGridJumpDrivesDict.Remove(jumpDrive.Position);
+                }
+                targetGridCurrentIntegrity -= block.Integrity;
+                targetGridMaxIntegrity -= block.MaxIntegrity;
+
+                targetHologramScaleNeedsRefresh = true;
+                if (!theSettings.useClusterSlices)
+                {
+                    targetGridClustersNeedRefresh = true; // In case we are using block clusters instead of slices
+                }
+                else
+                {
+                    // TODO might want to change this to only fill a list of Y levels that need to be rebuilt, and have that done in update instead of every time a block is removed. It could then fire every x seconds too. 
+                    RebuildFloorClustersForGridFloor(block.Position.Y, targetGridFloorClusterSlices, targetGridBlockToFloorClusterSlicesMap, targetGridAllBlocksDictByFloor);
+                    //targetGridClusterSlicesNeedRefresh = true; // In case we are using cluster slices instead of block clusters
+                }
+            }
+        }
+
+        private void OnTargetBlockIntegrityChanged(IMyComponentStack stack, float oldIntegrity, float newIntegrity)
+        {
+            if (targetGridBlocksInitialized && targetGrid != null) // Safety Check
+            {
+                IMySlimBlock block = null;
+                Vector3I stackPositionKey = Vector3I.Zero;
+                if (targetGridBlockComponentStacks.TryGetValue(stack, out stackPositionKey))
+                {
+                    block = targetGridAllBlocksDict[stackPositionKey];
+                    if (block != null)
+                    {
+                        float integrityDiff = newIntegrity - oldIntegrity;
+                        targetGridCurrentIntegrity += integrityDiff;
+
+                        if (!theSettings.useClusterSlices)
+                        {
+                            // If we are using block clusters we can updaste the integrity of the cluster this block belongs to. 
+                            Vector3I clusterKey = targetGridBlockToClusterMap[block.Position];
+                            if (targetGridBlockToClusterMap.TryGetValue(block.Position, out clusterKey))
+                            {
+                                BlockCluster clusterEntry;
+                                if (targetGridBlockClusters.TryGetValue(clusterKey, out clusterEntry))
+                                {
+                                    clusterEntry.Integrity += integrityDiff;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            if (block.MaxIntegrity != 0)
+                            {
+                                float oldRatio = oldIntegrity / block.MaxIntegrity;
+                                float newRatio = newIntegrity / block.MaxIntegrity;
+                                int oldSliceIndex = GetIntegrityIndex(oldRatio);
+                                int newSliceIndex = GetIntegrityIndex(newRatio);
+
+                                if (oldSliceIndex != newSliceIndex)
+                                {
+                                    RebuildFloorClustersForGridFloor(block.Position.Y, targetGridFloorClusterSlices, targetGridBlockToFloorClusterSlicesMap, targetGridAllBlocksDictByFloor);
+                                    //targetGridClusterSlicesNeedRefresh = true; // In case we are using cluster slices instead of block clusters
+                                    // If we are using cluster slices we can trigger a refresh, since we want slices to contain only blocks of the same integrity. So if one in a slice gets damaged it
+                                    // breaks off the slice it was a part of and becomes it's own slice. 
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        public void InitializeTargetGrid()
+        {
+            if (targetGrid != null) // Safety check
+            {
+                // Process blocks on grid
+                InitializeTargetGridBlocks();
+
+                if (!theSettings.useClusterSlices)
+                {
+                    targetGridClusterSize = GetClusterSize(targetGridAllBlocksDict.Count);
+                    ClusterBlocks(targetGridAllBlocksDict, targetGridBlockClusters, targetGridBlockToClusterMap, targetGridClusterSize);
+                    targetGridClustersNeedRefresh = false;
+                }
+                else
+                {
+                    ClusterBlocksIntoSlices(targetGridFloorClusterSlices, targetGridBlockToFloorClusterSlicesMap, targetGridAllBlocksDict);
+                    targetGridClusterSlicesNeedRefresh = false;
+                }
+
+                // Add Event Handlers
+                targetGrid.OnBlockAdded += OnTargetBlockAdded;
+                targetGrid.OnBlockRemoved += OnTargetBlockRemoved;
+
+                InitializeTheSettings();
+
+                targetGridHologramActivationTime += deltaTimeSinceLastTick * 0.667;
+                targetGridHologramBootUpAlpha = ClampedD(targetGridHologramActivationTime, 0, 1);
+                targetGridHologramBootUpAlpha = Math.Pow(targetGridHologramBootUpAlpha, 0.25);
+
+                targetGridInitialized = true;
+            }
+        }
+
+        public void ResetTargetGrid() 
+        {
+            if (targetGrid != null) // Safety check
+            {
+                // Remove event handlers
+                foreach (MyComponentStack componentStack in targetGridBlockComponentStacks.Keys)
+                {
+                    componentStack.IntegrityChanged -= OnTargetBlockIntegrityChanged;
+                }
+                targetGrid.OnBlockAdded -= OnTargetBlockAdded;
+                targetGrid.OnBlockRemoved -= OnTargetBlockRemoved;
+            }
+
+            // target grid and controlled entity if applicable
+            targetGrid = null;
+            targetGridInitialized = false;
+
+            // target grid blocks
+            targetGridAllBlocksDict.Clear();
+            targetGridAllBlocksDictByFloor.Clear();
+            targetGridBlockComponentStacks.Clear();
+
+            // target grid clusters
+            targetGridBlockClusters.Clear();
+            targetGridBlockToClusterMap.Clear();
+            targetGridClustersNeedRefresh = false;
+
+            // target grid cluster slices
+            targetGridFloorClusterSlices.Clear();
+            targetGridBlockToFloorClusterSlicesMap.Clear();
+            targetGridClusterSlicesNeedRefresh = false;
+
+            // target grid jump drives
+            targetGridJumpDrivesDict.Clear();
+
+            targetGridBlocksInitialized = false;
+
+            // Target Grid vars
+            targetGridCurrentIntegrity = 0f;
+            targetGridMaxIntegrity = 0f;
+
+            targetHologramScalingMatrix = MatrixD.Identity;
+            targetHologramViewRotationCurrent = MatrixD.Identity;
+            targetHologramViewRotationGoal = MatrixD.Identity;
+            targetHologramFinalRotation = MatrixD.Identity;
+        }
+
+        private void InitializeTargetGridBlocks()
+        {
+            if (targetGrid == null)
+            {
+                return;
+            }
+
+            List<VRage.Game.ModAPI.IMySlimBlock> blocks = new List<VRage.Game.ModAPI.IMySlimBlock>();
+            targetGrid.GetBlocks(blocks);
+
+            foreach (VRage.Game.ModAPI.IMySlimBlock block in blocks)
+            {
+                targetGridAllBlocksDict[block.Position] = block;
+                targetGridAllBlocksDictByFloor[block.Position.Y][block.Position] = block;
+                targetGridBlockComponentStacks[block.ComponentStack] = block.Position;
+                block.ComponentStack.IntegrityChanged += OnTargetBlockIntegrityChanged;
+
+                if (block.FatBlock is IMyJumpDrive jumpDrive)
+                {
+                    targetGridJumpDrivesDict[block.Position] = jumpDrive;
+                }
+
+                targetGridCurrentIntegrity += block.Integrity;
+                targetGridMaxIntegrity += block.MaxIntegrity;
+            }
+            targetGridBlocksInitialized = true;
+        }
+
+
+
+        //------------
+
+
 
         public HologramCustomData InitializeCustomDataHologram(IMyTerminalBlock terminal) 
         {
@@ -592,18 +858,66 @@ namespace EliDangHUD
 
                 if (!theSettings.useClusterSlices)
                 {
-                    ClusterLocalBlocks();
+                    localGridClusterSize = GetClusterSize(localGridAllBlocksDict.Count);
+                    ClusterBlocks(localGridAllBlocksDict, localGridBlockClusters, localGridBlockToClusterMap, localGridClusterSize);
+                    localGridClustersNeedRefresh = false;
                 }
                 else 
                 {
-                    ClusterLocalBlocksIntoSlices();
+                    ClusterBlocksIntoSlices(localGridFloorClusterSlices, localGridBlockToFloorClusterSlicesMap, localGridAllBlocksDict);
+                    localGridClusterSlicesNeedRefresh = false;
                 }
 
                 // Add Event Handlers
                 localGrid.OnBlockAdded += OnLocalBlockAdded;
                 localGrid.OnBlockRemoved += OnLocalBlockRemoved;
 
+                InitializeTheSettings();
+
+                localGridHologramActivationTime += deltaTimeSinceLastTick * 0.667;
+                localGridHologramBootUpAlpha = ClampedD(localGridHologramActivationTime, 0, 1);
+                localGridHologramBootUpAlpha = Math.Pow(localGridHologramBootUpAlpha, 0.25);
+
                 localGridInitialized = true;
+            }
+        }
+
+        double ClampedD(double value, double min, double max)
+        {
+            if (value < min)
+                return min;
+            else if (value > max)
+                return max;
+            else
+                return value;
+        }
+
+        public void InitializeTheSettings() 
+        {
+            // Handle variables set based on the settings XML file inside the world folder. If they can't be used directly or need more initialization logic first.
+            if (!MyAPIGateway.Multiplayer.MultiplayerActive)
+            {
+                // True single player - use full range
+                if (theSettings.maxRadarRangeGlobal == -1)
+                {
+                    maxRadarRange = 50000; // Hard limit == broadcast distance 
+                }
+                else
+                {
+                    maxRadarRange = Math.Min(theSettings.maxRadarRangeGlobal, 50000); // Hard limit == broadcast distance 
+                }
+            }
+            else
+            {
+                // Any multiplayer scenario - respect sync distance
+                if (theSettings.maxRadarRangeGlobal == -1)
+                {
+                    maxRadarRange = MyAPIGateway.Session.SessionSettings.SyncDistance; // Use sync distance directly.
+                }
+                else
+                {
+                    maxRadarRange = Math.Min(theSettings.maxRadarRangeGlobal, MyAPIGateway.Session.SessionSettings.SyncDistance); // Use limit OR sync distance, whichever is lower. As entities wont sync below this distance anyway.
+                }
             }
         }
 
@@ -625,6 +939,9 @@ namespace EliDangHUD
                 localGridControlledEntityCustomData = theData;
                 localGridControlledEntity.CustomDataChanged += OnControlledEntityCustomDataChanged;
 
+                localGridHologramPalleteForClusterSlices = BuildIntegrityColors(theData.scannerColor * 0.5f);
+                targetGridHologramPalleteForClusterSlices = BuildIntegrityColors(theData.lineColorComp * 0.5f);
+
                 localGridControlledEntityInitialized = true;
             }
         }
@@ -636,7 +953,7 @@ namespace EliDangHUD
                 // Remove event handlers
                 foreach (MyComponentStack componentStack in localGridBlockComponentStacks.Keys)
                 {
-                    componentStack.IntegrityChanged -= OnBlockIntegrityChanged;
+                    componentStack.IntegrityChanged -= OnLocalBlockIntegrityChanged;
                 }
                 foreach (IMyTerminalBlock terminal in localGridEligibleTerminals.Values) 
                 {
@@ -692,6 +1009,7 @@ namespace EliDangHUD
             localGridHologramTerminalRotations.Clear();
             localGridRadarTerminals.Clear();
             localGridRadarTerminalsData.Clear();
+            localGridAntennasDict.Clear();
             localGridBlocksInitialized = false;
 
             // Local Grid vars
@@ -730,14 +1048,7 @@ namespace EliDangHUD
             localHologramViewRotationGoal = MatrixD.Identity;
             localHologramFinalRotation = MatrixD.Identity;
 
-            localHologramScalingMatrix = MatrixD.Identity;
-            targetHologramViewRotationCurrent = MatrixD.Identity;
-            targetHologramViewRotationGoal = MatrixD.Identity;
-            targetHologramFinalRotation = MatrixD.Identity;
-
-        // Target grid (if no local grid implies no target grid possible)
-        targetGridAllBlocksDict.Clear();
-            targetGridBlocksInitialized = false;
+            ResetTargetGrid(); // If re-setting the local grid, we also re-set the target grid. 
         }
 
         public void CheckForLocalGrid()
@@ -807,8 +1118,6 @@ namespace EliDangHUD
                 return;
             }
 
-            Dictionary<Vector3I, BlockTracker> blockInfo = new Dictionary<Vector3I, BlockTracker>();
-
             List<VRage.Game.ModAPI.IMySlimBlock> blocks = new List<VRage.Game.ModAPI.IMySlimBlock>();
             localGrid.GetBlocks(blocks);
 
@@ -817,7 +1126,7 @@ namespace EliDangHUD
                 localGridAllBlocksDict[block.Position] = block;
                 localGridAllBlocksDictByFloor[block.Position.Y][block.Position] = block;
                 localGridBlockComponentStacks[block.ComponentStack] = block.Position;
-                block.ComponentStack.IntegrityChanged += OnBlockIntegrityChanged;
+                block.ComponentStack.IntegrityChanged += OnLocalBlockIntegrityChanged;
                 if (block.FatBlock is IMyTerminalBlock terminal)
                 {
                     if (!(terminal is IMyCockpit)) 
@@ -870,6 +1179,8 @@ namespace EliDangHUD
         {
             if (localGrid != null) // Safety check
             {
+                UpdateElapsedTimeDeltaTimerGHandler();
+
                 if (!localGridInitialized)
                 {
                     InitializeLocalGrid();
@@ -879,12 +1190,11 @@ namespace EliDangHUD
                     InitializeLocalGridControlledEntity();
                 }
 
-                UpdateElapsedTimeDeltaTimerGHandler();
-
                 localGridVelocity = GetCubeGridVelocity(localGrid);
                 localGridVelocityAngular = GetCubeGridVelocityAngular(localGrid);
                 localGridSpeed = localGridVelocity.Length();
 
+                UpdateLocalGridAntennaStatus();
                 UpdateLocalGridPower();
                 UpdateLocalGridHydrogen();
                 UpdateLocalGridOxygen();
@@ -904,15 +1214,79 @@ namespace EliDangHUD
                 {
                     UpdateLocalGridScalingMatrix();
                 }
+                if (targetHologramScaleNeedsRefresh) 
+                {
+                    UpdateTargetGridScalingMatrix();
+                }
                 if (!theSettings.useClusterSlices && localGridClustersNeedRefresh)
                 {
-                    ClusterLocalBlocks();
+                    localGridClusterSize = GetClusterSize(localGridAllBlocksDict.Count);
+                    ClusterBlocks(localGridAllBlocksDict, localGridBlockClusters, localGridBlockToClusterMap, localGridClusterSize);
+                    localGridClustersNeedRefresh = false;
                 }
                 else if (localGridClusterSlicesNeedRefresh)
                 {
-                    ClusterLocalBlocksIntoSlices();
+                    ClusterBlocksIntoSlices(localGridFloorClusterSlices, localGridBlockToFloorClusterSlicesMap, localGridAllBlocksDict);
+                    localGridClusterSlicesNeedRefresh = false;
+                }
+                if (!theSettings.useClusterSlices && targetGridClustersNeedRefresh)
+                {
+                    targetGridClusterSize = GetClusterSize(targetGridAllBlocksDict.Count);
+                    ClusterBlocks(targetGridAllBlocksDict, targetGridBlockClusters, targetGridBlockToClusterMap, targetGridClusterSize);
+                    targetGridClustersNeedRefresh = false;
+                }
+                else if (targetGridClusterSlicesNeedRefresh)
+                {
+                    ClusterBlocksIntoSlices(targetGridFloorClusterSlices, targetGridBlockToFloorClusterSlicesMap, targetGridAllBlocksDict);
+                    targetGridClusterSlicesNeedRefresh = false;
                 }
             }
+        }
+
+        /// <summary>
+        /// This function evaluates the localGrid's stored antenna blocks. Pseudo SIGINT logic where we can receive passive or output active.
+        /// Logic: 
+        /// <br></br>
+        /// Any antenna that is powered on can passively receive active signals from grids with broadcasting antennas.
+        /// <br></br>
+        /// Any antenna that is powered on and broadcasting sends active signals out to that broadcast radius and can "ping" voxels or grids within that radius.
+        /// <br></br>
+        /// Any antenna that is broadcasting will also be able to passively receive signals. 
+        /// <br></br>
+        /// Any antenna that is broadcasting will have equal maxPassiveRange and maxActiveRange, both = broadcast radius
+        /// <br></br>
+        /// Any antenna this is not broadcasting will have maxPassiveRange = broadcast radius, and maxActiveRange = 0
+        /// <br></br>
+        /// Any antenna that is powered off, disabled, or otherwise non-functional will have maxPassiveRange = 0 and maxActiveRange = 0.
+        /// </summary>
+        public void UpdateLocalGridAntennaStatus()
+        {
+            localGridHasPassiveRadar = false;
+            localGridHasActiveRadar = false;
+            localGridMaxPassiveRadarRange = 0.0;
+            localGridMaxActiveRadarRange = 0.0;
+
+            foreach (IMyRadioAntenna antenna in localGridAntennasDict.Values)
+            {
+                // Check if antenna is non-functional and continue to check next antenna.
+                if (!antenna.IsWorking || !antenna.Enabled || !antenna.IsFunctional)
+                {
+                    continue;
+                }
+                // If we are here the antenna must be functional and powered on, even if not broadcasting. So set passive to true.
+                localGridHasPassiveRadar = true;
+                double antennaRadius = antenna.Radius; // Store radius once. 
+                localGridMaxPassiveRadarRange = Math.Max(localGridMaxPassiveRadarRange, antennaRadius);
+
+                if (antenna.IsBroadcasting)
+                {
+                    localGridHasActiveRadar = true;
+                    localGridMaxActiveRadarRange = Math.Max(localGridMaxActiveRadarRange, antennaRadius);
+                }
+            }
+            // Safety check if config limits radar range. 
+            localGridMaxPassiveRadarRange = Math.Min(localGridMaxPassiveRadarRange, maxRadarRange);
+            localGridMaxActiveRadarRange = Math.Min(localGridMaxActiveRadarRange, maxRadarRange);
         }
 
         public void UpdateFinalLocalGridHologramRotation() 
@@ -1287,62 +1661,62 @@ namespace EliDangHUD
             public float MaxIntegrity = 0f;
         }
 
-        public void ClusterLocalBlocks()
+        public int GetClusterSize(int blockCount) 
         {
-            if (localGridAllBlocksDict == null || localGridAllBlocksDict.Count == 0)
+            int clusterSize = 1;
+            if (blockCount >= 60000)
+            {
+                clusterSize = 4;
+            }
+            else if (blockCount >= 30000)
+            {
+                clusterSize = 3;
+            }
+            else if (blockCount >= 15000)
+            {
+                clusterSize = 2;
+            }
+            return clusterSize;
+        }
+
+        public void ClusterBlocks(Dictionary<Vector3I, IMySlimBlock> allBlocksDict, Dictionary<Vector3I, BlockCluster> blockClusters,  Dictionary<Vector3I, Vector3I> blockToClusterMap, int clusterSize)
+        {
+            if (allBlocksDict == null || allBlocksDict.Count == 0)
             {
                 return;
             }
 
-            // Decide fidelity level
-            int clusterSize = 1;
-            int count = localGridAllBlocksDict.Count;
+            blockClusters = new Dictionary<Vector3I, BlockCluster>(); // CLear it
 
-            if (count >= 60000)
+            foreach (KeyValuePair<Vector3I, IMySlimBlock> blockKeyValuePair in allBlocksDict)
             {
-                clusterSize = 4;
-            }
-            else if (count >= 30000)
-            {
-                clusterSize = 3;
-            }
-            else if (count >= 15000)
-            {
-                clusterSize = 2;
-            }
-
-            localGridBlockClusters = new Dictionary<Vector3I, BlockCluster>(); // CLear it
-
-            foreach (KeyValuePair<Vector3I, IMySlimBlock> blockKeyValuePair in localGridAllBlocksDict)
-            {
-                var blockPos = blockKeyValuePair.Key; // Grid position of this block
-                var block = blockKeyValuePair.Value;
+                Vector3I blockPos = blockKeyValuePair.Key; // Grid position of this block
+                IMySlimBlock block = blockKeyValuePair.Value;
 
                 // Compute which cluster this block belongs to
-                var clusterPos = new Vector3I(
+                Vector3I clusterPos = new Vector3I(
                     (blockPos.X / clusterSize) * clusterSize,
                     (blockPos.Y / clusterSize) * clusterSize,
                     (blockPos.Z / clusterSize) * clusterSize
                 );
 
-                // If we don’t already have a placeholder BlockTracker, add one
-                if (localGridBlockClusters.ContainsKey(clusterPos))
+                // If we donâ€™t already have a placeholder BlockTracker, add one
+                if (blockClusters.ContainsKey(clusterPos))
                 {
-                    localGridBlockClusters[clusterPos].Integrity += block.Integrity;
-                    localGridBlockClusters[clusterPos].MaxIntegrity += block.MaxIntegrity;
-                    localGridBlockToClusterMap[blockPos] = clusterPos; // Map this block to its cluster position
+                    blockClusters[clusterPos].Integrity += block.Integrity;
+                    blockClusters[clusterPos].MaxIntegrity += block.MaxIntegrity;
+                    blockToClusterMap[blockPos] = clusterPos; // Map this block to its cluster position
                 }
                 else
                 {
-                    localGridBlockClusters[clusterPos] = new BlockCluster
+                    blockClusters[clusterPos] = new BlockCluster
                     {
                         Integrity = block.Integrity,
                         MaxIntegrity = block.MaxIntegrity
                     };
-                    localGridBlockToClusterMap[blockPos] = clusterPos; // Map this block to its cluster position
+                    blockToClusterMap[blockPos] = clusterPos; // Map this block to its cluster position
                 }
             }
-            localGridClustersNeedRefresh = false;
         }
 
         // Old approach:
@@ -1436,13 +1810,14 @@ namespace EliDangHUD
             public int IntegrityBucket; // which bucket this cluster belongs to
         }
 
-        public void ClusterLocalBlocksIntoSlices()
+        public void ClusterBlocksIntoSlices(Dictionary<int, List<ClusterBox>> floorClusterSlicesDict,
+            Dictionary<int, Dictionary<Vector3I, int>> blockToFloorClusterSlicesMap, Dictionary<Vector3I, IMySlimBlock> allBlocksDict)
         {
-            localGridFloorClusterSlices.Clear();
-            localGridBlockToFloorClusterSlicesMap.Clear();
+            floorClusterSlicesDict.Clear();
+            blockToFloorClusterSlicesMap.Clear();
 
             // Group blocks by Y level
-            IEnumerable<IGrouping<int, KeyValuePair<Vector3I, IMySlimBlock>>> groupedByFloor = localGridAllBlocksDict.GroupBy(kvp => kvp.Key.Y);
+            IEnumerable<IGrouping<int, KeyValuePair<Vector3I, IMySlimBlock>>> groupedByFloor = allBlocksDict.GroupBy(kvp => kvp.Key.Y);
 
             foreach (IGrouping<int, KeyValuePair<Vector3I, IMySlimBlock>> yGroup in groupedByFloor)
             {
@@ -1452,7 +1827,7 @@ namespace EliDangHUD
                 IEnumerable<IGrouping<int, KeyValuePair<Vector3I, IMySlimBlock>>> groupedByIntegrity = yGroup.GroupBy(kvp => GetIntegrityBucket(kvp.Value));
 
                 List<ClusterBox> clustersThisFloor = new List<ClusterBox>();
-                localGridFloorClusterSlices[gridFloor] = clustersThisFloor;
+                floorClusterSlicesDict[gridFloor] = clustersThisFloor;
 
                 foreach (IGrouping<int, KeyValuePair<Vector3I, IMySlimBlock>> bucketGroup in groupedByIntegrity)
                 {
@@ -1474,12 +1849,11 @@ namespace EliDangHUD
                         // Map all blocks in this cluster to it
                         foreach (IMySlimBlock b in cluster.Blocks)
                         {
-                            localGridBlockToFloorClusterSlicesMap[b.Position] = cluster;
+                            blockToFloorClusterSlicesMap[gridFloor][b.Position] = clustersThisFloor.Count - 1;
                         }
                     }
                 }
             }
-            localGridClusterSlicesNeedRefresh = false;
         }
 
         private ClusterBox ExpandXZCluster(Vector3I start, int gridFloor, Dictionary<Vector3I, IMySlimBlock> blocks, HashSet<Vector3I> visited, int bucket)
@@ -1540,34 +1914,46 @@ namespace EliDangHUD
 
         private int GetIntegrityBucket(IMySlimBlock block)
         {
-            if (block.MaxIntegrity <= 0) return 0; // avoid div/0
-            float ratio = block.Integrity / block.MaxIntegrity;
-            if (ratio < 0.2f) return 0;
-            if (ratio < 0.4f) return 1;
-            if (ratio < 0.6f) return 2;
-            if (ratio < 0.8f) return 3;
-            return 4;
-        }
-
-        public void RebuildFloorClustersForGridFloor(int gridFloor)
-        {
-            // Remove old clusters for this Y if present
-            if (localGridFloorClusterSlices.ContainsKey(gridFloor))
+            int integrityBucket = 4; // Max integrity 100% or 1.0
+            if (block.MaxIntegrity <= 0)
             {
-                // Also clear block->cluster mappings for this floor
-                foreach (ClusterBox cluster in localGridFloorClusterSlices[gridFloor])
-                {
-                    foreach (IMySlimBlock block in cluster.Blocks)
-                    {
-                        localGridBlockToFloorClusterSlicesMap.Remove(block.Position);
-                    }
-                }
-                localGridFloorClusterSlices.Remove(gridFloor);
+                integrityBucket = 0;
+                return integrityBucket; // avoid div/0
             }
 
-            Dictionary<Vector3I, IMySlimBlock> floorBlocks = localGridAllBlocksDictByFloor[gridFloor];
+            float ratio = block.Integrity / block.MaxIntegrity;
 
+            if (ratio < 0.2f) 
+            {
+                integrityBucket = 0; 
+            }
+            if (ratio < 0.4f) 
+            {
+                integrityBucket = 1; 
+            }
+            if (ratio < 0.6f) 
+            {
+                integrityBucket = 2;
+            }
+            if (ratio < 0.8f) 
+            {
+                integrityBucket = 3; 
+            }
+            return integrityBucket;
+        }
 
+        public void RebuildFloorClustersForGridFloor(int gridFloor, Dictionary<int, List<ClusterBox>> floorClusterSlicesDict, 
+            Dictionary<int, Dictionary<Vector3I, int>> blockToFloorClusterSlicesMap, Dictionary<int, Dictionary<Vector3I, IMySlimBlock>> allBlocksDictByFloor)
+        {
+            // Remove old clusters for this Y if present
+            if (floorClusterSlicesDict.ContainsKey(gridFloor))
+            {
+                // Also clear block->cluster mappings for this floor
+                blockToFloorClusterSlicesMap.Remove(gridFloor);
+                floorClusterSlicesDict.Remove(gridFloor);
+            }
+
+            Dictionary<Vector3I, IMySlimBlock> floorBlocks = allBlocksDictByFloor[gridFloor];
 
             //// Collect all blocks at this Y
             //Dictionary<Vector3I, IMySlimBlock> floorBlocks = allBlocks
@@ -1579,12 +1965,11 @@ namespace EliDangHUD
                 return; // nothing left on this floor
             }
 
-
             // Group by integrity bucket
             IEnumerable<IGrouping<int, KeyValuePair<Vector3I, IMySlimBlock>>> groupedByIntegrity = floorBlocks.GroupBy(kvp => GetIntegrityBucket(kvp.Value));
 
             List<ClusterBox> clustersThisFloor = new List<ClusterBox>();
-            localGridFloorClusterSlices[gridFloor] = clustersThisFloor;
+            floorClusterSlicesDict[gridFloor] = clustersThisFloor;
 
             foreach (IGrouping<int, KeyValuePair<Vector3I, IMySlimBlock>> bucketGroup in groupedByIntegrity)
             {
@@ -1608,7 +1993,7 @@ namespace EliDangHUD
                     // Map all blocks in this cluster
                     foreach (IMySlimBlock block in cluster.Blocks)
                     {
-                        localGridBlockToFloorClusterSlicesMap[block.Position] = cluster;
+                        blockToFloorClusterSlicesMap[gridFloor][block.Position] = clustersThisFloor.Count - 1; // Should be the index of the last added element, which is this cluster containing these blocks. 
                     }
                 }
             }

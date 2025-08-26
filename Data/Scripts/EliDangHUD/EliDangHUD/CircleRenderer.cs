@@ -298,16 +298,17 @@ namespace EliDangHUD
         public double holoBaseZ = 0;
     }
 
-    public class BlockSizeTier
+    public class BlockCluster
     {
-        [XmlAttribute]
-        public int Min { get; set; }
-
-        [XmlAttribute]
-        public int Max { get; set; }
-
-        [XmlAttribute]
-        public int Size { get; set; }
+        public float Integrity = 0f;
+        public float MaxIntegrity = 0f;
+    }
+    public class ClusterBox
+    {
+        public Vector3I Min;
+        public Vector3I Max;
+        public List<VRage.Game.ModAPI.IMySlimBlock> Blocks = new List<VRage.Game.ModAPI.IMySlimBlock>();
+        public int IntegrityBucket; // which bucket this cluster belongs to
     }
 
     /// <summary>
@@ -4085,7 +4086,7 @@ namespace EliDangHUD
        
 
 
-        public double maxRadarRange = 20000; // Set by config to draw distance or value specified in config. This is a fallback value. 
+        public double maxRadarRange = 50000; // Set by config to draw distance or value specified in config. This is a fallback value. 
 
 		// Radar scale range. Ie. how zoomed in or out is the radar screen. 
 		public double radarScaleRange = 5000;
@@ -6089,16 +6090,18 @@ namespace EliDangHUD
 
             bool ctrl = MyAPIGateway.Input.IsAnyCtrlKeyPressed();
 
-
 			if (ctrl)
 			{
                 if (MyAPIGateway.Input.IsNewKeyPressed(rotateLeftKey))
                 {
-                    if (gHandler.localGridControlledEntityCustomData.localGridHologramSide != HologramViewType.Static) 
+                    if (gHandler.localGridControlledEntityCustomData.localGridHologramSide != HologramViewType.Static)
                     {
                         gHandler.SetHologramViewType(false, HologramViewType.Static);
                     }
-                    gHandler.SetHologramRotation(false, 0, 90);
+                    else 
+                    {
+                        gHandler.SetHologramRotation(false, 0, 90);
+                    }
                     //HologramViewLocal_Current = ((int)HologramViewLocal_Current - 1 < 0 ? HologramViewType.Bottom : HologramViewLocal_Current - 1); // Step down, or roll over to max.
                 }
                 if (MyAPIGateway.Input.IsNewKeyPressed(rotateRightKey))
@@ -6107,7 +6110,10 @@ namespace EliDangHUD
                     {
                         gHandler.SetHologramViewType(false, HologramViewType.Static);
                     }
-                    gHandler.SetHologramRotation(false, 0, -90);
+                    else 
+                    {
+                        gHandler.SetHologramRotation(false, 0, -90);
+                    }
                     //HologramViewLocal_Current = ((int)HologramViewLocal_Current + 1 > HologramViewLocal_Current_MaxSide ? HologramViewType.Rear : HologramViewLocal_Current + 1); // Step up, or roll over to min.
                 }
                 if (MyAPIGateway.Input.IsNewKeyPressed(rotateUpKey))
@@ -6116,7 +6122,10 @@ namespace EliDangHUD
                     {
                         gHandler.SetHologramViewType(false, HologramViewType.Static);
                     }
-                    gHandler.SetHologramRotation(false, 1, 90);
+                    else 
+                    {
+                        gHandler.SetHologramRotation(false, 1, 90);
+                    }    
                 }
                 if (MyAPIGateway.Input.IsNewKeyPressed(rotateDownKey))
                 {
@@ -6124,7 +6133,10 @@ namespace EliDangHUD
                     {
                         gHandler.SetHologramViewType(false, HologramViewType.Static);
                     }
-                    gHandler.SetHologramRotation(false, 1, -90);
+                    else 
+                    {
+                        gHandler.SetHologramRotation(false, 1, -90);
+                    }  
                 }
                 if (MyAPIGateway.Input.IsNewKeyPressed(rotatePosZKey))
                 {
@@ -6132,7 +6144,10 @@ namespace EliDangHUD
                     {
                         gHandler.SetHologramViewType(false, HologramViewType.Static);
                     }
-                    gHandler.SetHologramRotation(false, 2, 90);
+                    else 
+                    {
+                        gHandler.SetHologramRotation(false, 2, 90);
+                    }   
                 }
                 if (MyAPIGateway.Input.IsNewKeyPressed(rotateNegZKey))
                 {
@@ -6140,7 +6155,10 @@ namespace EliDangHUD
                     {
                         gHandler.SetHologramViewType(false, HologramViewType.Static);
                     }
-                    gHandler.SetHologramRotation(false, 2, -90);
+                    else 
+                    {
+                        gHandler.SetHologramRotation(false, 2, -90);
+                    }
                 }
                 if (MyAPIGateway.Input.IsNewKeyPressed(resetKey))
                 {
@@ -6148,24 +6166,96 @@ namespace EliDangHUD
                     {
                         gHandler.SetHologramViewType(false, HologramViewType.Static);
                     }
-                    gHandler.SetHologramRotation(false, 0, 361); // Anything >= 360 gets set back to 0.
-                    gHandler.SetHologramRotation(false, 1, 361); // Anything >= 360 gets set back to 0.
-                    gHandler.SetHologramRotation(false, 2, 361); // Anything >= 360 gets set back to 0.
+                    else 
+                    {
+                        gHandler.SetHologramRotation(false, 0, 361); // Anything >= 360 gets set back to 0.
+                        gHandler.SetHologramRotation(false, 1, 361); // Anything >= 360 gets set back to 0.
+                        gHandler.SetHologramRotation(false, 2, 361); // Anything >= 360 gets set back to 0.
+                    }
                 }
             }
 			else 
 			{
                 if (MyAPIGateway.Input.IsNewKeyPressed(rotateLeftKey))
                 {
-                    HologramViewTarget_Current = ((int)HologramViewTarget_Current - 1 < 0 ? HologramViewType.Bottom : HologramViewTarget_Current - 1); // Step down, or roll over to max.
-                }
-                if (MyAPIGateway.Input.IsNewKeyPressed(resetKey))
-                {
-                    HologramViewTarget_Current = HologramViewType.Rear; // Reset
+                    if (gHandler.localGridControlledEntityCustomData.localGridHologramSide != HologramViewType.Static)
+                    {
+                        gHandler.SetHologramViewType(true, HologramViewType.Static);
+                    }
+                    else
+                    {
+                        gHandler.SetHologramRotation(true, 0, 90);
+                    }
+                    //HologramViewLocal_Current = ((int)HologramViewLocal_Current - 1 < 0 ? HologramViewType.Bottom : HologramViewLocal_Current - 1); // Step down, or roll over to max.
                 }
                 if (MyAPIGateway.Input.IsNewKeyPressed(rotateRightKey))
                 {
-                    HologramViewTarget_Current = ((int)HologramViewTarget_Current + 1 > HologramViewTarget_Current_MaxSide ? HologramViewType.Rear : HologramViewTarget_Current + 1); // Step up, or roll over to min.
+                    if (gHandler.localGridControlledEntityCustomData.localGridHologramSide != HologramViewType.Static)
+                    {
+                        gHandler.SetHologramViewType(true, HologramViewType.Static);
+                    }
+                    else
+                    {
+                        gHandler.SetHologramRotation(true, 0, -90);
+                    }
+                    //HologramViewLocal_Current = ((int)HologramViewLocal_Current + 1 > HologramViewLocal_Current_MaxSide ? HologramViewType.Rear : HologramViewLocal_Current + 1); // Step up, or roll over to min.
+                }
+                if (MyAPIGateway.Input.IsNewKeyPressed(rotateUpKey))
+                {
+                    if (gHandler.localGridControlledEntityCustomData.localGridHologramSide != HologramViewType.Static)
+                    {
+                        gHandler.SetHologramViewType(true, HologramViewType.Static);
+                    }
+                    else
+                    {
+                        gHandler.SetHologramRotation(true, 1, 90);
+                    }
+                }
+                if (MyAPIGateway.Input.IsNewKeyPressed(rotateDownKey))
+                {
+                    if (gHandler.localGridControlledEntityCustomData.localGridHologramSide != HologramViewType.Static)
+                    {
+                        gHandler.SetHologramViewType(true, HologramViewType.Static);
+                    }
+                    else
+                    {
+                        gHandler.SetHologramRotation(true, 1, -90);
+                    }
+                }
+                if (MyAPIGateway.Input.IsNewKeyPressed(rotatePosZKey))
+                {
+                    if (gHandler.localGridControlledEntityCustomData.localGridHologramSide != HologramViewType.Static)
+                    {
+                        gHandler.SetHologramViewType(true, HologramViewType.Static);
+                    }
+                    else
+                    {
+                        gHandler.SetHologramRotation(true, 2, 90);
+                    }
+                }
+                if (MyAPIGateway.Input.IsNewKeyPressed(rotateNegZKey))
+                {
+                    if (gHandler.localGridControlledEntityCustomData.localGridHologramSide != HologramViewType.Static)
+                    {
+                        gHandler.SetHologramViewType(true, HologramViewType.Static);
+                    }
+                    else
+                    {
+                        gHandler.SetHologramRotation(true, 2, -90);
+                    }
+                }
+                if (MyAPIGateway.Input.IsNewKeyPressed(resetKey))
+                {
+                    if (gHandler.localGridControlledEntityCustomData.localGridHologramSide != HologramViewType.Static)
+                    {
+                        gHandler.SetHologramViewType(true, HologramViewType.Static);
+                    }
+                    else
+                    {
+                        gHandler.SetHologramRotation(true, 0, 361); // Anything >= 360 gets set back to 0.
+                        gHandler.SetHologramRotation(true, 1, 361); // Anything >= 360 gets set back to 0.
+                        gHandler.SetHologramRotation(true, 2, 361); // Anything >= 360 gets set back to 0.
+                    }
                 }
                 if (MyAPIGateway.Input.IsNewKeyPressed(orbitKey))
                 {
@@ -6176,9 +6266,6 @@ namespace EliDangHUD
                     HologramViewTarget_Current = HologramViewType.Perspective; // Perspective
                 }
             }
-			
-            
-
 		}
 
         /// <summary>
@@ -6209,19 +6296,21 @@ namespace EliDangHUD
             maxPassiveRange = 0.0;
             maxActiveRange = 0.0;
 
-            var antennas = grid.GetFatBlocks<Sandbox.ModAPI.IMyRadioAntenna>();
+            //var antennas = grid.GetFatBlocks<Sandbox.ModAPI.IMyRadioAntenna>();
+            List<Sandbox.ModAPI.IMyRadioAntenna> antennas = new List<Sandbox.ModAPI.IMyRadioAntenna>();
+            MyAPIGateway.TerminalActionsHelper.GetTerminalSystemForGrid(grid).GetBlocksOfType(antennas, a => a.IsWorking && a.Enabled && a.IsFunctional);
 
             foreach (var antenna in antennas)
             {
-                // Check if antenna is non-functional or tagged as [NORADAR] and continue to check next antenna.
-                if (!antenna.IsWorking || !antenna.Enabled || !antenna.IsFunctional)
-                {
-                    continue;
-                }
-                if (antenna.CustomData.Contains("[NORADAR]"))
-                {
-                    continue;
-                }
+                //// Check if antenna is non-functional or tagged as [NORADAR] and continue to check next antenna.
+                //if (!antenna.IsWorking || !antenna.Enabled || !antenna.IsFunctional)
+                //{
+                //    continue;
+                ////}
+                //if (antenna.CustomData.Contains("[NORADAR]"))
+                //{
+                //    continue;
+                //}
                 // If we are here the antenna must be functional and powered on, even if not broadcasting. So set passive to true.
                 hasPassive = true;
                 double antennaRadius = antenna.Radius; // Store radius once. 
@@ -7559,6 +7648,169 @@ namespace EliDangHUD
 					BT.HologramDrawPosition = finalBlockPositionToDraw;
                 }
             }
+        }
+
+        private void DrawHologramFromClusters(Dictionary<Vector3I, BlockCluster> blockClusters, bool isTarget) 
+        {
+            HG_activationTime += deltaTimeSinceLastTick * 0.667;
+            foreach (KeyValuePair<Vector3I, BlockCluster> blockClusterKeyPair in blockClusters) 
+            {
+                BlockCluster blockCluster = blockClusterKeyPair.Value;
+                Vector3I blockClusterPosition = blockClusterKeyPair.Key;
+                float blockClusterIntegrityRatio = (blockCluster.MaxIntegrity != 0) ? blockCluster.Integrity / blockCluster.MaxIntegrity : 0;
+
+                if (blockClusterIntegrityRatio < 0.01) 
+                {
+                    continue; // Skip clusters too low integrity to draw. 
+                }
+
+                // key colors
+                Vector4 hologramColor = gHandler.localGridControlledEntityCustomData.scannerColor * 0.5f; // starting color
+                Vector4 yellow = new Vector4(1f, 1f, 0f, 1f);
+                Vector4 red = new Vector4(1f, 0f, 0f, 1f);
+
+                Vector4 finalColor;
+
+                if (blockClusterIntegrityRatio >= 0.5f)
+                {
+                    // Map [0.5–1.0] -> [0–1], then blend hologramColor → yellow
+                    float t = (blockClusterIntegrityRatio - 0.5f) / 0.5f;
+                    finalColor = Vector4.Lerp(yellow, hologramColor, t);
+                }
+                else
+                {
+                    // Map [0–0.5] -> [0–1], then blend red → yellow
+                    float t = blockClusterIntegrityRatio / 0.5f;
+                    finalColor = Vector4.Lerp(red, yellow, t);
+                }
+
+                bool randomize = false;
+                if (GetRandomFloat() > 0.95f || glitchAmount > 0.5)
+                {
+                    // Randomize 5% of the time, or if glitch amount > 0.5. 
+                    randomize = true;
+                }
+
+                double bootUpAlpha = 1;
+
+                if (isTarget)
+                {
+                    bootUpAlpha = gHandler.localGridHologramBootUpAlpha;
+                }
+                else
+                {
+                    bootUpAlpha = gHandler.targetGridHologramBootUpAlpha;
+                }
+
+                if (GetRandomDouble() > bootUpAlpha)
+                {
+                    position *= bootUpAlpha;
+                }
+                if (GetRandomDouble() > bootUpAlpha)
+                {
+                    randomize = true;
+                }
+
+                var camera = MyAPIGateway.Session.Camera;
+                Vector3D AxisLeft = camera.WorldMatrix.Left;
+                Vector3D AxisUp = camera.WorldMatrix.Up;
+                Vector3D AxisForward = camera.WorldMatrix.Forward;
+
+                Vector3D billDir = Vector3D.Normalize(position);
+                double dotProd = 1 - (Vector3D.Dot(position, AxisForward) + 1) / 2;
+                dotProd = RemapD(dotProd, -0.5, 1, 0.25, 1);
+                dotProd = ClampedD(dotProd, 0.25, 1);
+
+                var color = theSettings.lineColor * 0.5f;
+                if (flippit)
+                {
+                    color = LINECOLOR_Comp * 0.5f;
+                }
+                color.W = 1;
+                if (randomize)
+                {
+                    color *= Clamped(GetRandomFloat(), 0.25f, 1);
+                }
+
+                Vector4 cRed = new Vector4(1, 0, 0, 1);
+                Vector4 cYel = new Vector4(1, 1, 0, 1);
+
+                if (HP > 0.5)
+                {
+                    HP -= 0.5;
+                    HP *= 2;
+                    color.X = LerpF(cYel.X, color.X, (float)HP);
+                    color.Y = LerpF(cYel.Y, color.Y, (float)HP);
+                    color.Z = LerpF(cYel.Z, color.Z, (float)HP);
+                    color.W = LerpF(cYel.W, color.W, (float)HP);
+                }
+                else
+                {
+                    HP *= 2;
+                    color.X = LerpF(cRed.X, cYel.X, (float)HP);
+                    color.Y = LerpF(cRed.Y, cYel.Y, (float)HP);
+                    color.Z = LerpF(cRed.Z, cYel.Z, (float)HP);
+                    color.W = LerpF(cRed.W, cYel.W, (float)HP);
+                }
+
+                double thicc = gHandler.hologramScaleFactor / (grid.WorldVolume.Radius / grid.GridSize);
+                var size = (float)gHandler.hologramScale * 0.65f * (float)thicc;//*grid.GridSize;
+                var material = MaterialSquare;
+
+                double flipperAxis = 1;
+                if (flippit)
+                {
+                    flipperAxis = -1;
+                }
+
+                double gridThicc = grid.WorldVolume.Radius;
+                Vector3D HG_Offset_tran = radarMatrix.Left * -radarRadius * flipperAxis + radarMatrix.Left * _hologramRightOffset_HardCode.X * flipperAxis + radarMatrix.Up * _hologramRightOffset_HardCode.Y + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
+
+                if (randomize)
+                {
+                    Vector3D randOffset = new Vector3D((GetRandomDouble() - 0.5) * 2, (GetRandomDouble() - 0.5) * 2, (GetRandomDouble() - 0.5) * 2);
+                    randOffset *= 0.333;
+                    position += position * randOffset;
+                }
+
+                if (flippit)
+                {
+                    position = Vector3D.Transform(position, HG_scalingMatrixTarget);
+                }
+                else
+                {
+                    position = Vector3D.Transform(position, HG_scalingMatrix);
+                }
+
+                position += worldRadarPos + HG_Offset_tran;
+
+                double dis2Cam = Vector3.Distance(camera.Position, position);
+
+                MyTransparentGeometry.AddBillboardOriented(
+                    material,
+                    color * (float)dotProd * (float)bootUpAlpha,
+                    position,
+                    AxisLeft, // Billboard orientation
+                    AxisUp, // Billboard orientation
+                    size,
+                    MyBillboard.BlendTypeEnum.AdditiveTop);
+
+                if (GetRandomFloat() > 0.9f)
+                {
+                    Vector3D holoCenter = radarMatrix.Left * -radarRadius * flipperAxis + radarMatrix.Left * _hologramRightOffset_HardCode.X * flipperAxis + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
+                    holoCenter += worldRadarPos;
+                    Vector3D holoDir = Vector3D.Normalize(position - holoCenter);
+                    double holoLength = Vector3D.Distance(holoCenter, position);
+
+                    DrawLineBillboard(MaterialSquare, color * 0.15f * (float)dotProd * (float)bootUpAlpha, holoCenter, holoDir, (float)holoLength, 0.0025f, BlendTypeEnum.AdditiveTop);
+                }
+            }
+        }
+
+        private void DrawHologramFromClusterSlices()    
+        { 
+
+            //zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz - Contribution from baby 2025-08-25
         }
 
 
