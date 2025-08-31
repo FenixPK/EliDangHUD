@@ -1608,7 +1608,7 @@ namespace EliDangHUD
             {
                 MatrixD rotationOnlyLocalGridMatrix = localGrid.WorldMatrix;
                 rotationOnlyLocalGridMatrix.Translation = Vector3D.Zero;
-                localHologramFinalRotation = rotationOnlyLocalGridMatrix * localHologramViewRotationCurrent;
+                localHologramFinalRotation = rotationOnlyLocalGridMatrix * localHologramViewRotationCurrent; 
             }
         }
 
@@ -2008,18 +2008,18 @@ namespace EliDangHUD
         public int GetClusterSize(int blockCount) 
         {
             int clusterSize = 1;
-            //if (blockCount >= 60000)
-            //{
-            //    clusterSize = 4;
-            //}
-            //else if (blockCount >= 30000)
-            //{
-            //    clusterSize = 3;
-            //}
-            //else if (blockCount >= 15000)
-            //{
-            //    clusterSize = 2;
-            //}
+            if (blockCount >= 60000)
+            {
+                clusterSize = 4;
+            }
+            else if (blockCount >= 30000)
+            {
+                clusterSize = 3;
+            }
+            else if (blockCount >= 15000)
+            {
+                clusterSize = 2;
+            }
             return clusterSize;
         }
 
@@ -2044,7 +2044,6 @@ namespace EliDangHUD
                     (blockPos.Z / clusterSize) * clusterSize
                 );
 
-                // If we don’t already have a placeholder BlockTracker, add one
                 if (blockClusters.ContainsKey(clusterPos))
                 {
                     blockClusters[clusterPos].Integrity += block.Integrity;
