@@ -276,11 +276,17 @@ namespace EliDangHUD
         Perspective = 2
     }
 
+    public class GridBlock
+    {
+        public VRage.Game.ModAPI.IMySlimBlock Block;
+        public Vector3D DrawPosition;
+    }
 
     public class BlockCluster
     {
         public float Integrity = 0f;
         public float MaxIntegrity = 0f;
+        public Vector3D DrawPosition = Vector3D.Zero;
     }
     public class ClusterBox
     {
@@ -602,11 +608,7 @@ namespace EliDangHUD
         public string HoloRadarCustomDataString;
     }
 
-    public class GridBlock 
-    {
-        public VRage.Game.ModAPI.IMySlimBlock Block;
-        public Vector3D Position;
-    }
+    
 
     [MySessionComponentDescriptor(MyUpdateOrder.BeforeSimulation | MyUpdateOrder.AfterSimulation)]
 	public class CircleRenderer : MySessionComponentBase
@@ -7328,24 +7330,67 @@ namespace EliDangHUD
                     Vector3D holoCenterPosition = worldRadarPos + holoCenterOffset;
                     Vector4 initialColor = gHandler.localGridControlledEntityCustomData.lineColor * 0.5f;
                     initialColor.W = 1;
-                    //MatrixD finalScalingAndRotationMatrix = gHandler.localHologramFinalRotation * gHandler.localHologramScalingMatrix;
+                    MatrixD finalScalingAndRotationMatrix = gHandler.localHologramFinalRotation * gHandler.localHologramScalingMatrix;
 
                     double thicc = gHandler.hologramScaleFactor / (gHandler.localGrid.WorldVolume.Radius / gHandler.localGrid.GridSize);
                     float size = (float)gHandler.hologramScale * 0.65f * (float)thicc * gHandler.localGridClusterSize;
 
-                    Vector3D gridCenterLocal = gHandler.localGrid.PositionComp.LocalAABB.Center;
+                    //Vector3D gridCenterLocal = gHandler.localGrid.PositionComp.LocalAABB.Center;
 
-                    // Move pivot to origin
-                    MatrixD toOrigin = MatrixD.CreateTranslation(-gridCenterLocal);
+                    //// Move pivot to origin
+                    //MatrixD toOrigin = MatrixD.CreateTranslation(-gridCenterLocal);
 
-                    // Move pivot back
-                    MatrixD backToCenter = MatrixD.CreateTranslation(gridCenterLocal);
+                    //// Move pivot back
+                    //MatrixD backToCenter = MatrixD.CreateTranslation(gridCenterLocal);
 
-                    // Wrap rotation with pivot offset
-                    MatrixD rotationWithPivot = backToCenter * gHandler.localHologramFinalRotation * toOrigin;
+                    //// Wrap rotation with pivot offset
+                    //MatrixD rotationWithPivot = gHandler.localHologramFinalRotation * toOrigin;
 
-                    // Apply scaling after rotation/pivot
-                    MatrixD finalScalingAndRotationMatrix = rotationWithPivot * gHandler.localHologramScalingMatrix;
+                    //// Apply scaling after rotation/pivot
+                    //MatrixD finalScalingAndRotationMatrix = rotationWithPivot * gHandler.localHologramScalingMatrix;
+
+
+
+
+
+                    //Vector3D worldCenter = gHandler.localGrid.WorldVolume.Center;
+
+                    //MatrixD gridWorld = gHandler.localGrid.WorldMatrix;
+
+
+                    //MatrixD gridWorldInv = MatrixD.Invert(gridWorld);
+                    //Vector3D gridCenterLocal = Vector3D.Transform(worldCenter, gridWorldInv);
+
+                    //// Move pivot to origin
+                    //MatrixD toOrigin = MatrixD.CreateTranslation(-gridCenterLocal);
+
+                    //// Rotate
+                    //MatrixD rotationWithPivot = toOrigin * gHandler.localHologramFinalRotation; // rotation around pivot
+
+                    //// Move back
+                    //MatrixD backToPivot = MatrixD.CreateTranslation(gridCenterLocal);
+
+                    //// Apply scaling last
+                    //MatrixD finalScalingAndRotationMatrix = backToPivot * rotationWithPivot * gHandler.localHologramScalingMatrix;
+
+
+
+
+                    ////Test no shift back:
+
+                    //MatrixD gridWorldInv = MatrixD.Invert(gHandler.localGrid.WorldMatrix);
+                    //Vector3D gridCenterLocal = Vector3D.Transform(gHandler.localGrid.WorldVolume.Center, gridWorldInv);
+
+                    //// Move pivot to origin
+                    //MatrixD toOrigin = MatrixD.CreateTranslation(-gridCenterLocal);
+
+                    //// Rotate
+                    //MatrixD rotationAroundCenter = gHandler.localHologramFinalRotation;
+
+                    //// Apply scaling last
+                    //MatrixD finalScalingAndRotationMatrix = rotationAroundCenter * toOrigin * gHandler.localHologramScalingMatrix;
+
+
 
 
                     if (!theSettings.useClusterSlices)
@@ -7374,24 +7419,43 @@ namespace EliDangHUD
                     Vector3D holoCenterPosition = worldRadarPos + holoCenterOffset;
                     Vector4 initialColor = gHandler.localGridControlledEntityCustomData.lineColorComp * 0.5f;
                     initialColor.W = 1;
-                    //MatrixD finalScalingAndRotationMatrix = gHandler.targetHologramFinalRotation * gHandler.targetHologramScalingMatrix;
+                    MatrixD finalScalingAndRotationMatrix = gHandler.targetHologramFinalRotation * gHandler.targetHologramScalingMatrix;
 
                     double thicc = gHandler.hologramScaleFactor / (gHandler.targetGrid.WorldVolume.Radius / gHandler.targetGrid.GridSize);
                     float size = (float)gHandler.hologramScale * 0.65f * (float)thicc * gHandler.targetGridClusterSize;
 
-                    Vector3D gridCenterLocal = gHandler.targetGrid.PositionComp.LocalAABB.Center;
 
-                    // Move pivot to origin
-                    MatrixD toOrigin = MatrixD.CreateTranslation(-gridCenterLocal);
 
-                    // Move pivot back
-                    MatrixD backToCenter = MatrixD.CreateTranslation(gridCenterLocal);
 
-                    // Wrap rotation with pivot offset
-                    MatrixD rotationWithPivot = backToCenter * gHandler.targetHologramFinalRotation * toOrigin;
 
-                    // Apply scaling after rotation/pivot
-                    MatrixD finalScalingAndRotationMatrix = rotationWithPivot * gHandler.targetHologramScalingMatrix;
+                    //Vector3D gridCenterLocal = gHandler.targetGrid.PositionComp.LocalAABB.Center;
+
+                    //// Move pivot to origin
+                    //MatrixD toOrigin = MatrixD.CreateTranslation(-gridCenterLocal);
+
+                    //// Move pivot back
+                    //MatrixD backToCenter = MatrixD.CreateTranslation(gridCenterLocal);
+
+                    //// Wrap rotation with pivot offset
+                    //MatrixD rotationWithPivot = backToCenter * gHandler.targetHologramFinalRotation * toOrigin;
+
+                    //// Apply scaling after rotation/pivot
+                    //MatrixD finalScalingAndRotationMatrix = rotationWithPivot * gHandler.targetHologramScalingMatrix;
+
+
+
+                    //MatrixD gridWorldInv = MatrixD.Invert(gHandler.targetGrid.WorldMatrix);
+                    //Vector3D gridCenterLocal = Vector3D.Transform(gHandler.targetGrid.WorldVolume.Center, gridWorldInv);
+
+                    //// Move pivot to origin
+                    //MatrixD toOrigin = MatrixD.CreateTranslation(-gridCenterLocal);
+
+                    //// Rotate
+                    //MatrixD rotationAroundCenter = gHandler.targetHologramFinalRotation;
+
+                    //// Apply scaling last
+                    //MatrixD finalScalingAndRotationMatrix = rotationAroundCenter * toOrigin * gHandler.targetHologramScalingMatrix;
+
 
                     if (!theSettings.useClusterSlices)
                     {
@@ -7438,7 +7502,7 @@ namespace EliDangHUD
                         float size = (float)theData.holoScale * 0.65f * (float)thicc * gHandler.localGridClusterSize;
                         MatrixD holoTableScalingMatrix = MatrixD.CreateScale(theData.holoScale * thicc);
 
-                        //MatrixD finalScalingAndRotationMatrix = localHologramFinalRotationHoloTable * holoTableScalingMatrix;
+                        MatrixD finalScalingAndRotationMatrix = localHologramFinalRotationHoloTable * holoTableScalingMatrix;
                         
                         MatrixD holoTableMatrix = holoTable.WorldMatrix;
                         Vector3D holoTableOffset = new Vector3D(theData.holoX, theData.holoY, theData.holoZ);
@@ -7455,19 +7519,35 @@ namespace EliDangHUD
                             colorPalletHoloTable = gHandler.BuildIntegrityColors(theData.lineColor * 0.5f);
                         }
 
-                        Vector3D gridCenterLocal = gHandler.localGrid.PositionComp.LocalAABB.Center;
+                        //Vector3D gridCenterLocal = gHandler.localGrid.PositionComp.LocalAABB.Center;
 
-                        // Move pivot to origin
-                        MatrixD toOrigin = MatrixD.CreateTranslation(-gridCenterLocal);
+                        //// Move pivot to origin
+                        //MatrixD toOrigin = MatrixD.CreateTranslation(-gridCenterLocal);
 
-                        // Move pivot back
-                        MatrixD backToCenter = MatrixD.CreateTranslation(gridCenterLocal);
+                        //// Move pivot back
+                        //MatrixD backToCenter = MatrixD.CreateTranslation(gridCenterLocal);
 
-                        // Wrap rotation with pivot offset
-                        MatrixD rotationWithPivot = backToCenter * localHologramFinalRotationHoloTable * toOrigin;
+                        //// Wrap rotation with pivot offset
+                        //MatrixD rotationWithPivot = backToCenter * localHologramFinalRotationHoloTable * toOrigin;
 
-                        // Apply scaling after rotation/pivot
-                        MatrixD finalScalingAndRotationMatrix = rotationWithPivot * holoTableScalingMatrix;
+                        //// Apply scaling after rotation/pivot
+                        //MatrixD finalScalingAndRotationMatrix = rotationWithPivot * holoTableScalingMatrix;
+
+
+
+
+
+                        //MatrixD gridWorldInv = MatrixD.Invert(gHandler.localGrid.WorldMatrix);
+                        //Vector3D gridCenterLocal = Vector3D.Transform(gHandler.localGrid.WorldVolume.Center, gridWorldInv);
+
+                        //// Move pivot to origin
+                        //MatrixD toOrigin = MatrixD.CreateTranslation(-gridCenterLocal);
+
+                        //// Rotate
+                        //MatrixD rotationAroundCenter = localHologramFinalRotationHoloTable;
+
+                        //// Apply scaling last
+                        //MatrixD finalScalingAndRotationMatrix = rotationAroundCenter * toOrigin * holoTableScalingMatrix;
 
                         if (!theSettings.useClusterSlices)
                         {
@@ -8197,7 +8277,8 @@ namespace EliDangHUD
             foreach (KeyValuePair<Vector3I, BlockCluster> blockClusterKeyPair in blockClusters) 
             {
                 BlockCluster blockCluster = blockClusterKeyPair.Value;
-                Vector3I blockClusterPosition = blockClusterKeyPair.Key;
+                //Vector3I blockClusterPosition = blockClusterKeyPair.Key;
+                Vector3D blockClusterPosition = blockClusterKeyPair.Value.DrawPosition;
                 float blockClusterIntegrityRatio = (blockCluster.MaxIntegrity != 0) ? blockCluster.Integrity / blockCluster.MaxIntegrity : 0;
                 Vector3D clusterDrawPosition = Vector3D.Zero;
 

@@ -156,7 +156,7 @@ namespace EliDangHUD
         public bool localHologramScaleNeedsRefresh = false;
         public bool targetHologramScaleNeedsRefresh = false;
         
-        public Dictionary<Vector3I, IMySlimBlock> localGridAllBlocksDict = new Dictionary<Vector3I, IMySlimBlock>();
+        public Dictionary<Vector3I, GridBlock> localGridAllBlocksDict = new Dictionary<Vector3I, GridBlock>();
         public Dictionary<int, Dictionary<Vector3I, IMySlimBlock>> localGridAllBlocksDictByFloor = new Dictionary<int, Dictionary<Vector3I, IMySlimBlock>>();
         public Dictionary<IMyComponentStack, Vector3I> localGridBlockComponentStacks = new Dictionary<IMyComponentStack, Vector3I>();
         public Dictionary<Vector3I, IMyGasTank> localGridHydrogenTanksDict = new Dictionary<Vector3I, IMyGasTank>();
@@ -215,7 +215,7 @@ namespace EliDangHUD
         public MatrixD targetHologramViewRotationGoal = MatrixD.Identity;
         public MatrixD targetHologramFinalRotation = MatrixD.Identity;
 
-        public Dictionary<Vector3I, IMySlimBlock> targetGridAllBlocksDict = new Dictionary<Vector3I, IMySlimBlock>();
+        public Dictionary<Vector3I, GridBlock> targetGridAllBlocksDict = new Dictionary<Vector3I, GridBlock>();
         public Dictionary<int, Dictionary<Vector3I, IMySlimBlock>> targetGridAllBlocksDictByFloor = new Dictionary<int, Dictionary<Vector3I, IMySlimBlock>>();
         public Dictionary<IMyComponentStack, Vector3I> targetGridBlockComponentStacks = new Dictionary<IMyComponentStack, Vector3I>();
         public Dictionary<Vector3I, IMyJumpDrive> targetGridJumpDrivesDict = new Dictionary<Vector3I, IMyJumpDrive>();
@@ -322,22 +322,46 @@ namespace EliDangHUD
             return sliceIndex;
         }
 
+        private MatrixD GetRotationMatrix(MatrixD matrix)
+        {
+            // Extract the rotation components
+            Vector3D right = matrix.Right;
+            Vector3D up = matrix.Up;
+            Vector3D forward = matrix.Forward;
+
+            // Create a new matrix with the rotation components
+            MatrixD rotationMatrix = MatrixD.Identity;
+            rotationMatrix.Right = right;
+            rotationMatrix.Up = up;
+            rotationMatrix.Forward = forward;
+
+            // Set translation to zero
+            rotationMatrix.Translation = Vector3D.Zero;
+
+            return rotationMatrix;
+        }
+
+
         private void OnLocalBlockAdded(VRage.Game.ModAPI.IMySlimBlock block)
         {
             if (localGridBlocksInitialized && localGrid != null) // Safety check
             {
-                //MatrixD inverseMatrix = MatrixD.Invert(GetRotationMatrix(localGrid.WorldMatrix));
-                //Vector3D blockWorldPosition;
-                //Vector3D blockScaledInvertedPosition;
-                //block.ComputeWorldCenter(out blockWorldPosition); // Gets world position for the center of the block
-                //blockScaledInvertedPosition = Vector3D.Transform((blockWorldPosition - localGrid.WorldVolume.Center), inverseMatrix) / localGrid.GridSize; // set scaledPosition to be relative to the center of the grid, invert it, then scale it to block units.
+                // New logic, store the pre-computed worldCenter. This is because we want holograms to rotate around the grid's world volume center.
+                // I could apply an offset at Draw, but this is more computationally efficient. It also is required for building the block clusters at the appropriate position. 
+                MatrixD inverseMatrix = MatrixD.Invert(GetRotationMatrix(localGrid.WorldMatrix));
+                Vector3D blockWorldPosition;
+                Vector3D blockScaledInvertedPosition;
+                block.ComputeWorldCenter(out blockWorldPosition); // Gets world position for the center of the block
+                blockScaledInvertedPosition = Vector3D.Transform((blockWorldPosition - localGrid.WorldVolume.Center), inverseMatrix) / localGrid.GridSize; // set scaledPosition to be relative to the center of the grid, invert it, then scale it to block units.
 
-                //GridBlock gridBlock = new GridBlock();
-                //gridBlock.Block = block;
-                //gridBlock.Position = blockScaledInvertedPosition;
+                GridBlock gridBlock = new GridBlock();
+                gridBlock.Block = block;
+                gridBlock.DrawPosition = blockScaledInvertedPosition;
 
-                //localGridAllBlocksDict[block.Position] = gridBlock;
-                localGridAllBlocksDict[block.Position] = block;
+                localGridAllBlocksDict[block.Position] = gridBlock; 
+
+
+                //localGridAllBlocksDict[block.Position] = block;
                 Dictionary<Vector3I, IMySlimBlock> blockDictForFloor;
                 if (!localGridAllBlocksDictByFloor.TryGetValue(block.Position.Y, out blockDictForFloor))
                 {
@@ -519,7 +543,8 @@ namespace EliDangHUD
                 Vector3I stackPositionKey = Vector3I.Zero;
                 if (localGridBlockComponentStacks.TryGetValue(stack, out stackPositionKey))
                 {
-                    block = localGridAllBlocksDict[stackPositionKey];
+                    block = localGridAllBlocksDict[stackPositionKey].Block;
+                    //block = localGridAllBlocksDict[stackPositionKey];
                     if (block != null)
                     {
                         float integrityDiff = newIntegrity - oldIntegrity;
@@ -527,7 +552,7 @@ namespace EliDangHUD
 
                         if (!theSettings.useClusterSlices)
                         {
-                            // If we are using block clusters we can updaste the integrity of the cluster this block belongs to. 
+                            // If we are using block clusters we can update the integrity of the cluster this block belongs to. 
                             Vector3I clusterKey = localGridBlockToClusterMap[block.Position];
                             if (localGridBlockToClusterMap.TryGetValue(block.Position, out clusterKey))
                             {
@@ -692,7 +717,19 @@ namespace EliDangHUD
         {
             if (targetGridBlocksInitialized && targetGrid != null) // Safety check
             {
-                targetGridAllBlocksDict[block.Position] = block;
+                MatrixD inverseMatrix = MatrixD.Invert(GetRotationMatrix(targetGrid.WorldMatrix));
+                Vector3D blockWorldPosition;
+                Vector3D blockScaledInvertedPosition;
+                block.ComputeWorldCenter(out blockWorldPosition); // Gets world position for the center of the block
+                blockScaledInvertedPosition = Vector3D.Transform((blockWorldPosition - targetGrid.WorldVolume.Center), inverseMatrix) / targetGrid.GridSize; // set scaledPosition to be relative to the center of the grid, invert it, then scale it to block units.
+
+                GridBlock gridBlock = new GridBlock();
+                gridBlock.Block = block;
+                gridBlock.DrawPosition = blockScaledInvertedPosition;
+
+                targetGridAllBlocksDict[block.Position] = gridBlock;
+
+                //targetGridAllBlocksDict[block.Position] = block;
                 Dictionary<Vector3I, IMySlimBlock> blockDictForFloor;
                 if (!targetGridAllBlocksDictByFloor.TryGetValue(block.Position.Y, out blockDictForFloor))
                 {
@@ -782,7 +819,8 @@ namespace EliDangHUD
                 Vector3I stackPositionKey = Vector3I.Zero;
                 if (targetGridBlockComponentStacks.TryGetValue(stack, out stackPositionKey))
                 {
-                    block = targetGridAllBlocksDict[stackPositionKey];
+                    //block = targetGridAllBlocksDict[stackPositionKey];
+                    block = targetGridAllBlocksDict[stackPositionKey].Block;
                     if (block != null)
                     {
                         float integrityDiff = newIntegrity - oldIntegrity;
@@ -923,10 +961,23 @@ namespace EliDangHUD
 
             List<VRage.Game.ModAPI.IMySlimBlock> blocks = new List<VRage.Game.ModAPI.IMySlimBlock>();
             targetGrid.GetBlocks(blocks);
+            MatrixD inverseMatrix = MatrixD.Invert(GetRotationMatrix(targetGrid.WorldMatrix));
 
             foreach (VRage.Game.ModAPI.IMySlimBlock block in blocks)
             {
-                targetGridAllBlocksDict[block.Position] = block;
+                
+                Vector3D blockWorldPosition;
+                Vector3D blockScaledInvertedPosition;
+                block.ComputeWorldCenter(out blockWorldPosition); // Gets world position for the center of the block
+                blockScaledInvertedPosition = Vector3D.Transform((blockWorldPosition - targetGrid.WorldVolume.Center), inverseMatrix) / targetGrid.GridSize; // set scaledPosition to be relative to the center of the grid, invert it, then scale it to block units.
+
+                GridBlock gridBlock = new GridBlock();
+                gridBlock.Block = block;
+                gridBlock.DrawPosition = blockScaledInvertedPosition;
+
+                targetGridAllBlocksDict[block.Position] = gridBlock;
+
+                //targetGridAllBlocksDict[block.Position] = block;
                 Dictionary<Vector3I, IMySlimBlock> blockDictForFloor;
                 if (!targetGridAllBlocksDictByFloor.TryGetValue(block.Position.Y, out blockDictForFloor))
                 {
@@ -1344,10 +1395,25 @@ namespace EliDangHUD
 
             List<VRage.Game.ModAPI.IMySlimBlock> blocks = new List<VRage.Game.ModAPI.IMySlimBlock>();
             localGrid.GetBlocks(blocks);
+            MatrixD inverseMatrix = MatrixD.Invert(GetRotationMatrix(localGrid.WorldMatrix));
 
             foreach (VRage.Game.ModAPI.IMySlimBlock block in blocks)
             {
-                localGridAllBlocksDict[block.Position] = block;
+                // New logic, store the pre-computed worldCenter. This is because we want holograms to rotate around the grid's world volume center.
+                // I could apply an offset at Draw, but this is more computationally efficient. It also is required for building the block clusters at the appropriate position. 
+                
+                Vector3D blockWorldPosition;
+                Vector3D blockScaledInvertedPosition;
+                block.ComputeWorldCenter(out blockWorldPosition); // Gets world position for the center of the block
+                blockScaledInvertedPosition = Vector3D.Transform((blockWorldPosition - localGrid.WorldVolume.Center), inverseMatrix) / localGrid.GridSize; // set scaledPosition to be relative to the center of the grid, invert it, then scale it to block units.
+
+                GridBlock gridBlock = new GridBlock();
+                gridBlock.Block = block;
+                gridBlock.DrawPosition = blockScaledInvertedPosition;
+
+                localGridAllBlocksDict[block.Position] = gridBlock;
+
+                //localGridAllBlocksDict[block.Position] = block;
                 Dictionary<Vector3I, IMySlimBlock> blockDictForFloor;
                 if (!localGridAllBlocksDictByFloor.TryGetValue(block.Position.Y, out blockDictForFloor)) 
                 {
@@ -2173,7 +2239,7 @@ namespace EliDangHUD
             return clusterSize;
         }
 
-        public void ClusterBlocks(Dictionary<Vector3I, IMySlimBlock> allBlocksDict, ref Dictionary<Vector3I, BlockCluster> blockClusters,  ref Dictionary<Vector3I, Vector3I> blockToClusterMap, int clusterSize)
+        public void ClusterBlocks(Dictionary<Vector3I, GridBlock> allBlocksDict, ref Dictionary<Vector3I, BlockCluster> blockClusters,  ref Dictionary<Vector3I, Vector3I> blockToClusterMap, int clusterSize)
         {
             if (allBlocksDict == null || allBlocksDict.Count == 0)
             {
@@ -2182,63 +2248,73 @@ namespace EliDangHUD
 
             blockClusters = new Dictionary<Vector3I, BlockCluster>(); // CLear it
 
-            foreach (KeyValuePair<Vector3I, IMySlimBlock> blockKeyValuePair in allBlocksDict)
+            foreach (KeyValuePair<Vector3I, GridBlock> blockKeyValuePair in allBlocksDict)
             {
-                Vector3I blockPos = blockKeyValuePair.Key; // Grid position of this block
-                IMySlimBlock block = blockKeyValuePair.Value;
+                Vector3I blockKey = blockKeyValuePair.Key; // Grid block position of this block
+                Vector3D blockPos = blockKeyValuePair.Value.DrawPosition; // World position of this block in grid reference
+                IMySlimBlock block = blockKeyValuePair.Value.Block; // The block itself
 
                 // Compute which cluster this block belongs to
-                Vector3I clusterPos = new Vector3I(
+                Vector3I clusterKey = new Vector3I(
+                    (blockKey.X / clusterSize) * clusterSize,
+                    (blockKey.Y / clusterSize) * clusterSize,
+                    (blockKey.Z / clusterSize) * clusterSize
+                );
+
+                // Compute the draw position of this cluster
+                Vector3D clusterPos = new Vector3D(
                     (blockPos.X / clusterSize) * clusterSize,
                     (blockPos.Y / clusterSize) * clusterSize,
                     (blockPos.Z / clusterSize) * clusterSize
                 );
 
-                if (blockClusters.ContainsKey(clusterPos))
+                if (blockClusters.ContainsKey(clusterKey))
                 {
-                    blockClusters[clusterPos].Integrity += block.Integrity;
-                    blockClusters[clusterPos].MaxIntegrity += block.MaxIntegrity;
-                    blockToClusterMap[blockPos] = clusterPos; // Map this block to its cluster position
+                    blockClusters[clusterKey].Integrity += block.Integrity;
+                    blockClusters[clusterKey].MaxIntegrity += block.MaxIntegrity;
+                    blockClusters[clusterKey].DrawPosition = clusterPos;
+                    blockToClusterMap[blockKey] = clusterKey; // Map this block to its cluster position
                 }
                 else
                 {
-                    blockClusters[clusterPos] = new BlockCluster
+                    blockClusters[clusterKey] = new BlockCluster
                     {
                         Integrity = block.Integrity,
-                        MaxIntegrity = block.MaxIntegrity
+                        MaxIntegrity = block.MaxIntegrity,
+                        DrawPosition = clusterPos
                     };
-                    blockToClusterMap[blockPos] = clusterPos; // Map this block to its cluster position
+                    blockToClusterMap[blockKey] = clusterKey; // Map this block to its cluster position
                 }
             }
         }
 
       
         public void ClusterBlocksIntoSlices(ref Dictionary<int, List<ClusterBox>> floorClusterSlicesDict,
-            ref Dictionary<int, Dictionary<Vector3I, int>> blockToFloorClusterSlicesMap, Dictionary<Vector3I, IMySlimBlock> allBlocksDict)
+            ref Dictionary<int, Dictionary<Vector3I, int>> blockToFloorClusterSlicesMap, Dictionary<Vector3I, GridBlock> allBlocksDict)
         {
             floorClusterSlicesDict.Clear();
             blockToFloorClusterSlicesMap.Clear();
 
             // Group blocks by Y level
-            IEnumerable<IGrouping<int, KeyValuePair<Vector3I, IMySlimBlock>>> groupedByFloor = allBlocksDict.GroupBy(kvp => kvp.Key.Y);
+            IEnumerable<IGrouping<int, KeyValuePair<Vector3I, GridBlock>>> groupedByFloor = allBlocksDict.GroupBy(kvp => kvp.Key.Y);
 
-            foreach (IGrouping<int, KeyValuePair<Vector3I, IMySlimBlock>> yGroup in groupedByFloor)
+            foreach (IGrouping<int, KeyValuePair<Vector3I, GridBlock>> yGroup in groupedByFloor)
             {
                 int gridFloor = yGroup.Key;
 
                 // further group by integrity bucket
-                IEnumerable<IGrouping<int, KeyValuePair<Vector3I, IMySlimBlock>>> groupedByIntegrity = yGroup.GroupBy(kvp => GetIntegrityBucket(kvp.Value));
+                IEnumerable<IGrouping<int, KeyValuePair<Vector3I, GridBlock>>> groupedByIntegrity = yGroup.GroupBy(kvp => GetIntegrityBucket(kvp.Value.Block));
 
                 List<ClusterBox> clustersThisFloor = new List<ClusterBox>();
                 floorClusterSlicesDict[gridFloor] = clustersThisFloor;
                 blockToFloorClusterSlicesMap[gridFloor] = new Dictionary<Vector3I, int>();
 
-                foreach (IGrouping<int, KeyValuePair<Vector3I, IMySlimBlock>> bucketGroup in groupedByIntegrity)
+                foreach (IGrouping<int, KeyValuePair<Vector3I, GridBlock>> bucketGroup in groupedByIntegrity)
                 {
                     int bucket = bucketGroup.Key;
                     HashSet<Vector3I> visited = new HashSet<Vector3I>();
 
-                    foreach (KeyValuePair<Vector3I, IMySlimBlock> kvp in bucketGroup)
+                    foreach (KeyValuePair<Vector3I, GridBlock> kvp in bucketGroup)
                     {
                         Vector3I start = kvp.Key;
 
@@ -2247,7 +2323,7 @@ namespace EliDangHUD
                             continue;
                         }
 
-                        ClusterBox cluster = ExpandXZCluster3(start, gridFloor, bucketGroup.ToDictionary(x => x.Key, x => x.Value), visited, bucket);
+                        ClusterBox cluster = ExpandXZCluster3(start, gridFloor, bucketGroup.ToDictionary(x => x.Key, x => x.Value.Block), visited, bucket);
                         clustersThisFloor.Add(cluster);
 
                         // Map all blocks in this cluster to it
