@@ -33,6 +33,8 @@ namespace EliDangHUD
 
         public ControlledEntityCustomData localGridControlledEntityCustomData;
 
+        public string localGridControlledEntityLastCustomData;
+
         /// <summary>
         /// Stores the linear velocity of the CubeGrid belonging to the controlled entity (seat/cockpit)
         /// </summary>
@@ -164,9 +166,10 @@ namespace EliDangHUD
         public Dictionary<Vector3I, IMyJumpDrive> localGridJumpDrivesDict = new Dictionary<Vector3I, IMyJumpDrive>(); // TODO check if the FrameShiftDrive is a subtype of this or new block type? Want support for that mod over time. 
         public Dictionary<Vector3I, IMyTerminalBlock> localGridEligibleTerminals = new Dictionary<Vector3I, IMyTerminalBlock>();
         public Dictionary<Vector3I, IMyTerminalBlock> localGridRadarTerminals = new Dictionary<Vector3I, IMyTerminalBlock>();
-        public Dictionary<Vector3I, HoloRadarCustomData> localGridRadarTerminalsData = new Dictionary<Vector3I, HoloRadarCustomData>();
+        public Dictionary<Vector3I, HoloRadarCustomDataTerminalPair> localGridRadarTerminalsData = new Dictionary<Vector3I, HoloRadarCustomDataTerminalPair>();
         public Dictionary<Vector3I, IMyTerminalBlock> localGridHologramTerminals = new Dictionary<Vector3I, IMyTerminalBlock>();
-        public Dictionary<Vector3I, HologramCustomData> localGridHologramTerminalsData = new Dictionary<Vector3I, HologramCustomData>();
+        public Dictionary<Vector3I, HologramCustomDataTerminalPair> localGridHologramTerminalsData = new Dictionary<Vector3I, HologramCustomDataTerminalPair>();
+        public Dictionary<Vector3I, Vector4[]> localGridHologramTerminalPallets = new Dictionary<Vector3I, Vector4[]>();
         public Dictionary<Vector3I, MatrixD> localGridHologramTerminalRotations = new Dictionary<Vector3I, MatrixD>();
         // TODO add shield generators from shield mods? Midnight something or other was a new one I saw?
 
@@ -323,6 +326,17 @@ namespace EliDangHUD
         {
             if (localGridBlocksInitialized && localGrid != null) // Safety check
             {
+                //MatrixD inverseMatrix = MatrixD.Invert(GetRotationMatrix(localGrid.WorldMatrix));
+                //Vector3D blockWorldPosition;
+                //Vector3D blockScaledInvertedPosition;
+                //block.ComputeWorldCenter(out blockWorldPosition); // Gets world position for the center of the block
+                //blockScaledInvertedPosition = Vector3D.Transform((blockWorldPosition - localGrid.WorldVolume.Center), inverseMatrix) / localGrid.GridSize; // set scaledPosition to be relative to the center of the grid, invert it, then scale it to block units.
+
+                //GridBlock gridBlock = new GridBlock();
+                //gridBlock.Block = block;
+                //gridBlock.Position = blockScaledInvertedPosition;
+
+                //localGridAllBlocksDict[block.Position] = gridBlock;
                 localGridAllBlocksDict[block.Position] = block;
                 Dictionary<Vector3I, IMySlimBlock> blockDictForFloor;
                 if (!localGridAllBlocksDictByFloor.TryGetValue(block.Position.Y, out blockDictForFloor))
@@ -350,13 +364,21 @@ namespace EliDangHUD
                         {
                             localGridHologramTerminals[block.Position] = terminal;
                             HologramCustomData theData = InitializeCustomDataHologram(terminal);
-                            localGridHologramTerminalsData[block.Position] = theData;
+                            HologramCustomDataTerminalPair thePair = new HologramCustomDataTerminalPair();
+                            thePair.HologramCustomData = theData;
+                            thePair.HologramCustomDataString = terminal.CustomData;
+                            localGridHologramTerminalsData[block.Position] = thePair;
+                            Vector4[] colorPallet = BuildIntegrityColors(theData.lineColor);
+                            localGridHologramTerminalPallets[terminal.Position] = colorPallet;
                         }
                         if (terminal.CustomName.Contains("[ELI_HOLO]"))
                         {
                             localGridRadarTerminals[block.Position] = terminal;
                             HoloRadarCustomData theData = InitializeCustomDataHoloRadar(terminal);
-                            localGridRadarTerminalsData[block.Position] = theData;
+                            HoloRadarCustomDataTerminalPair thePair = new HoloRadarCustomDataTerminalPair();
+                            thePair.HoloRadarCustomData = theData;
+                            thePair.HoloRadarCustomDataString = terminal.CustomData;
+                            localGridRadarTerminalsData[block.Position] = thePair;
                         }
                     }
                     if (antenna != null) 
@@ -434,6 +456,7 @@ namespace EliDangHUD
                         localGridHologramTerminals.Remove(terminal.Position);
                         localGridRadarTerminals.Remove(terminal.Position);
                         localGridHologramTerminalsData.Remove(terminal.Position);
+                        localGridHologramTerminalPallets.Remove(terminal.Position);
                         localGridRadarTerminalsData.Remove(terminal.Position);
                     }
                     if (antenna != null)
@@ -546,7 +569,10 @@ namespace EliDangHUD
                 {
                     localGridHologramTerminals[terminal.Position] = terminal;
                     HologramCustomData theData = InitializeCustomDataHologram(terminal);
-                    localGridHologramTerminalsData[terminal.Position] = theData;
+                    HologramCustomDataTerminalPair thePair = new HologramCustomDataTerminalPair();
+                    thePair.HologramCustomData = theData;
+                    thePair.HologramCustomDataString = terminal.CustomData;
+                    localGridHologramTerminalsData[terminal.Position] = thePair;
 
                     localGridRadarTerminals.Remove(terminal.Position);
                     localGridRadarTerminalsData.Remove(terminal.Position);
@@ -555,7 +581,10 @@ namespace EliDangHUD
                 {
                     localGridRadarTerminals[terminal.Position] = terminal;
                     HoloRadarCustomData theData = InitializeCustomDataHoloRadar(terminal);
-                    localGridRadarTerminalsData[terminal.Position] = theData;
+                    HoloRadarCustomDataTerminalPair thePair = new HoloRadarCustomDataTerminalPair();
+                    thePair.HoloRadarCustomData = theData;
+                    thePair.HoloRadarCustomDataString = terminal.CustomData;
+                    localGridRadarTerminalsData[terminal.Position] = thePair;
 
                     localGridHologramTerminals.Remove(terminal.Position);
                     localGridHologramTerminalsData.Remove(terminal.Position);
@@ -577,33 +606,44 @@ namespace EliDangHUD
             {
                 if (localGridHologramTerminals.ContainsKey(terminal.Position))
                 {
+                    HologramCustomDataTerminalPair thePair = new HologramCustomDataTerminalPair();
                     HologramCustomData theData = new HologramCustomData();
-                    if (!localGridHologramTerminalsData.TryGetValue(terminal.Position, out theData)) // Get current values if present
-                    { 
-                        theData = new HologramCustomData();
-                    } 
+                    if (!localGridHologramTerminalsData.TryGetValue(terminal.Position, out thePair)) // Get current values if present
+                    {
+                        thePair = new HologramCustomDataTerminalPair();
+                        thePair.HologramCustomData = new HologramCustomData();
+                    }
+                    theData = thePair.HologramCustomData;
 
                     MyIni ini = new MyIni();
                     MyIniParseResult result;
                     ini.TryParse(terminal.CustomData, out result);
                     ReadCustomDataHologram(ini, theData, terminal); // Might trigger OnTerminalCustomDataChanged again but only once and only if it writes new default values for new keys etc. 
 
-                    localGridHologramTerminalsData[terminal.Position] = theData;
+                    thePair.HologramCustomData = theData;
+                    thePair.HologramCustomDataString = terminal.CustomData;
+                    localGridHologramTerminalsData[terminal.Position] = thePair;
                 }
                 else if (localGridRadarTerminals.ContainsKey(terminal.Position)) 
                 {
                     HoloRadarCustomData theData = new HoloRadarCustomData();
-                    if (!localGridRadarTerminalsData.TryGetValue(terminal.Position, out theData)) // Get current values if present
+                    HoloRadarCustomDataTerminalPair thePair = new HoloRadarCustomDataTerminalPair();
+                    if (!localGridRadarTerminalsData.TryGetValue(terminal.Position, out thePair)) // Get current values if present
                     {
-                        theData = new HoloRadarCustomData();
+                        thePair = new HoloRadarCustomDataTerminalPair();
+                        thePair.HoloRadarCustomData = new HoloRadarCustomData();
                     }
+                    theData = thePair.HoloRadarCustomData;
 
                     MyIni ini = new MyIni();
                     MyIniParseResult result;
                     ini.TryParse(terminal.CustomData, out result);
                     ReadCustomDataHoloRadar(ini, theData, terminal); // Might trigger OnTerminalCustomDataChanged again but only once and only if it writes new default values for new keys etc. 
 
-                    localGridRadarTerminalsData[terminal.Position] = theData;
+                    thePair.HoloRadarCustomData = theData;
+                    thePair.HoloRadarCustomDataString = terminal.CustomData;
+
+                    localGridRadarTerminalsData[terminal.Position] = thePair;
                 }
             }
         }
@@ -624,13 +664,14 @@ namespace EliDangHUD
                 ReadCustomDataControlledEntity(ini, theData, terminal); // Might trigger OnTerminalCustomDataChanged again but only once and only if it writes new default values for new keys etc. 
 
                 localGridControlledEntityCustomData = theData;
+                localGridControlledEntityLastCustomData = terminal.CustomData;
 
                 localGridHologramPalleteForClusterSlices = BuildIntegrityColors(theData.scannerColor * 0.5f);
                 targetGridHologramPalleteForClusterSlices = BuildIntegrityColors(theData.lineColorComp * 0.5f);
             }
         }
 
-        private static Vector4[] BuildIntegrityColors(Vector4 hologramColor)
+        public Vector4[] BuildIntegrityColors(Vector4 hologramColor)
         {
             Vector4 yellow = new Vector4(1f, 1f, 0f, 1f);
             Vector4 red = new Vector4(1f, 0f, 0f, 1f);
@@ -1033,7 +1074,9 @@ namespace EliDangHUD
                 }
                 else 
                 {
+                    //MyLog.Default.WriteLine($"FENIX_HUD: InitializeLocalGrid about to ClusterBlocksIntoSlices");
                     ClusterBlocksIntoSlices(ref localGridFloorClusterSlices, ref localGridBlockToFloorClusterSlicesMap, localGridAllBlocksDict);
+                    //MyLog.Default.WriteLine($"FENIX_HUD: InitializeLocalGrid done clustering, floorCount = {localGridFloorClusterSlices.Count}");
                     localGridClusterSlicesNeedRefresh = false;
                 }
 
@@ -1107,6 +1150,7 @@ namespace EliDangHUD
                 ReadCustomDataControlledEntity(ini, theData, localGridControlledEntity); // Might trigger OnTerminalCustomDataChanged again but only once and only if it writes new default values for new keys etc. 
 
                 localGridControlledEntityCustomData = theData;
+                localGridControlledEntityLastCustomData = localGridControlledEntity.CustomData;
                 localGridControlledEntity.CustomDataChanged += OnControlledEntityCustomDataChanged;
 
                 localGridHologramPalleteForClusterSlices = BuildIntegrityColors(theData.scannerColor * 0.5f);
@@ -1329,13 +1373,21 @@ namespace EliDangHUD
                         {
                             localGridHologramTerminals[block.Position] = terminal;
                             HologramCustomData theData = InitializeCustomDataHologram(terminal);
-                            localGridHologramTerminalsData[block.Position] = theData;
+                            HologramCustomDataTerminalPair thePair = new HologramCustomDataTerminalPair();
+                            thePair.HologramCustomData = theData;
+                            thePair.HologramCustomDataString = terminal.CustomData;
+                            localGridHologramTerminalsData[block.Position] = thePair;
+                            Vector4[] colorPallet = BuildIntegrityColors(theData.lineColor * 0.5f);
+                            localGridHologramTerminalPallets[terminal.Position] = colorPallet;
                         }
                         if (terminal.CustomName.Contains("[ELI_HOLO]"))
                         {
                             localGridRadarTerminals[block.Position] = terminal;
                             HoloRadarCustomData theData = InitializeCustomDataHoloRadar(terminal);
-                            localGridRadarTerminalsData[block.Position] = theData;
+                            HoloRadarCustomDataTerminalPair thePair = new HoloRadarCustomDataTerminalPair();
+                            thePair.HoloRadarCustomData = theData;
+                            thePair.HoloRadarCustomDataString = terminal.CustomData;
+                            localGridRadarTerminalsData[block.Position] = thePair;
                         }
                     }
                     if (antenna != null)
@@ -1409,6 +1461,9 @@ namespace EliDangHUD
                     UpdateLocalGridScalingMatrix();
                 }
 
+                UpdateLocalGridControlledEntityCustomData();
+                UpdateLocalGridRadarCustomData();
+                UpdateLocalGridHologramCustomData();
                 UpdateLocalGridRotationMatrix();
 
                 if (!theSettings.useClusterSlices && localGridClustersNeedRefresh)
@@ -1452,16 +1507,119 @@ namespace EliDangHUD
             }
         }
 
+        public void UpdateLocalGridControlledEntityCustomData() 
+        {
+            if (localGrid != null && localGridInitialized && localGridControlledEntity != null && localGridControlledEntityInitialized) 
+            {
+                if (localGridControlledEntityLastCustomData != null && !localGridControlledEntity.CustomData.Equals(localGridControlledEntityLastCustomData))
+                {
+                    ControlledEntityCustomData theData = new ControlledEntityCustomData();
+                    if (localGridControlledEntityCustomData != null)
+                    {
+                        theData = localGridControlledEntityCustomData;
+                    }
+
+                    MyIni ini = new MyIni();
+                    MyIniParseResult result;
+                    ini.TryParse(localGridControlledEntity.CustomData, out result);
+                    ReadCustomDataControlledEntity(ini, theData, localGridControlledEntity); // Might trigger OnTerminalCustomDataChanged again but only once and only if it writes new default values for new keys etc. 
+
+                    localGridControlledEntityCustomData = theData;
+                    localGridControlledEntityLastCustomData = localGridControlledEntity.CustomData;
+
+                    localGridHologramPalleteForClusterSlices = BuildIntegrityColors(theData.scannerColor * 0.5f);
+                    targetGridHologramPalleteForClusterSlices = BuildIntegrityColors(theData.lineColorComp * 0.5f);
+                }
+            }
+        }
+
+        public void UpdateLocalGridHologramCustomData() 
+        {
+            if (localGrid != null && localGridInitialized && localGridBlocksInitialized) 
+            {
+                Dictionary<Vector3I, HologramCustomDataTerminalPair> checkTerminals = new Dictionary<Vector3I, HologramCustomDataTerminalPair>(localGridHologramTerminalsData);
+                foreach (KeyValuePair<Vector3I, HologramCustomDataTerminalPair> hologramCustomDataPair in checkTerminals)
+                {
+                    IMyTerminalBlock terminal = localGridHologramTerminals[hologramCustomDataPair.Key];
+                    if (hologramCustomDataPair.Value.HologramCustomDataString != terminal.CustomData)
+                    {
+                        HologramCustomDataTerminalPair thePair = new HologramCustomDataTerminalPair();
+                        HologramCustomData theData = new HologramCustomData();
+                        if (!localGridHologramTerminalsData.TryGetValue(terminal.Position, out thePair)) // Get current values if present
+                        {
+                            thePair = new HologramCustomDataTerminalPair();
+                            thePair.HologramCustomData = new HologramCustomData();
+                        }
+                        theData = thePair.HologramCustomData;
+
+                        MyIni ini = new MyIni();
+                        MyIniParseResult result;
+                        ini.TryParse(terminal.CustomData, out result);
+                        ReadCustomDataHologram(ini, theData, terminal); // Might trigger OnTerminalCustomDataChanged again but only once and only if it writes new default values for new keys etc. 
+
+                        thePair.HologramCustomData = theData;
+                        thePair.HologramCustomDataString = terminal.CustomData;
+                        localGridHologramTerminalsData[terminal.Position] = thePair;
+                        Vector4[] colorPallet = BuildIntegrityColors(theData.lineColor * 0.5f);
+                        localGridHologramTerminalPallets[terminal.Position] = colorPallet;
+
+                    }
+                }
+            }
+        }
+
+        public void UpdateLocalGridRadarCustomData()
+        {
+            if (localGrid != null && localGridInitialized && localGridBlocksInitialized)
+            {
+                Dictionary<Vector3I, HoloRadarCustomDataTerminalPair> checkTerminals = new Dictionary<Vector3I, HoloRadarCustomDataTerminalPair>(localGridRadarTerminalsData);
+                foreach (KeyValuePair<Vector3I, HoloRadarCustomDataTerminalPair> holoRadarCustomDataPair in checkTerminals)
+                {
+                    IMyTerminalBlock terminal = localGridRadarTerminals[holoRadarCustomDataPair.Key];
+                    if (holoRadarCustomDataPair.Value.HoloRadarCustomDataString != terminal.CustomData)
+                    {
+                        HoloRadarCustomDataTerminalPair thePair = new HoloRadarCustomDataTerminalPair();
+                        HoloRadarCustomData theData = new HoloRadarCustomData();
+                        if (!localGridRadarTerminalsData.TryGetValue(terminal.Position, out thePair)) // Get current values if present
+                        {
+                            thePair = new HoloRadarCustomDataTerminalPair();
+                            thePair.HoloRadarCustomData = new HoloRadarCustomData();
+                        }
+                        theData = thePair.HoloRadarCustomData;
+
+                        MyIni ini = new MyIni();
+                        MyIniParseResult result;
+                        ini.TryParse(terminal.CustomData, out result);
+                        ReadCustomDataHoloRadar(ini, theData, terminal); // Might trigger OnTerminalCustomDataChanged again but only once and only if it writes new default values for new keys etc. 
+
+                        thePair.HoloRadarCustomData = theData;
+                        thePair.HoloRadarCustomDataString = terminal.CustomData;
+                        localGridRadarTerminalsData[terminal.Position] = thePair;
+                    }
+                }
+            }
+        }
+
         public void UpdateLocalGridRotationMatrix() 
         {
             if (localGrid != null && localGridInitialized && localGridControlledEntity != null && localGridControlledEntityInitialized && localGridControlledEntityCustomData != null) 
             {
-                double lerpFactor = Math.Min(deltaTimeSinceLastTick * 2, 1.0);
+                double lerpFactor = Math.Min(deltaTimeSinceLastTick * 60, 60.0);
 
                 localHologramViewRotationGoal = MatrixD.CreateFromYawPitchRoll(MathHelper.ToRadians(localGridControlledEntityCustomData.holoLocalRotationX),
                             MathHelper.ToRadians(localGridControlledEntityCustomData.holoLocalRotationY),
                             MathHelper.ToRadians(localGridControlledEntityCustomData.holoLocalRotationZ));
                 MatrixD.Slerp(localHologramViewRotationCurrent, localHologramViewRotationGoal, deltaTimeSinceLastTick * lerpFactor, out localHologramViewRotationCurrent);
+            }
+        }
+
+        public void UpdateFinalLocalGridHologramRotation()
+        {
+            if (localGrid != null && localGridInitialized)
+            {
+                MatrixD rotationOnlyLocalGridMatrix = localGrid.WorldMatrix;
+                rotationOnlyLocalGridMatrix.Translation = Vector3D.Zero;
+                localHologramFinalRotation = localHologramViewRotationCurrent * rotationOnlyLocalGridMatrix;
             }
         }
 
@@ -1473,7 +1631,7 @@ namespace EliDangHUD
                 switch (localGridControlledEntityCustomData.targetGridHologramViewType)
                 {
                     case HologramViewType.Static:
-                        double lerpFactor = Math.Min(deltaTimeSinceLastTick * 2, 1.0);
+                        double lerpFactor = Math.Min(deltaTimeSinceLastTick * 60, 60.0);
                         targetHologramViewRotationGoal = MatrixD.CreateFromYawPitchRoll(MathHelper.ToRadians(localGridControlledEntityCustomData.holoTargetRotationX),
                                 MathHelper.ToRadians(localGridControlledEntityCustomData.holoTargetRotationY),
                                 MathHelper.ToRadians(localGridControlledEntityCustomData.holoTargetRotationZ));
@@ -1602,15 +1760,7 @@ namespace EliDangHUD
             localGridMaxActiveRadarRange = Math.Min(localGridMaxActiveRadarRange, maxRadarRange);
         }
 
-        public void UpdateFinalLocalGridHologramRotation() 
-        {
-            if (localGrid != null && localGridInitialized)
-            {
-                MatrixD rotationOnlyLocalGridMatrix = localGrid.WorldMatrix;
-                rotationOnlyLocalGridMatrix.Translation = Vector3D.Zero;
-                localHologramFinalRotation = rotationOnlyLocalGridMatrix * localHologramViewRotationCurrent; 
-            }
-        }
+        
 
         public void UpdateFinalTargetHologramRotation() 
         {
@@ -1621,7 +1771,7 @@ namespace EliDangHUD
                 MatrixD rotationOnlyTargetGridMatrix = targetGrid.WorldMatrix;
                 rotationOnlyTargetGridMatrix.Translation = Vector3D.Zero;
                 MatrixD rotationMatrixCancelGrids = MatrixD.Invert(rotationOnlyTargetGridMatrix) * rotationOnlyLocalGridMatrix;
-                targetHologramFinalRotation = rotationMatrixCancelGrids * targetHologramViewRotationCurrent;
+                targetHologramFinalRotation = targetHologramViewRotationCurrent * rotationMatrixCancelGrids;
             } 
         }
 
@@ -2008,15 +2158,15 @@ namespace EliDangHUD
         public int GetClusterSize(int blockCount) 
         {
             int clusterSize = 1;
-            if (blockCount >= 60000)
+            if (blockCount >= 80000)
             {
                 clusterSize = 4;
             }
-            else if (blockCount >= 30000)
+            else if (blockCount >= 50000)
             {
                 clusterSize = 3;
             }
-            else if (blockCount >= 15000)
+            else if (blockCount >= 20000)
             {
                 clusterSize = 2;
             }
@@ -2062,97 +2212,7 @@ namespace EliDangHUD
             }
         }
 
-        // Old approach:
-        //public void ClusterLocalBlocksIntoSlices()
-        //{
-        //    HashSet<Vector3I> visited = new HashSet<Vector3I>();
-        //    localGridBlockClusterSlices = new List<ClusterBox>();
-
-        //    // group blocks by Y level
-        //    IEnumerable<IGrouping<int, KeyValuePair<Vector3I, IMySlimBlock>>> groupedByY = localGridAllBlocksDict.GroupBy(kvp => kvp.Key.Y);
-
-        //    foreach (IGrouping<int, KeyValuePair<Vector3I, IMySlimBlock>> yGroup in groupedByY.OrderBy(g => g.Key))
-        //    {
-        //        int y = yGroup.Key;
-
-        //        foreach (KeyValuePair<Vector3I, IMySlimBlock> kvp in yGroup)
-        //        {
-        //            Vector3I start = kvp.Key;
-
-        //            if (visited.Contains(start))
-        //            {
-        //                continue;
-        //            }
-        //            ClusterBox cluster = ExpandXZCluster(start, y, localGridAllBlocksDict, visited);
-        //            localGridBlockClusterSlices.Add(cluster);
-        //        }
-        //    }
-        //}
-
-        //private ClusterBox ExpandXZCluster(Vector3I start, int y, Dictionary<Vector3I, IMySlimBlock> blocks, HashSet<Vector3I> visited)
-        //{
-        //    Vector3I min = start;
-        //    Vector3I max = start;
-
-        //    // expand in +X
-        //    while (true)
-        //    {
-        //        Vector3I next = new Vector3I(max.X + 1, y, max.Z);
-        //        if (blocks.ContainsKey(next) && !visited.Contains(next))
-        //        {
-        //            max.X++;
-        //        }
-        //        else
-        //        {
-        //            break;
-        //        }
-        //    }
-
-        //    // expand in +Z
-        //    bool canExpandZ = true;
-        //    while (canExpandZ)
-        //    {
-        //        int newZ = max.Z + 1;
-        //        for (int x = min.X; x <= max.X; x++)
-        //        {
-        //            Vector3I pos = new Vector3I(x, y, newZ);
-        //            if (!blocks.ContainsKey(pos) || visited.Contains(pos))
-        //            {
-        //                canExpandZ = false;
-        //                break;
-        //            }
-        //        }
-        //        if (canExpandZ) max.Z++;
-        //    }
-
-        //    // mark all blocks in this slice box
-        //    ClusterBox cluster = new ClusterBox { Min = min, Max = max };
-
-        //    for (int x = min.X; x <= max.X; x++)
-        //    {
-        //        for (int z = min.Z; z <= max.Z; z++)
-        //        {
-        //            Vector3I pos = new Vector3I(x, y, z);
-        //            if (blocks.ContainsKey(pos))
-        //            {
-        //                visited.Add(pos);
-        //            }
-        //        }
-        //    }
-
-        //    return cluster;
-        //}
-
-
-        // New approach:
-        //public class ClusterBox
-        //{
-        //    public Vector3I Min;
-        //    public Vector3I Max;
-        //    public List<IMySlimBlock> Blocks = new List<IMySlimBlock>();
-        //    public int IntegrityBucket; // which bucket this cluster belongs to
-        //}
-
+      
         public void ClusterBlocksIntoSlices(ref Dictionary<int, List<ClusterBox>> floorClusterSlicesDict,
             ref Dictionary<int, Dictionary<Vector3I, int>> blockToFloorClusterSlicesMap, Dictionary<Vector3I, IMySlimBlock> allBlocksDict)
         {
@@ -2171,6 +2231,7 @@ namespace EliDangHUD
 
                 List<ClusterBox> clustersThisFloor = new List<ClusterBox>();
                 floorClusterSlicesDict[gridFloor] = clustersThisFloor;
+                blockToFloorClusterSlicesMap[gridFloor] = new Dictionary<Vector3I, int>();
 
                 foreach (IGrouping<int, KeyValuePair<Vector3I, IMySlimBlock>> bucketGroup in groupedByIntegrity)
                 {
@@ -2186,7 +2247,7 @@ namespace EliDangHUD
                             continue;
                         }
 
-                        ClusterBox cluster = ExpandXZCluster(start, gridFloor, bucketGroup.ToDictionary(x => x.Key, x => x.Value), visited, bucket);
+                        ClusterBox cluster = ExpandXZCluster3(start, gridFloor, bucketGroup.ToDictionary(x => x.Key, x => x.Value), visited, bucket);
                         clustersThisFloor.Add(cluster);
 
                         // Map all blocks in this cluster to it
@@ -2197,6 +2258,181 @@ namespace EliDangHUD
                     }
                 }
             }
+        }
+       
+
+
+        // Better, largest detailed rectangle with holes not included, so corridors etc cause breaks. 
+        private ClusterBox ExpandXZCluster3(Vector3I start, int gridFloor, Dictionary<Vector3I, IMySlimBlock> blocks, HashSet<Vector3I> visited, int bucket)
+        {
+            // Start with the seed point
+            Vector3I min = start;
+            Vector3I max = start;
+
+            // --- Expand fully in X (-X and +X)
+            while (blocks.ContainsKey(new Vector3I(min.X - 1, gridFloor, min.Z)) &&
+                   !visited.Contains(new Vector3I(min.X - 1, gridFloor, min.Z)))
+            {
+                min.X--;
+            }
+            while (blocks.ContainsKey(new Vector3I(max.X + 1, gridFloor, max.Z)) &&
+                   !visited.Contains(new Vector3I(max.X + 1, gridFloor, max.Z)))
+            {
+                max.X++;
+            }
+
+            // --- Expand fully in +Z
+            bool expanded;
+            do
+            {
+                expanded = false;
+                int newZ = max.Z + 1;
+                bool canExpand = true;
+                for (int x = min.X; x <= max.X; x++)
+                {
+                    Vector3I pos = new Vector3I(x, gridFloor, newZ);
+                    if (!blocks.ContainsKey(pos) || visited.Contains(pos))
+                    {
+                        canExpand = false;
+                        break;
+                    }
+                }
+                if (canExpand)
+                {
+                    max.Z++;
+                    expanded = true;
+                }
+            } while (expanded);
+
+            // --- Expand fully in -Z
+            do
+            {
+                expanded = false;
+                int newZ = min.Z - 1;
+                bool canExpand = true;
+                for (int x = min.X; x <= max.X; x++)
+                {
+                    Vector3I pos = new Vector3I(x, gridFloor, newZ);
+                    if (!blocks.ContainsKey(pos) || visited.Contains(pos))
+                    {
+                        canExpand = false;
+                        break;
+                    }
+                }
+                if (canExpand)
+                {
+                    min.Z--;
+                    expanded = true;
+                }
+            } while (expanded);
+
+            // --- Build the final rectangle cluster
+            ClusterBox cluster = new ClusterBox { Min = min, Max = max, IntegrityBucket = bucket };
+
+            for (int x = min.X; x <= max.X; x++)
+            {
+                for (int z = min.Z; z <= max.Z; z++)
+                {
+                    Vector3I pos = new Vector3I(x, gridFloor, z);
+                    IMySlimBlock block;
+                    if (blocks.TryGetValue(pos, out block))
+                    {
+                        if (block != null) 
+                        {
+                            visited.Add(pos);
+                            cluster.Blocks.Add(block);
+                        }
+                    }
+                }
+            }
+
+            return cluster;
+        }
+
+        private ClusterBox ExpandXZCluster2(Vector3I start, int gridFloor, Dictionary<Vector3I, IMySlimBlock> blocks, HashSet<Vector3I> visited, int bucket)
+        {
+            Vector3I min = start;
+            Vector3I max = start;
+
+            // --- Expand in -X
+            while (true)
+            {
+                Vector3I next = new Vector3I(min.X - 1, gridFloor, min.Z);
+                if (blocks.ContainsKey(next) && !visited.Contains(next))
+                {
+                    min.X--;
+                }
+                else break;
+            }
+
+            // --- Expand in +X
+            while (true)
+            {
+                Vector3I next = new Vector3I(max.X + 1, gridFloor, max.Z);
+                if (blocks.ContainsKey(next) && !visited.Contains(next))
+                {
+                    max.X++;
+                }
+                else break;
+            }
+
+            // --- Expand in +Z
+            bool canExpandPosZ = true;
+            while (canExpandPosZ)
+            {
+                int newZ = max.Z + 1;
+                for (int x = min.X; x <= max.X; x++)
+                {
+                    Vector3I pos = new Vector3I(x, gridFloor, newZ);
+                    if (!blocks.ContainsKey(pos) || visited.Contains(pos))
+                    {
+                        canExpandPosZ = false;
+                        break;
+                    }
+                }
+                if (canExpandPosZ) max.Z++;
+            }
+
+            // --- Expand in -Z
+            bool canExpandNegZ = true;
+            while (canExpandNegZ)
+            {
+                int newZ = min.Z - 1;
+                for (int x = min.X; x <= max.X; x++)
+                {
+                    Vector3I pos = new Vector3I(x, gridFloor, newZ);
+                    if (!blocks.ContainsKey(pos) || visited.Contains(pos))
+                    {
+                        canExpandNegZ = false;
+                        break;
+                    }
+                }
+                if (canExpandNegZ) min.Z--;
+            }
+
+            // --- Build cluster
+            ClusterBox cluster = new ClusterBox { Min = min, Max = max, IntegrityBucket = bucket };
+
+            // Fill with blocks + mark visited
+            for (int x = min.X; x <= max.X; x++)
+            {
+                for (int z = min.Z; z <= max.Z; z++)
+                {
+                    Vector3I pos = new Vector3I(x, gridFloor, z);
+                    IMySlimBlock block;
+                    if (blocks.TryGetValue(pos, out  block))
+                    {
+                        if (block != null) 
+                        {
+                            visited.Add(pos);
+                            cluster.Blocks.Add(block);
+                        }
+                        
+                    }
+                }
+            }
+
+            return cluster;
         }
 
         private ClusterBox ExpandXZCluster(Vector3I start, int gridFloor, Dictionary<Vector3I, IMySlimBlock> blocks, HashSet<Vector3I> visited, int bucket)
@@ -2251,7 +2487,6 @@ namespace EliDangHUD
                     }
                 }
             }
-
             return cluster;
         }
 
