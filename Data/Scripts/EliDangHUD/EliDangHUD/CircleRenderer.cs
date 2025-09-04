@@ -27,8 +27,6 @@ using VRage.Utils;
 //using VRage.Input;
 using VRageMath;
 using VRageRender;
-using static VRage.Game.MyObjectBuilder_CurveDefinition;
-using static VRageMath.Base6Directions;
 using BlendTypeEnum = VRageRender.MyBillboard.BlendTypeEnum;
 
 //---
@@ -137,6 +135,9 @@ But doesn't do all the active vs passive radar stuff.
 DONE: More minor optimizations: only checks if entity has power if you can already detect it based on range and the setting to only show powered grids is true. 
 
 --TODO--
+TODO: Make unpowered grids have a darker icon on radar
+TODO: Offsets for radar XYZ are not working, only scale??
+
 TODO: Top priority: Optimize the holograms! Will use a Dictionary of blocks on the grid, then have event handlers for add or remove of block, or damage of block instead of
 scanning all blocks each tick. So we initialize it using getBlocks once, then only update it when something changes. When it comes to drawing their positions we will
 have the grid relative positions, so for local grid this is easy. For target grid we will need to offset based on the current grid positions at Draw() time.
@@ -765,37 +766,39 @@ namespace EliDangHUD
         // The radar variables
         private float min_blip_scale = 0.05f;
 
+        Dictionary<VRage.ModAPI.IMyEntity, RadarPing> radarPings = new Dictionary<VRage.ModAPI.IMyEntity, RadarPing>();
+
         // Variables that can be set by the CUSTOM DATA of the cockpit block to enable/disable various features of the HUD.
         //public bool EnableMASTER = true;
-		//public bool EnableGauges = true;
-		//public bool EnableMoney = true;
-		//public bool EnableHolograms = true;
-		//public bool EnableHolograms_them = true;
-		//public bool EnableHolograms_you = true;
-		//public bool EnableDust = true;
-		//public bool EnableToolbars = true;
-		//public bool EnableSpeedLines = true;
+        //public bool EnableGauges = true;
+        //public bool EnableMoney = true;
+        //public bool EnableHolograms = true;
+        //public bool EnableHolograms_them = true;
+        //public bool EnableHolograms_you = true;
+        //public bool EnableDust = true;
+        //public bool EnableToolbars = true;
+        //public bool EnableSpeedLines = true;
 
-		//public HologramViewType HologramViewTarget_Current = HologramViewType.Perspective; 
+        //public HologramViewType HologramViewTarget_Current = HologramViewType.Perspective; 
 
         //public HologramViewType HologramViewLocal_Current = HologramViewType.Static;
         //public bool HologramView_AngularWiggle = true;
 
         // The Rotation matrices for changing the view of the target or local grid holograms. This allows Slerp'ing smoothly from view to view so it doesn't snap when we switch the side being displayed. 
         //public MatrixD hologramRotationMatrixTarget_Current = MatrixD.Identity;
-		//public MatrixD hologramRotationMatrixTarget_Goal = MatrixD.Identity;
-		//public MatrixD hologramRotationMatrixLocal_Current = MatrixD.Identity;
-		//public MatrixD hologramRotationMatrixLocal_Goal = MatrixD.Identity;
+        //public MatrixD hologramRotationMatrixTarget_Goal = MatrixD.Identity;
+        //public MatrixD hologramRotationMatrixLocal_Current = MatrixD.Identity;
+        //public MatrixD hologramRotationMatrixLocal_Goal = MatrixD.Identity;
 
-		// If we apply angular rotation wiggle to the view or not, basically the faster you are turning the more the hologram turns in that direction. This is only relevant for "fixed" views
-		// like back, front, side etc. So you get a sense for which direction the grid is rotating. 
-		//public MatrixD angularRotationWiggleTarget = MatrixD.Identity;
-		//public MatrixD angularRotationWiggleLocal = MatrixD.Identity;
+        // If we apply angular rotation wiggle to the view or not, basically the faster you are turning the more the hologram turns in that direction. This is only relevant for "fixed" views
+        // like back, front, side etc. So you get a sense for which direction the grid is rotating. 
+        //public MatrixD angularRotationWiggleTarget = MatrixD.Identity;
+        //public MatrixD angularRotationWiggleLocal = MatrixD.Identity;
 
 
         //private bool ShowVelocityLines = true;
         //private bool ShowVoxels = true;
-		//private bool _onlyPoweredGrids = false;
+        //private bool _onlyPoweredGrids = false;
         private float SpeedThreshold = 10f;
 
 		//private List<VRage.Game.ModAPI.IMyCubeBlock> _holoTableRadarsOnGrid = new List<VRage.Game.ModAPI.IMyCubeBlock>();
@@ -2005,12 +2008,6 @@ namespace EliDangHUD
             _fadeDistanceSqr = _fadeDistance * _fadeDistance; // Sqr for fade distance in comparisons.
             _radarShownRangeSqr = radarScaleRange * radarScaleRange; // Anything over this range, even if within sensor range, can't be drawn on screen. 
 
-            if (debug)
-            {
-                MyLog.Default.WriteLine($"FENIX_HUD: radarScaleRange_CurrentLogin = {radarScaleRange_CurrentLogin}, radarScaleRange_Current = {radarScaleRange_Current}, radarScaleRange = {radarScaleRange}," +
-                    $" radarScale = {radarScale} (from customData.radius = {gHandler.localGridControlledEntityCustomData.radarRadius} / radarScaleRange)");
-            }
-
             bool onlyPowered = gHandler.localGridControlledEntityCustomData.scannerOnlyPoweredGrids;
             if (!onlyPowered)
             {
@@ -2025,13 +2022,20 @@ namespace EliDangHUD
                 }
             }
 
-            // Go up to count OR max pings, so we don't process too many pings on the radar. 
-            for (int i = 0; i < Math.Min(radarPings.Count, theSettings.maxPings); i++)
+            int maxPingCheck = 0;
+            List<VRage.ModAPI.IMyEntity> pingsPendingRemoval = new List<VRage.ModAPI.IMyEntity>();
+            foreach (KeyValuePair<VRage.ModAPI.IMyEntity, RadarPing> entityPingPair in radarPings) 
             {
-                VRage.ModAPI.IMyEntity entity = radarPings[i].Entity;
+                maxPingCheck++;
+                if (maxPingCheck > theSettings.maxPings) 
+                {
+                    break;
+                }
+
+                VRage.ModAPI.IMyEntity entity = entityPingPair.Key;
                 if (entity == null)
                 {
-                    radarPings.RemoveAt(i);
+                    pingsPendingRemoval.Add(entity);
                     continue; // Clear the ping then continue
                 }
                 if (entity.GetTopMostParent() == gHandler.localGridControlledEntity.GetTopMostParent())
@@ -2046,15 +2050,15 @@ namespace EliDangHUD
                     // grids darker and powered ones lighter. Then we check if _onlyPoweredGrids is true and we don't have power for current entity we skip it. 
                     if (onlyPowered) // Only check power if we are set to only show powered grids to save cycles. 
                     {
-                        radarPings[i].RadarPingHasPower = HasPowerProduction(entityGrid);
-                        if (!radarPings[i].RadarPingHasPower)
+                        radarPings[entity].RadarPingHasPower = HasPowerProduction(entityGrid);
+                        if (!radarPings[entity].RadarPingHasPower)
                         {
                             continue;
                         }
                     }
-                    else 
+                    else
                     {
-                        radarPings[i].RadarPingHasPower = true;
+                        radarPings[entity].RadarPingHasPower = true;
                     }
                 }
 
@@ -2064,15 +2068,15 @@ namespace EliDangHUD
                 bool entityHasActiveRadar = false;
                 double entityMaxActiveRange = 0;
 
-                CanGridRadarDetectEntity(gHandler.localGridHasPassiveRadar, gHandler.localGridHasActiveRadar, gHandler.localGridMaxPassiveRadarRange, 
-                    gHandler.localGridMaxActiveRadarRange, gHandler.localGrid.GetPosition(), entity, out playerCanDetect, 
+                CanGridRadarDetectEntity(gHandler.localGridHasPassiveRadar, gHandler.localGridHasActiveRadar, gHandler.localGridMaxPassiveRadarRange,
+                    gHandler.localGridMaxActiveRadarRange, gHandler.localGrid.GetPosition(), entity, out playerCanDetect,
                     out entityPos, out entityDistanceSqr, out entityHasActiveRadar, out entityMaxActiveRange);
 
-				radarPings[i].PlayerCanDetect = playerCanDetect;
-				radarPings[i].RadarPingPosition = entityPos;
-                radarPings[i].RadarPingDistanceSqr = entityDistanceSqr;
-                radarPings[i].RadarPingHasActiveRadar = entityHasActiveRadar;
-				radarPings[i].RadarPingMaxActiveRange = entityMaxActiveRange;
+                radarPings[entity].PlayerCanDetect = playerCanDetect;
+                radarPings[entity].RadarPingPosition = entityPos;
+                radarPings[entity].RadarPingDistanceSqr = entityDistanceSqr;
+                radarPings[entity].RadarPingHasActiveRadar = entityHasActiveRadar;
+                radarPings[entity].RadarPingMaxActiveRange = entityMaxActiveRange;
 
                 if (!playerCanDetect || entityDistanceSqr > _radarShownRangeSqr) // If can't detect it, or the radar scale prevents showing it move on.
                 {
@@ -2080,26 +2084,26 @@ namespace EliDangHUD
                 }
 
                 // Check if relationship status has changed and update ping (eg. if a ship flipped from neutral to hostile or hostile to friendly via capture). 
-                RadarPing currentPing = radarPings[i];
-                UpdateExistingRadarPingStatus(ref currentPing);
-                radarPings[i] = currentPing;
+                //RadarPing currentPing = radarPings[entity];
+                UpdateExistingRadarPingStatus(entity);
+                //radarPings[entity] = currentPing;
 
                 if (entityDistanceSqr < _radarShownRangeSqr * (1 - theSettings.fadeThreshhold)) // Once we pass the fade threshold an auidible and visual cue should be applied. 
                 {
-                    if (!radarPings[i].Announced)
+                    if (!radarPings[entity].Announced)
                     {
-                        radarPings[i].Announced = true;
-                        if (radarPings[i].Status == RelationshipStatus.Hostile && entityDistanceSqr > 250000) //500^2 = 250,000
+                        radarPings[entity].Announced = true;
+                        if (radarPings[entity].Status == RelationshipStatus.Hostile && entityDistanceSqr > 250000) //500^2 = 250,000
                         {
                             PlayCustomSound(SP_ENEMY, worldRadarPos);
                             NewAlertAnim(entity);
                         }
-                        else if (radarPings[i].Status == RelationshipStatus.Friendly && entityDistanceSqr > 250000)
+                        else if (radarPings[entity].Status == RelationshipStatus.Friendly && entityDistanceSqr > 250000)
                         {
                             PlayCustomSound(SP_NEUTRAL, worldRadarPos);
                             NewBlipAnim(entity);
                         }
-                        else if (radarPings[i].Status == RelationshipStatus.Neutral && entityDistanceSqr > 250000)
+                        else if (radarPings[entity].Status == RelationshipStatus.Neutral && entityDistanceSqr > 250000)
                         {
                             // No Sound
                         }
@@ -2107,11 +2111,16 @@ namespace EliDangHUD
                 }
                 else
                 {
-                    if (radarPings[i].Announced)
+                    if (radarPings[entity].Announced)
                     {
-                        radarPings[i].Announced = false;
+                        radarPings[entity].Announced = false;
                     }
                 }
+            }
+            // Can't edit a collection while iterating through it, so we remove after if necessary.
+            foreach (VRage.ModAPI.IMyEntity keyToRemove in pingsPendingRemoval) 
+            {
+                radarPings.Remove(keyToRemove);
             }
         }
 
@@ -2159,13 +2168,20 @@ namespace EliDangHUD
                 }
             }
 
-            // Go up to count OR max pings, so we don't process too many pings on the radar. 
-            for (int i = 0; i < Math.Min(radarPings.Count, theSettings.maxPings); i++)
+            int maxPingCheck = 0;
+            List<VRage.ModAPI.IMyEntity> pingsPendingRemoval = new List<VRage.ModAPI.IMyEntity>();
+            foreach (KeyValuePair<VRage.ModAPI.IMyEntity, RadarPing> entityPingPair in radarPings)
             {
-                VRage.ModAPI.IMyEntity entity = radarPings[i].Entity;
+                maxPingCheck++;
+                if (maxPingCheck > theSettings.maxPings)
+                {
+                    break;
+                }
+
+                VRage.ModAPI.IMyEntity entity = entityPingPair.Key;
                 if (entity == null)
                 {
-                    radarPings.RemoveAt(i);
+                    pingsPendingRemoval.Add(entity);
                     continue; // Clear the ping then continue
                 }
                 VRage.Game.ModAPI.IMyCubeGrid entityGrid = entity as VRage.Game.ModAPI.IMyCubeGrid;
@@ -2175,17 +2191,17 @@ namespace EliDangHUD
                     // grids darker and powered ones lighter. Then we check if _onlyPoweredGrids is true and we don't have power for current entity we skip it. 
                     if (onlyPowered) // Only check power if at least one holo table is set to only show powered grids, to save cycles when not needed.
                     {
-                        radarPings[i].RadarPingHasPower = HasPowerProduction(entityGrid);
-                        if (!radarPings[i].RadarPingHasPower)
+                        radarPings[entity].RadarPingHasPower = HasPowerProduction(entityGrid);
+                        if (!radarPings[entity].RadarPingHasPower)
                         {
                             continue;
                         }
                     }
-                    else 
+                    else
                     {
-                        radarPings[i].RadarPingHasPower = true;
+                        radarPings[entity].RadarPingHasPower = true;
                     }
-                    
+
                 }
 
                 bool playerCanDetect = false;
@@ -2194,15 +2210,15 @@ namespace EliDangHUD
                 bool entityHasActiveRadar = false;
                 double entityMaxActiveRange = 0;
 
-                CanGridRadarDetectEntity(gHandler.localGridHasPassiveRadar, gHandler.localGridHasActiveRadar, gHandler.localGridMaxPassiveRadarRange, 
-                    gHandler.localGridMaxActiveRadarRange, playerGridPos, entity, out playerCanDetect, out entityPos, 
+                CanGridRadarDetectEntity(gHandler.localGridHasPassiveRadar, gHandler.localGridHasActiveRadar, gHandler.localGridMaxPassiveRadarRange,
+                    gHandler.localGridMaxActiveRadarRange, playerGridPos, entity, out playerCanDetect, out entityPos,
                     out entityDistanceSqr, out entityHasActiveRadar, out entityMaxActiveRange);
 
-                radarPings[i].PlayerCanDetect = playerCanDetect;
-                radarPings[i].RadarPingPosition = entityPos;
-                radarPings[i].RadarPingDistanceSqr = entityDistanceSqr;
-                radarPings[i].RadarPingHasActiveRadar = entityHasActiveRadar;
-                radarPings[i].RadarPingMaxActiveRange = entityMaxActiveRange;
+                radarPings[entity].PlayerCanDetect = playerCanDetect;
+                radarPings[entity].RadarPingPosition = entityPos;
+                radarPings[entity].RadarPingDistanceSqr = entityDistanceSqr;
+                radarPings[entity].RadarPingHasActiveRadar = entityHasActiveRadar;
+                radarPings[entity].RadarPingMaxActiveRange = entityMaxActiveRange;
 
                 if (!playerCanDetect || entityDistanceSqr > _radarShownRangeSqr) // If can't detect it, or the radar scale prevents showing it move on.
                 {
@@ -2210,24 +2226,24 @@ namespace EliDangHUD
                 }
 
                 // Check if relationship status has changed and update ping (eg. if a ship flipped from neutral to hostile or hostile to friendly via capture). 
-                RadarPing currentPing = radarPings[i];
-                UpdateExistingRadarPingStatus(ref currentPing);
-                radarPings[i] = currentPing;
+                //RadarPing currentPing = radarPings[entity];
+                UpdateExistingRadarPingStatus(entity);
+                //radarPings[entity] = currentPing;
 
                 if (entityDistanceSqr < _radarShownRangeSqr * (1 - theSettings.fadeThreshhold)) // Once we pass the fade threshold an auidible and visual cue should be applied. 
                 {
-                    if (!radarPings[i].Announced)
+                    if (!radarPings[entity].Announced)
                     {
-                        radarPings[i].Announced = true;
-                        if (radarPings[i].Status == RelationshipStatus.Hostile && entityDistanceSqr > 250000) //500^2 = 250,000
+                        radarPings[entity].Announced = true;
+                        if (radarPings[entity].Status == RelationshipStatus.Hostile && entityDistanceSqr > 250000) //500^2 = 250,000
                         {
-                            foreach (Sandbox.ModAPI.IMyTerminalBlock holoTable in gHandler.localGridRadarTerminals.Values) 
+                            foreach (Sandbox.ModAPI.IMyTerminalBlock holoTable in gHandler.localGridRadarTerminals.Values)
                             {
                                 PlayCustomSound(SP_ENEMY, holoTable.GetPosition());
                             }
                             NewAlertAnim(entity);
                         }
-                        else if (radarPings[i].Status == RelationshipStatus.Friendly && entityDistanceSqr > 250000)
+                        else if (radarPings[entity].Status == RelationshipStatus.Friendly && entityDistanceSqr > 250000)
                         {
                             foreach (Sandbox.ModAPI.IMyTerminalBlock holoTable in gHandler.localGridRadarTerminals.Values)
                             {
@@ -2235,7 +2251,7 @@ namespace EliDangHUD
                             }
                             NewBlipAnim(entity);
                         }
-                        else if (radarPings[i].Status == RelationshipStatus.Neutral && entityDistanceSqr > 250000)
+                        else if (radarPings[entity].Status == RelationshipStatus.Neutral && entityDistanceSqr > 250000)
                         {
                             // No Sound
                         }
@@ -2243,11 +2259,17 @@ namespace EliDangHUD
                 }
                 else
                 {
-                    if (radarPings[i].Announced)
+                    if (radarPings[entity].Announced)
                     {
-                        radarPings[i].Announced = false;
+                        radarPings[entity].Announced = false;
                     }
                 }
+
+            }
+            // Can't edit a collection while iterating through it, so we remove after if necessary.
+            foreach (VRage.ModAPI.IMyEntity keyToRemove in pingsPendingRemoval)
+            {
+                radarPings.Remove(keyToRemove);
             }
         }
 
@@ -2423,7 +2445,7 @@ namespace EliDangHUD
                     && gHandler.localGridControlledEntityCustomData.masterEnabled) || gHandler.localGridRadarTerminals.Count > 0)
                 {
                     // Only update radar detections if there is a valid Radar (either seated hud or holo table radar)
-                    if (gHandler.localGridControlledEntity == null || gHandler.localGridControlledEntityInitialized)
+                    if (gHandler.localGridControlledEntity == null || !gHandler.localGridControlledEntityInitialized)
                     {
                         // Can use the lighter weight detections logic for just holo tables when not controlling a grid directly. 
                         // TODO merge these into one method that does the check internally and skips the controlling specific functions like current target.
@@ -3472,28 +3494,45 @@ namespace EliDangHUD
 			}
 			else 
 			{
-                bool found = false;
-                if (entity is VRage.ModAPI.IMyEntity)
+
+                VRage.Game.ModAPI.IMyCubeGrid gridEntity = entity as VRage.Game.ModAPI.IMyCubeGrid;
+
+                // If it is a grid entity we get topMostParent and check if block count is within our limit to "detect" 
+                // Helps reduce junk AND subgrids. 
+                if (gridEntity != null)
                 {
-                    foreach (var i in radarPings)
+                    VRage.Game.ModAPI.IMyCubeGrid parent = entity.GetTopMostParent() as VRage.Game.ModAPI.IMyCubeGrid;
+                    if (parent != null)
                     {
-                        if (i.Entity == entity)
+                        List<VRage.Game.ModAPI.IMySlimBlock> tempBlocks = new List<VRage.Game.ModAPI.IMySlimBlock>();
+                        parent.GetBlocks(tempBlocks);
+                        if (tempBlocks.Count >= theSettings.minTargetBlocksCount)
                         {
-                            found = true;
-                            break;
+                            VRage.ModAPI.IMyEntity parentEntity = parent as VRage.ModAPI.IMyEntity;
+                            RadarPing newPing = NewRadarPing(parentEntity);
+
+                            // Only add if width is valid
+                            if (newPing.Width > 0.00001f && newPing.Width <= 4f) // safety bounds
+                            {
+                                if (!radarPings.ContainsKey(parentEntity))
+                                {
+                                    radarPings.Add(parentEntity, newPing);
+                                }
+                            }
                         }
-                    }
-                    if (!found)
-                    {
-                        RadarPing newPing = NewRadarPing(entity);
-                        radarPings.Add(newPing);
-                    }
+                    }   
                 }
-                if (!radarEntities.Contains(entity))
+                else
                 {
-                    if (entity is VRage.Game.ModAPI.IMyCubeGrid)
+                    RadarPing newPing = NewRadarPing(entity);
+
+                    // Only add if width is valid
+                    if (newPing.Width > 0.00001f && newPing.Width <= 4f) // safety bounds
                     {
-                        radarEntities.Add(entity);
+                        if (!radarPings.ContainsKey(entity))
+                        {
+                            radarPings.Add(entity, newPing);
+                        }
                     }
                 }
             }
@@ -3513,20 +3552,7 @@ namespace EliDangHUD
 
 			if (entity is VRage.ModAPI.IMyEntity) 
 			{
-				foreach (var i in radarPings) 
-				{
-					if (i.Entity == entity) 
-					{
-						i.Time.Stop();
-						radarPings.Remove (i);
-						break;
-					}
-				}
-			}
-
-			if (radarEntities.Contains(entity)) 
-			{
-				radarEntities.Remove (entity);
+                radarPings.Remove(entity);
 			}
 		}
 		//-----------------------------------------------------------------------------------
@@ -3542,7 +3568,7 @@ namespace EliDangHUD
             MatrixD cameraMatrix = MyAPIGateway.Session.Camera.WorldMatrix;
             Vector3 viewUp = cameraMatrix.Up;
             Vector3 viewLeft = cameraMatrix.Left;
-            foreach (VRage.ModAPI.IMyEntity entity in radarEntities)
+            foreach (VRage.ModAPI.IMyEntity entity in radarPings.Keys)
             {
                 if (entity is VRage.Game.ModAPI.IMyCubeGrid)
                 {
@@ -4622,33 +4648,39 @@ namespace EliDangHUD
 			// Basically shifting the wave up so we are into positive value only territory, and then scaling it to a 0-1 range where 0 is completely invisible and 1 is fully visible. Neat.
             float haloPulse = (float)((Math.Sin(timerRadarElapsedTimeTotal.Elapsed.TotalSeconds * (4*Math.PI)) + 1.0) * 0.5); // 0 -> 1 -> 0 smoothly. Should give 2 second pulses. Could do (2*Math.PI) for 1 second pulses
 
-            // Go up to count OR max pings, so we don't process too many pings on the radar. 
-            for (int i = 0; i < Math.Min(radarPings.Count, theSettings.maxPings); i++)
+            int maxPingCheck = 0;
+            List<VRage.ModAPI.IMyEntity> pingsPendingRemoval = new List<VRage.ModAPI.IMyEntity>();
+            foreach (KeyValuePair<VRage.ModAPI.IMyEntity, RadarPing> entityPingPair in radarPings)
             {
-                VRage.ModAPI.IMyEntity entity = radarPings[i].Entity;
-                if (entity == null) 
-				{
-					radarPings.RemoveAt(i);
-					continue; // Clear the ping then continue
-				}
-				if (!gHandler.localGridControlledEntityCustomData.scannerShowVoxels && radarPings[i].Status == RelationshipStatus.Vox) 
-				{
-                    continue; // Skip voxels if not set to show them. 
-				}
-				if (entity.GetTopMostParent() == gHandler.localGridControlledEntity.GetTopMostParent()) 
-				{
-					continue; // Skip drawing yourself on the radar.
-				}
+                maxPingCheck++;
+                if (maxPingCheck > theSettings.maxPings)
+                {
+                    break;
+                }
 
-				if (!radarPings[i].PlayerCanDetect || radarPings[i].RadarPingDistanceSqr > _radarShownRangeSqr) // If can't detect it, or the radar scale prevents showing it move on.
-				{
-					continue;
-				}
+                VRage.ModAPI.IMyEntity entity = entityPingPair.Key;
+                if (entity == null)
+                {
+                    continue; // continue
+                }
+                if (!gHandler.localGridControlledEntityCustomData.scannerShowVoxels && radarPings[entity].Status == RelationshipStatus.Vox)
+                {
+                    continue; // Skip voxels if not set to show them. 
+                }
+                if (entity.GetTopMostParent() == gHandler.localGridControlledEntity.GetTopMostParent())
+                {
+                    continue; // Skip drawing yourself on the radar.
+                }
+
+                if (!radarPings[entity].PlayerCanDetect || radarPings[entity].RadarPingDistanceSqr > _radarShownRangeSqr) // If can't detect it, or the radar scale prevents showing it move on.
+                {
+                    continue;
+                }
 
                 VRage.Game.ModAPI.IMyCubeGrid entityGrid = entity as VRage.Game.ModAPI.IMyCubeGrid;
                 if (entityGrid != null)
                 {
-                    if (gHandler.localGridControlledEntityCustomData.scannerOnlyPoweredGrids && !radarPings[i].RadarPingHasPower)
+                    if (gHandler.localGridControlledEntityCustomData.scannerOnlyPoweredGrids && !radarPings[entity].RadarPingHasPower)
                     {
                         continue;
                     }
@@ -4657,17 +4689,17 @@ namespace EliDangHUD
                 // Handle fade for edge
                 float fadeDimmer = 1f;
                 // Have to invert old logic, original author made this extend radar range past configured limit. 
-				// I am having the limit as a hard limit be it global config or antenna broadcast range, so we instead make a small range before that "fuzzy" instead. 
-				// If it was outside max range it wouldn't have been detected by the player actively or passively, so we skipped it already. Meaning all we have to do is check if it is in the fade region and fade it or draw it regularly. 
-                if (radarPings[i].RadarPingDistanceSqr >= _fadeDistanceSqr) 	
-				{
-                    fadeDimmer = 1 - Clamped(1 - (float)((_fadeDistanceSqr - radarPings[i].RadarPingDistanceSqr) / (_fadeDistanceSqr - _radarShownRangeSqr)), 0, 1);
+                // I am having the limit as a hard limit be it global config or antenna broadcast range, so we instead make a small range before that "fuzzy" instead. 
+                // If it was outside max range it wouldn't have been detected by the player actively or passively, so we skipped it already. Meaning all we have to do is check if it is in the fade region and fade it or draw it regularly. 
+                if (radarPings[entity].RadarPingDistanceSqr >= _fadeDistanceSqr)
+                {
+                    fadeDimmer = 1 - Clamped(1 - (float)((_fadeDistanceSqr - radarPings[entity].RadarPingDistanceSqr) / (_fadeDistanceSqr - _radarShownRangeSqr)), 0, 1);
                 }
-                Vector3D scaledPos = ApplyLogarithmicScaling(radarPings[i].RadarPingPosition, playerGridControlledEntityPosition); // Apply radar scaling
+                Vector3D scaledPos = ApplyLogarithmicScaling(radarPings[entity].RadarPingPosition, playerGridControlledEntityPosition); // Apply radar scaling
 
                 if (debug)
                 {
-                    MyLog.Default.WriteLine($"FENIX_HUD: radarScaleRange = {radarScaleRange}, radarScale = {radarScale}, scaledPos = {scaledPos} ");
+                    //MyLog.Default.WriteLine($"FENIX_HUD: radarScaleRange = {radarScaleRange}, radarScale = {radarScale}, scaledPos = {scaledPos} ");
                 }
 
 
@@ -4697,34 +4729,30 @@ namespace EliDangHUD
                 float lineLength = (float)Vector3D.Distance(radarEntityPos, radarPos);
                 Vector3D lineDir = radarDown;
 
-				// If invalid, skip now.
+                // If invalid, skip now.
                 if (!lineDir.IsValid())
                 {
                     continue;
                 }
                 // If gridWidth is something ridiculous like 0.0f then fall back on min scale. 
-                if (radarPings[i].Width <= 0.000001 || double.IsNaN(radarPings[i].Width)) // Compare to EPS rather than 0. If invalid skip now.
+                if (radarPings[entity].Width <= 0.000001 || double.IsNaN(radarPings[entity].Width)) // Compare to EPS rather than 0. If invalid skip now.
                 {
                     continue;
                 }
 
-				// Do color of blip based on relationship to player
-                color_Current = radarPings[i].Color;
-                if (debug)
-                {
-                    //MyLog.Default.WriteLine($"FENIX_HUD: EntityID {radarPings[i].Entity.EntityId}, status = {currentPing.Status.ToString()} color = {color_Current}");
-                }
+                // Do color of blip based on relationship to player
+                color_Current = radarPings[entity].Color;
 
                 // Detect being targeted (under attack) and modify color based on flipper so the blip flashes
-                if (radarPings[i].Status == RelationshipStatus.Hostile && IsEntityTargetingPlayer(radarPings[i].Entity)) 
-				{
+                if (radarPings[entity].Status == RelationshipStatus.Hostile && IsEntityTargetingPlayer(radarPings[entity].Entity))
+                {
                     if (!targetingFlipper)
                     {
                         color_Current = color_GridEnemyAttack;
                     }
                 }
 
-				// Pulse timers for animation
+                // Pulse timers for animation
                 Vector3D pulsePos = radarEntityPos + (lineDir * vertDistance);
                 double pulseDistance = Vector3D.Distance(pulsePos, radarPos);
                 float pulseTimer = (float)(ClampedD(radarPulseTime, 0, 1) + 0.5 + Math.Min(pulseDistance, gHandler.localGridControlledEntityCustomData.radarRadius) / gHandler.localGridControlledEntityCustomData.radarRadius);
@@ -4739,10 +4767,10 @@ namespace EliDangHUD
                 pulseTimer = Math.Max(pulseTimer * 2, 1);
 
                 // Set drawMaterial based on type of entity/relationship.
-                MyStringId drawMat = radarPings[i].Material;
+                MyStringId drawMat = radarPings[entity].Material;
 
                 // Draw each entity as a billboard on the radar
-                float blipSize = 0.004f * fadeDimmer * radarPings[i].Width * gHandler.localGridControlledEntityCustomData.radarScannerScale; // Scale blip size based on radar scale
+                float blipSize = 0.004f * fadeDimmer * radarPings[entity].Width * gHandler.localGridControlledEntityCustomData.radarScannerScale; // Scale blip size based on radar scale
                 Vector3D blipPos = radarEntityPos + (lineDir * vertDistance);
                 // Draw the blip with vertical elevation +/- relative to radar plane, with line connecting it to the radar plane.
                 DrawLineBillboard(MaterialSquare, color_Current * 0.25f * fadeDimmer * pulseTimer, radarEntityPos, lineDir, vertDistance, 0.001f * fadeDimmer);
@@ -4750,12 +4778,12 @@ namespace EliDangHUD
                 MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize);
 
                 // DONE UNTESTED: need to check that they have it AND it can reach us, if we aren't being painted by it don't show it. For situations where our active radar is set far enough to pickup grids
-				// that also have active radar and thus the bool would be true but it's range is low enough they can't reach us (see us). As in only show grids that can see us. 
-                if (radarPings[i].RadarPingHasActiveRadar && radarPings[i].RadarPingDistanceSqr <= (radarPings[i].RadarPingMaxActiveRange*radarPings[i].RadarPingMaxActiveRange)) 
+                // that also have active radar and thus the bool would be true but it's range is low enough they can't reach us (see us). As in only show grids that can see us. 
+                if (radarPings[entity].RadarPingHasActiveRadar && radarPings[entity].RadarPingDistanceSqr <= (radarPings[entity].RadarPingMaxActiveRange * radarPings[entity].RadarPingMaxActiveRange))
                 {
                     float pulseScale = 1.0f + (haloPulse * 0.20f); // Scale the halo by 15% at max pulse
                     float pulseAlpha = 1.0f * (1.0f - haloPulse); // Alpha goes from 0.25 to 0 at max pulse, so it fades out as pulse increases.
-                    float ringSize =  blipSize * pulseScale; // Scale the ring size based on the pulse
+                    float ringSize = blipSize * pulseScale; // Scale the ring size based on the pulse
                     Vector4 haloColor = color_Current * 0.25f * (float)haloPulse; // subtle, fading
                     // Use the same position and orientation as the blip
                     DrawCircle(radarEntityPos, ringSize, radarUp, Color.WhiteSmoke, radarBrightness, false, 1.0f * pulseAlpha, 0.00035f * gHandler.localGridControlledEntityCustomData.radarScannerScale); //0.5f * haloPulse
@@ -4768,17 +4796,18 @@ namespace EliDangHUD
                 if (gHandler.targetGrid != null && entityGrid == gHandler.targetGrid)
                 {
                     float outlineSize = blipSize * 1.15f; // Slightly larger than the blip
-					Vector4 color = (Color.Yellow).ToVector4() * 2;
+                    Vector4 color = (Color.Yellow).ToVector4() * 2;
 
                     MyTransparentGeometry.AddBillboardOriented(
-                        MaterialTarget,     
+                        MaterialTarget,
                         color,
                         radarEntityPos,
                         viewLeft,           // Align with radar plane
                         viewUp,
-                        outlineSize        
+                        outlineSize
                     );
                 }
+
             }
 
             // Targeting CrossHair
@@ -4908,10 +4937,8 @@ namespace EliDangHUD
             Vector3D viewBackwardD = cameraMatrix.Backward;
             Vector3D cameraPos = _cameraPosition;
 
-            //MyLog.Default.WriteLine($"FENIX_HUD: radar terminal count = {gHandler.localGridRadarTerminals.Count}");
             foreach (KeyValuePair<Vector3I, Sandbox.ModAPI.IMyTerminalBlock> holoTableKeyValuePair in gHandler.localGridRadarTerminals)
             {
-                //MyLog.Default.WriteLine($"FENIX_HUD: Inside DrawRadarHoloTable loop for a holotable");
                 Sandbox.ModAPI.IMyTerminalBlock holoTable = holoTableKeyValuePair.Value;
                 HoloRadarCustomData theData = gHandler.localGridRadarTerminalsData[holoTableKeyValuePair.Key].HoloRadarCustomData;
 
@@ -4993,22 +5020,26 @@ namespace EliDangHUD
                 // Basically shifting the wave up so we are into positive value only territory, and then scaling it to a 0-1 range where 0 is completely invisible and 1 is fully visible. Neat.
                 float haloPulse = (float)((Math.Sin(timerRadarElapsedTimeTotal.Elapsed.TotalSeconds * (4 * Math.PI)) + 1.0) * 0.5); // 0 -> 1 -> 0 smoothly. Should give 2 second pulses. Could do (2*Math.PI) for 1 second pulses
 
-                // Go up to count OR max pings, so we don't process too many pings on the radar. 
-                for (int i = 0; i < Math.Min(radarPings.Count, theSettings.maxPings); i++)
+                int maxPingCheck = 0;
+                List<VRage.ModAPI.IMyEntity> pingsPendingRemoval = new List<VRage.ModAPI.IMyEntity>();
+                foreach (KeyValuePair<VRage.ModAPI.IMyEntity, RadarPing> entityPingPair in radarPings)
                 {
-                    VRage.ModAPI.IMyEntity entity = radarPings[i].Entity;
+                    maxPingCheck++;
+                    if (maxPingCheck > theSettings.maxPings)
+                    {
+                        break;
+                    }
+
+                    VRage.ModAPI.IMyEntity entity = entityPingPair.Key;
                     if (entity == null)
                     {
-                        radarPings.RemoveAt(i);
-                        continue; // Clear the ping then continue
+                        continue; // continue
                     }
-                    if (!showVoxels && radarPings[i].Status == RelationshipStatus.Vox)
+                    if (!showVoxels && radarPings[entity].Status == RelationshipStatus.Vox)
                     {
                         continue; // Skip voxels if not set to show them. 
                     }
-                    
-
-                    if (!radarPings[i].PlayerCanDetect || radarPings[i].RadarPingDistanceSqr > _radarShownRangeSqr) // If can't detect it, or the radar scale prevents showing it move on.
+                    if (!radarPings[entity].PlayerCanDetect || radarPings[entity].RadarPingDistanceSqr > _radarShownRangeSqr) // If can't detect it, or the radar scale prevents showing it move on.
                     {
                         continue;
                     }
@@ -5016,7 +5047,7 @@ namespace EliDangHUD
                     VRage.Game.ModAPI.IMyCubeGrid entityGrid = entity as VRage.Game.ModAPI.IMyCubeGrid;
                     if (entityGrid != null)
                     {
-                        if (onlyPoweredGrids && !radarPings[i].RadarPingHasPower)
+                        if (onlyPoweredGrids && !radarPings[entity].RadarPingHasPower)
                         {
                             continue;
                         }
@@ -5027,11 +5058,11 @@ namespace EliDangHUD
                     // Have to invert old logic, original author made this extend radar range past configured limit. 
                     // I am having the limit as a hard limit be it global config or antenna broadcast range, so we instead make a small range before that "fuzzy" instead. 
                     // If it was outside max range it wouldn't have been detected by the player actively or passively, so we skipped it already. Meaning all we have to do is check if it is in the fade region and fade it or draw it regularly. 
-                    if (radarPings[i].RadarPingDistanceSqr >= _fadeDistanceSqr)
+                    if (radarPings[entity].RadarPingDistanceSqr >= _fadeDistanceSqr)
                     {
-                        fadeDimmer = 1 - Clamped(1 - (float)((_fadeDistanceSqr - radarPings[i].RadarPingDistanceSqr) / (_fadeDistanceSqr - _radarShownRangeSqr)), 0, 1);
+                        fadeDimmer = 1 - Clamped(1 - (float)((_fadeDistanceSqr - radarPings[entity].RadarPingDistanceSqr) / (_fadeDistanceSqr - _radarShownRangeSqr)), 0, 1);
                     }
-                    Vector3D scaledPos = ApplyLogarithmicScalingHolo(radarPings[i].RadarPingPosition, playerGridPos); // Apply radar scaling
+                    Vector3D scaledPos = ApplyLogarithmicScalingHolo(radarPings[entity].RadarPingPosition, playerGridPos); // Apply radar scaling
 
                     // Position on the radar
                     Vector3D radarEntityPos = holoTablePos + scaledPos;
@@ -5065,16 +5096,16 @@ namespace EliDangHUD
                         continue;
                     }
 
-                    if (radarPings[i].Width <= 0.000001 || double.IsNaN(radarPings[i].Width)) // Compare to EPS rather than 0. If invalid skip now.
+                    if (radarPings[entity].Width <= 0.000001 || double.IsNaN(radarPings[entity].Width)) // Compare to EPS rather than 0. If invalid skip now.
                     {
                         continue;
                     }
 
                     // Do color of blip based on relationship to player
-                    color_Current = radarPings[i].Color;
+                    color_Current = radarPings[entity].Color;
 
                     // Detect being targeted (under attack) and modify color based on flipper so the blip flashes
-                    if (radarPings[i].Status == RelationshipStatus.Hostile && IsEntityTargetingPlayerHolo(radarPings[i].Entity))
+                    if (radarPings[entity].Status == RelationshipStatus.Hostile && IsEntityTargetingPlayerHolo(radarPings[entity].Entity))
                     {
                         if (!targetingFlipper)
                         {
@@ -5097,10 +5128,10 @@ namespace EliDangHUD
                     pulseTimer = Math.Max(pulseTimer * 2, 1);
 
                     // Set drawMaterial based on type of entity/relationship.
-                    MyStringId drawMat = radarPings[i].Material;
+                    MyStringId drawMat = radarPings[entity].Material;
 
                     // Draw each entity as a billboard on the radar
-                    float blipSize = 0.015f * fadeDimmer * radarPings[i].Width * holoRadarRadius; // was 0.005f
+                    float blipSize = 0.015f * fadeDimmer * radarPings[entity].Width * holoRadarRadius; // was 0.005f
                     Vector3D blipPos = radarEntityPos + (lineDir * vertDistance);
                     // Draw the blip with vertical elevation +/- relative to radar plane, with line connecting it to the radar plane.
 
@@ -5113,7 +5144,7 @@ namespace EliDangHUD
                         DrawQuad(blipPos, holoUp, holoRadarRadius * 1.15f, MaterialCircle, radiusColor * 0.5f); // Add blip "shadow" on radar plane
                         MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize);
                     }
-                    else 
+                    else
                     {
                         DrawLineBillboard(MaterialSquare, color_Current * 0.25f * fadeDimmer * pulseTimer, radarEntityPos, lineDir, vertDistance, 0.004f * fadeDimmer);
                         DrawQuad(blipPos, holoUp, blipSize * 0.75f, MaterialCircle, color_Current * upDownDimmer * 0.5f * pulseTimer * 0.5f);
@@ -5123,12 +5154,12 @@ namespace EliDangHUD
                     }
                     // DONE UNTESTED: need to check that they have it AND it can reach us, if we aren't being painted by it don't show it. For situations where our active radar is set far enough to pickup grids
                     // that also have active radar and thus the bool would be true but it's range is low enough they can't reach us (see us). As in only show grids that can see us. 
-                    if (radarPings[i].RadarPingHasActiveRadar && radarPings[i].RadarPingDistanceSqr <= (radarPings[i].RadarPingMaxActiveRange * radarPings[i].RadarPingMaxActiveRange))
+                    if (radarPings[entity].RadarPingHasActiveRadar && radarPings[entity].RadarPingDistanceSqr <= (radarPings[entity].RadarPingMaxActiveRange * radarPings[entity].RadarPingMaxActiveRange))
                     {
                         float pulseScale = 1.0f + (haloPulse * 0.20f); // Scale the halo by 15% at max pulse
                         float pulseAlpha = 1.0f * (1.0f - haloPulse); // Alpha goes from 0.25 to 0 at max pulse, so it fades out as pulse increases.
                         float ringSize = blipSize * pulseScale; // Scale the ring size based on the pulse
-                        if (entity.GetTopMostParent() == playerGrid.GetTopMostParent()) 
+                        if (entity.GetTopMostParent() == playerGrid.GetTopMostParent())
                         {
                             ringSize = ringSize * 1.25f;
                         }
@@ -5151,28 +5182,24 @@ namespace EliDangHUD
                         );
                     }
                 }
-
             }
         }
 
-
-
-        // List to hold all entities found
-        HashSet<VRage.ModAPI.IMyEntity> radarEntities = new HashSet<VRage.ModAPI.IMyEntity>();
-		List<RadarPing> radarPings = new List<RadarPing>();
+        
+		
 
         private void FindEntities()
         {
             // Updated find entities 2025-07-13 by FenixPK. I found in my testing of an empty world that 82244 entities existed all with width = 0.
-			// This was causing the scale_current variable to be 0, and causing the radar entity painting loop to be a huge FPS sink. 
-			// The below changes should do two things
-			// 1) ensure that we only get entities that make sense. Not invisible background game objects that exist even in a brand new empty world.
-			// 2) Ensure ping width is within bounds before adding it to the list of radarPings.
+            // This was causing the scale_current variable to be 0, and causing the radar entity painting loop to be a huge FPS sink. 
+            // The below changes should do two things
+            // 1) ensure that we only get entities that make sense. Not invisible background game objects that exist even in a brand new empty world.
+            // 2) Ensure ping width is within bounds before adding it to the list of radarPings.
 
-			// On second look I think I need to modify this again, as it looked like radarEntities originally was supposed to hold voxels, and entities. And only radarPings was filtered...
-			// SO radarPings should always contain voxels, and if not showing we just skip them during Draw.
-			// it should not store planets, as it never used them from here anyway, it added them to a planetList for drawing planets and orbits. 
-            radarEntities.Clear(); // Always clear first
+            // On second look I think I need to modify this again, as it looked like radarEntities originally was supposed to hold voxels, and entities. And only radarPings was filtered...
+            // SO radarPings should always contain voxels, and if not showing we just skip them during Draw.
+            // it should not store planets, as it never used them from here anyway, it added them to a planetList for drawing planets and orbits. 
+            HashSet<VRage.ModAPI.IMyEntity> radarEntities = new HashSet<VRage.ModAPI.IMyEntity>();
             radarPings.Clear();
 
             MyAPIGateway.Entities.GetEntities(radarEntities, entity =>
@@ -5185,13 +5212,54 @@ namespace EliDangHUD
             });
 
 
-            foreach (var entity in radarEntities)
+            foreach (VRage.ModAPI.IMyEntity entity in radarEntities)
             {
-                RadarPing ping = NewRadarPing(entity);
+                VRage.Game.ModAPI.IMyCubeGrid gridEntity = entity as VRage.Game.ModAPI.IMyCubeGrid;
 
-                // Only add if width is valid
-                if (ping.Width > 0.00001f && ping.Width <= 4f) // safety bounds
-                    radarPings.Add(ping);
+                // If it is a grid entity we get topMostParent and check if block count is within our limit to "detect" 
+                // Helps reduce junk AND subgrids. 
+                if (gridEntity != null)
+                {
+                    VRage.Game.ModAPI.IMyCubeGrid parent = gridEntity.GetTopMostParent() as VRage.Game.ModAPI.IMyCubeGrid;
+                    if (parent == null)
+                    {
+                        continue;
+                    }
+
+                    List<VRage.Game.ModAPI.IMySlimBlock> tempBlocks = new List<VRage.Game.ModAPI.IMySlimBlock>();
+                    parent.GetBlocks(tempBlocks);
+                    if (tempBlocks.Count < theSettings.minTargetBlocksCount)
+                    {
+                        continue;
+                    }
+
+                    VRage.ModAPI.IMyEntity parentEntity = parent as VRage.ModAPI.IMyEntity;
+
+                    RadarPing ping = NewRadarPing(parentEntity);
+
+                    // Only add if width is valid
+                    if (ping.Width > 0.00001f && ping.Width <= 4f) // safety bounds
+                    {
+                        if (!radarPings.ContainsKey(parentEntity))
+                        {
+                            radarPings.Add(parentEntity, ping);
+                        }
+                    }
+                }
+                else 
+                {
+                    RadarPing ping = NewRadarPing(entity);
+
+                    // Only add if width is valid
+                    if (ping.Width > 0.00001f && ping.Width <= 4f) // safety bounds
+                    {
+                        if (!radarPings.ContainsKey(entity))
+                        {
+                            radarPings.Add(entity, ping);
+                        }
+                    }
+                }
+                  
             }
         }
 		
@@ -5353,6 +5421,27 @@ namespace EliDangHUD
 
             return scaledOffset;
         }
+
+        public Vector3D ApplyLogarithmicScaling2(Vector3D entityPos, Vector3D referencePos)
+        {
+            Vector3D offset = entityPos - referencePos;
+            double d = offset.Length();
+            if (d < 1e-6) return Vector3D.Zero;
+
+            // normalize 0..1 by current range
+            double u = Math.Min(d / Math.Max(1e-6, radarScaleRange), 1.0);
+
+            // concave (log-like) curve: f(0)=0, f(1)=1, smooth and monotonic
+            // tweak BETA: bigger => more compression near center
+            const double BETA = 8.0;
+            double f = Math.Log(1.0 + BETA * u) / Math.Log(1.0 + BETA);
+
+            // project to screen radius
+            double radius = gHandler.localGridControlledEntityCustomData.radarRadius; // keep this constant in screen space
+            Vector3D dir = offset / d;
+            return dir * (radius * f);
+        }
+
 
         public Vector3D ApplyLogarithmicScalingHolo(Vector3D entityPos, Vector3D referencePos)
         {
@@ -5795,14 +5884,15 @@ namespace EliDangHUD
             }
         }
 
-		private void UpdateExistingRadarPingStatus(ref RadarPing ping) 
+		private void UpdateExistingRadarPingStatus(VRage.ModAPI.IMyEntity entityKey) 
 		{
-            VRage.ModAPI.IMyEntity entity = ping.Entity;
+
+            VRage.ModAPI.IMyEntity entity = entityKey;
 
             if (entity is VRage.Game.ModAPI.IMyCubeGrid)
             {
                 VRage.Game.ModAPI.IMyCubeGrid gridEntity = entity as VRage.Game.ModAPI.IMyCubeGrid;
-				RelationshipStatus startingStatus = ping.Status;
+				RelationshipStatus startingStatus = radarPings[entityKey].Status;
                 if (gridEntity != null)
                 {
                     long lpID = GetLocalPlayerId();
@@ -5813,40 +5903,40 @@ namespace EliDangHUD
                         switch (gridFaction)
                         {
                             case RelationshipStatus.Friendly:
-                                ping.Color = color_GridFriend;
-                                ping.Status = RelationshipStatus.Friendly;
+                                radarPings[entityKey].Color = color_GridFriend;
+                                radarPings[entityKey].Status = RelationshipStatus.Friendly;
                                 break;
                             case RelationshipStatus.Hostile:
-                                ping.Color = color_GridEnemy;
-                                ping.Status = RelationshipStatus.Hostile;
+                                radarPings[entityKey].Color = color_GridEnemy;
+                                radarPings[entityKey].Status = RelationshipStatus.Hostile;
                                 break;
                             case RelationshipStatus.Neutral:
-                                ping.Color = color_GridNeutral;
-                                ping.Status = RelationshipStatus.Neutral;
+                                radarPings[entityKey].Color = color_GridNeutral;
+                                radarPings[entityKey].Status = RelationshipStatus.Neutral;
                                 break;
                             default:
-                                ping.Color = color_GridNeutral;
-                                ping.Status = RelationshipStatus.Neutral;
+                                radarPings[entityKey].Color = color_GridNeutral;
+                                radarPings[entityKey].Status = RelationshipStatus.Neutral;
                                 break;
                         }
                     }
                     else
                     {
-                        ping.Color = color_GridNeutral;
-                        ping.Status = RelationshipStatus.Neutral;
+                        radarPings[entityKey].Color = color_GridNeutral;
+                        radarPings[entityKey].Status = RelationshipStatus.Neutral;
                     }
-					if (startingStatus != ping.Status) 
+					if (startingStatus != radarPings[entityKey].Status) 
 					{
-						ping.Announced = false;
+                        radarPings[entityKey].Announced = false;
 					}
 
                     MyCubeGrid cubeGrid = gridEntity as MyCubeGrid;
                     if (cubeGrid != null) 
                     {
-                        ping.BlockCount = cubeGrid.BlocksCount;
+                        radarPings[entityKey].BlockCount = cubeGrid.BlocksCount;
                     }
-                    ping.GridCubeSize = gridEntity.GridSizeEnum;
-                    ping.Material = GetBlipMaterial(ping.BlockCount, ping.GridCubeSize);
+                    radarPings[entityKey].GridCubeSize = gridEntity.GridSizeEnum;
+                    radarPings[entityKey].Material = GetBlipMaterial(radarPings[entityKey].BlockCount, radarPings[entityKey].GridCubeSize);
                 }
             }
         }
@@ -7368,15 +7458,6 @@ namespace EliDangHUD
                         DrawHologramFromClusterSlices(gHandler.targetGridFloorClusterSlices, false, hologramDrawPosition, holoCenterPosition, finalScalingAndRotationMatrix, gHandler.targetGridHologramPalleteForClusterSlices);
                     }
 
-                    //if (debug) 
-                    //{
-                    //    MyLog.Default.WriteLine($"FENIX_HUD: Target activationTime = {gHandler.targetGridHologramActivationTime}, Target shieldLast = {gHandler.targetGridJumpDrivePowerStoredPrevious}, target shieldCurrent = {gHandler.targetGridJumpDrivePowerStored}, " +
-                    //       $"Target shieldMax = {gHandler.targetGridJumpDrivePowerStoredMax}, Target integrity = {gHandler.targetGridCurrentIntegrity}, " +
-                    //       $"Target maxIntegrity = {gHandler.targetGridMaxIntegrity}, Target deltaLastTick = {gHandler.deltaTimeSinceLastTick}, Target jumpTimeToReady = {gHandler.targetGridJumpDriveTimeToReady}");
-                    //}
-                   
-
-                    // TODO track target "shield" status. (Original author had this tracking jumpdrives, but calls it shields? Is that because a former shield mod had shields classed as jump drives? I need to modernize this desparately)
                     Vector3D hgPos_Left = worldRadarPos + radarMatrix.Left * gHandler.localGridControlledEntityCustomData.radarRadius + radarMatrix.Right * _hologramRightOffset_HardCode.X + radarMatrix.Down * 0.0075 + (radarMatrix.Forward * fontSize * 2);
                     Vector3D textPos_Offset = (radarMatrix.Right * 0.065);
                     Vector3D shieldPos_Left = worldRadarPos + radarMatrix.Right * -gHandler.localGridControlledEntityCustomData.radarRadius + radarMatrix.Right * _hologramRightOffset_HardCode.X + radarMatrix.Up * _hologramRightOffset_HardCode.Y + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
@@ -7386,8 +7467,6 @@ namespace EliDangHUD
             }
         }
 
-        // TODO for some reason cluster size 1 makes it not draw? And larger cluster sizes are not working as expected (no fidelity?)
-        
         public void DrawHologramsHoloTables() 
         {
             if (gHandler.localGridHologramTerminals.Count > 0)
@@ -8863,8 +8942,6 @@ namespace EliDangHUD
                 {
                     if (cluster != null) 
                     {
-                        //MyLog.Default.WriteLine($"FENIX_HUD: Drawing clusterSlice");
-                        //MyLog.Default.WriteLine($"FENIX_HUD: IntegrityBucket = {cluster.IntegrityBucket}");
                         Color color = (Color)colorPallet[cluster.IntegrityBucket];
                         
 
