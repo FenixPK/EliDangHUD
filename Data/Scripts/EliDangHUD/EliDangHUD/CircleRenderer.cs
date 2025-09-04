@@ -548,7 +548,7 @@ namespace EliDangHUD
         public double scannerY = -0.2;
         public double scannerZ = -0.575;
         public Vector3D radarOffset = new Vector3D(0.0, -0.2, -0.575);
-        public float radarScale = 1;
+        public float radarScannerScale = 1;
         public float radarRadius = 1f * 0.125f;
         public float radarBrightness = 1;
         public Color scannerColor = new Vector3(1f, 0.5f, 0.0f);
@@ -2005,6 +2005,12 @@ namespace EliDangHUD
             _fadeDistanceSqr = _fadeDistance * _fadeDistance; // Sqr for fade distance in comparisons.
             _radarShownRangeSqr = radarScaleRange * radarScaleRange; // Anything over this range, even if within sensor range, can't be drawn on screen. 
 
+            if (debug)
+            {
+                MyLog.Default.WriteLine($"FENIX_HUD: radarScaleRange_CurrentLogin = {radarScaleRange_CurrentLogin}, radarScaleRange_Current = {radarScaleRange_Current}, radarScaleRange = {radarScaleRange}," +
+                    $" radarScale = {radarScale} (from customData.radius = {gHandler.localGridControlledEntityCustomData.radarRadius} / radarScaleRange)");
+            }
+
             bool onlyPowered = gHandler.localGridControlledEntityCustomData.scannerOnlyPoweredGrids;
             if (!onlyPowered)
             {
@@ -2651,6 +2657,18 @@ namespace EliDangHUD
             {
                 // This is only null for dedicated servers, prevents execution on dedicated servers
                 return;
+            }
+
+            // Debug log writes every 360 frames to reduce log spam
+            if (debugFrameCount >= 360)
+            {
+                debug = true;
+                debugFrameCount = 0;
+            }
+            else
+            {
+                debug = false;
+                debugFrameCount++;
             }
 
             _isFirstPerson = MyAPIGateway.Session.CameraController.IsInFirstPersonView;
@@ -4329,7 +4347,7 @@ namespace EliDangHUD
 		public double radarScaleRange_CurrentLogin = 0.01;
         
 		//public static float radarRadiusRename = 0.125f;
-        public static float radarScannerScale = 1f;
+        //public static float radarScannerScale = 1f;
 		public static double radarScale = 0.000025;
 		public static float targetHologramRadius = 0.125f;
         public static double holoRadarScale = 0.0001;
@@ -4467,16 +4485,7 @@ namespace EliDangHUD
 		{
 			// We shouldn't be in here if we haven't already checked if gHandler is null, camera too far away etc. So we can skip more checks here. 
 
-			// Debug log writes every 360 frames to reduce log spam
-			if (debugFrameCount >= 360)
-			{
-				debug = true;
-			}
-			else 
-			{
-				debug = false;
-				debugFrameCount++;
-			}
+			
 
             // Okay FenixPK is pretty sure the "problems" I've been having with vectors, matrices, and rotations and perspective etc. are all coming from the fact that the holograms share a position vector and matrix with the radar which needs to rotate.
             // So we will split this into three positions, three offsets. And it solves a request where users wanted to move all of this stuff around independently too. If I can finish it in time haha.
@@ -4507,7 +4516,7 @@ namespace EliDangHUD
             float radarBrightness = gHandler.localGridControlledEntityCustomData.radarBrightness;
 
             // Can always show our own hologram
-            if (gHandler.localGridControlledEntityCustomData.enableHolograms && gHandler.localGridControlledEntityCustomData.enableHologramsLocalGrid)
+            if (theSettings.enableHologramsGlobal && gHandler.localGridControlledEntityCustomData.enableHolograms && gHandler.localGridControlledEntityCustomData.enableHologramsLocalGrid)
             {
                 double lockInTime_Right = gHandler.localGridHologramActivationTime;
                 lockInTime_Right = ClampedD(lockInTime_Right, 0, 1);
@@ -4521,50 +4530,37 @@ namespace EliDangHUD
                 DrawQuad(_hologramPositionRight + (radarUp * _hologramRightOffset_HardCode.Y), viewBackward, 0.1, MaterialCircleSeeThrough, new Vector4(0, 0, 0, 0.75f)); //Dim Backing
             }
 
-         
-			if (gHandler.targetGrid != null && !gHandler.targetGrid.Closed)
-			{
-				if (_playerCanDetectCurrentTarget)
-				{
-                    if (debug)
-                    {
-                        //MyLog.Default.WriteLine($"FENIX_HUD: Target selected, and can detect");
-                    }
+            if (theSettings.enableHologramsGlobal && gHandler.localGridControlledEntityCustomData.enableHolograms && gHandler.localGridControlledEntityCustomData.enableHologramsTargetGrid)
+            {
+                double lockInTime_Left = gHandler.targetGridHologramActivationTime;
+                lockInTime_Left = ClampedD(lockInTime_Left, 0, 1);
+                lockInTime_Left = Math.Pow(lockInTime_Left, 0.1);
 
-					// Handle target hologram here
-					if (gHandler.localGridControlledEntityCustomData.enableHolograms && gHandler.localGridControlledEntityCustomData.enableHologramsTargetGrid)
-					{
+                DrawCircle(_hologramPositionLeft, 0.04 * lockInTime_Left, radarUp, lineColor, radarBrightness, false, 0.5f, 0.00075f);
+                DrawCircle(_hologramPositionLeft - (radarUp * 0.015), 0.045, radarUp, lineColor, radarBrightness, false, 0.25f, 0.00125f);
 
-						double lockInTime_Left = gHandler.targetGridHologramActivationTime;
-						lockInTime_Left = ClampedD(lockInTime_Left, 0, 1);
-						lockInTime_Left = Math.Pow(lockInTime_Left, 0.1);
+                // We will have cleared target lock earlier in loop if no longer able to target due to distance or lack of antenna etc.
+                if (gHandler.targetGrid != null && !gHandler.targetGrid.Closed)
+                {
+                    DrawQuad(_hologramPositionLeft + (radarUp * _hologramRightOffset_HardCode.Y * 0.5), viewBackward, 0.15, MaterialCircleSeeThroughAdd,
+                        gHandler.localGridControlledEntityCustomData.lineColorComp * 0.125f, true);
+                    DrawQuad(_hologramPositionLeft + (radarUp * _hologramRightOffset_HardCode.Y), viewBackward, 0.1, MaterialCircleSeeThrough, new Vector4(0, 0, 0, 0.75f)); //Dim Backing
+                }
+                else
+                {
+                    DrawQuad(_hologramPositionLeft + (radarUp * _hologramRightOffset_HardCode.Y * 0.5), viewBackward, 0.15, MaterialCircleSeeThroughAdd, lineColor * 0.125f, true);
+                }
+            }
 
-						DrawCircle(_hologramPositionLeft, 0.04 * lockInTime_Left, radarUp, lineColor, radarBrightness, false, 0.5f, 0.00075f);
-						DrawCircle(_hologramPositionLeft - (radarUp * 0.015), 0.045, radarUp, lineColor, radarBrightness, false, 0.25f, 0.00125f);
 
-						// We will have cleared target lock earlier in loop if no longer able to target due to distance or lack of antenna etc.
-						if (isTargetLocked)
-						{
-							DrawQuad(_hologramPositionLeft + (radarUp * _hologramRightOffset_HardCode.Y * 0.5), viewBackward, 0.15, MaterialCircleSeeThroughAdd, 
-                                gHandler.localGridControlledEntityCustomData.lineColorComp * 0.125f, true);
-							DrawQuad(_hologramPositionLeft + (radarUp * _hologramRightOffset_HardCode.Y), viewBackward, 0.1, MaterialCircleSeeThrough, new Vector4(0, 0, 0, 0.75f)); //Dim Backing
-						}
-						else
-						{
-							DrawQuad(_hologramPositionLeft + (radarUp * _hologramRightOffset_HardCode.Y * 0.5), viewBackward, 0.15, MaterialCircleSeeThroughAdd, lineColor * 0.125f, true);
-						}
-					}
-				}
-			}
-
-			// Draw the current range bracket on screen. 
-			// This does a lot. It shows the player if they are in active or passive mode or off.
-			// Shows the range of active or passive scanning.
-			// Shows the radar scale range which will be bracketed. Ie. your active radar might be set to 4123 meters, your passive radar set to 5512 meters.
-			// Your bracket would use your maxPassive and set it in clean increments as the user defined. I use 2000m with 500m buffer. So 5512+buffer would put it into the 8000 range bracket.
-			// This means the radar would be zoomed out to show 8k worth of space, despite only detecting objects passively up to 5512 meters and actively up to 4123 meters.
-			// Because active mode takes priority I show it's range instead of passive. When active mode off passive will show. Passive's range if different than active can be inferred a bit from scale.
-			// Additionally if the radar scale is overriden by having a Target selected a T is show, as scale might be lower than expected. When you select a target nearby it "zooms" the radar scale in. 
+            // Draw the current range bracket on screen. 
+            // This does a lot. It shows the player if they are in active or passive mode or off.
+            // Shows the range of active or passive scanning.
+            // Shows the radar scale range which will be bracketed. Ie. your active radar might be set to 4123 meters, your passive radar set to 5512 meters.
+            // Your bracket would use your maxPassive and set it in clean increments as the user defined. I use 2000m with 500m buffer. So 5512+buffer would put it into the 8000 range bracket.
+            // This means the radar would be zoomed out to show 8k worth of space, despite only detecting objects passively up to 5512 meters and actively up to 4123 meters.
+            // Because active mode takes priority I show it's range instead of passive. When active mode off passive will show. Passive's range if different than active can be inferred a bit from scale.
+            // Additionally if the radar scale is overriden by having a Target selected a T is show, as scale might be lower than expected. When you select a target nearby it "zooms" the radar scale in. 
             Vector3D textDir = -radarMatrix.Backward; // text faces the player/camera
 			double activeRangeDisp = Math.Round(gHandler.localGridMaxActiveRadarRange/1000, 1);
 			double passiveRangeDisp = Math.Round(gHandler.localGridMaxPassiveRadarRange/1000, 1);
@@ -4669,6 +4665,12 @@ namespace EliDangHUD
                 }
                 Vector3D scaledPos = ApplyLogarithmicScaling(radarPings[i].RadarPingPosition, playerGridControlledEntityPosition); // Apply radar scaling
 
+                if (debug)
+                {
+                    MyLog.Default.WriteLine($"FENIX_HUD: radarScaleRange = {radarScaleRange}, radarScale = {radarScale}, scaledPos = {scaledPos} ");
+                }
+
+
                 // Position on the radar
                 Vector3D radarEntityPos = radarPos + scaledPos;
 
@@ -4740,7 +4742,7 @@ namespace EliDangHUD
                 MyStringId drawMat = radarPings[i].Material;
 
                 // Draw each entity as a billboard on the radar
-                float blipSize = 0.004f * fadeDimmer * radarPings[i].Width * radarScannerScale; // Scale blip size based on radar scale
+                float blipSize = 0.004f * fadeDimmer * radarPings[i].Width * gHandler.localGridControlledEntityCustomData.radarScannerScale; // Scale blip size based on radar scale
                 Vector3D blipPos = radarEntityPos + (lineDir * vertDistance);
                 // Draw the blip with vertical elevation +/- relative to radar plane, with line connecting it to the radar plane.
                 DrawLineBillboard(MaterialSquare, color_Current * 0.25f * fadeDimmer * pulseTimer, radarEntityPos, lineDir, vertDistance, 0.001f * fadeDimmer);
@@ -4756,7 +4758,7 @@ namespace EliDangHUD
                     float ringSize =  blipSize * pulseScale; // Scale the ring size based on the pulse
                     Vector4 haloColor = color_Current * 0.25f * (float)haloPulse; // subtle, fading
                     // Use the same position and orientation as the blip
-                    DrawCircle(radarEntityPos, ringSize, radarUp, Color.WhiteSmoke, radarBrightness, false, 1.0f * pulseAlpha, 0.00035f * radarScannerScale); //0.5f * haloPulse
+                    DrawCircle(radarEntityPos, ringSize, radarUp, Color.WhiteSmoke, radarBrightness, false, 1.0f * pulseAlpha, 0.00035f * gHandler.localGridControlledEntityCustomData.radarScannerScale); //0.5f * haloPulse
 
                     //float haloSize = (blipSize * 1.05f) * (1.0f + 0.25f * haloPulse); // slightly larger than blip
                     //DrawQuad(radarEntityPos, radarUp, haloSize, MaterialCircleHollow, haloColor, true); // Soft pulsing halo/glow around the blip...
@@ -4880,17 +4882,6 @@ namespace EliDangHUD
         {
             
             // We shouldn't be in here if we haven't already checked if gHandler is null, camera too far away etc. So we can skip more checks here. 
-
-            // Debug log writes every 360 frames to reduce log spam
-            if (debugFrameCount >= 360)
-            {
-                debug = true;
-            }
-            else
-            {
-                debug = false;
-                debugFrameCount++;
-            }
 
             // Okay FenixPK is pretty sure the "problems" I've been having with vectors, matrices, and rotations and perspective etc. are all coming from the fact that the holograms share a position vector and matrix with the radar which needs to rotate.
             // So we will split this into three positions, three offsets. And it solves a request where users wanted to move all of this stuff around independently too. If I can finish it in time haha.
@@ -5388,28 +5379,28 @@ namespace EliDangHUD
             return scaledOffset;
         }
 
-        public Vector3D ApplyLinearScaling(Vector3D entityPos, Vector3D referencePos)
-        {
-            Vector3D offset = entityPos - referencePos;
-            double distance = offset.Length();
+        //public Vector3D ApplyLinearScaling(Vector3D entityPos, Vector3D referencePos)
+        //{
+        //    Vector3D offset = entityPos - referencePos;
+        //    double distance = offset.Length();
 
-            if (distance < 0.01) 
-            {
-                return Vector3D.Zero;
-            }
+        //    if (distance < 0.01) 
+        //    {
+        //        return Vector3D.Zero;
+        //    }
                 
 
-            // Clamp the distance to the radar range
-            double clampedDistance = Math.Min(distance, radarScaleRange);
+        //    // Clamp the distance to the radar range
+        //    double clampedDistance = Math.Min(distance, radarScaleRange);
 
-            // Scale the offset linearly to fit within the radar display (scaled to radarScale)
-            double scale = radarScale * (clampedDistance / radarScaleRange);
+        //    // Scale the offset linearly to fit within the radar display (scaled to radarScale)
+        //    double scale = radarScale * (clampedDistance / radarScaleRange);
 
-            Vector3D direction = offset / distance; // Normalize
-            Vector3D scaledOffset = direction * scale;
+        //    Vector3D direction = offset / distance; // Normalize
+        //    Vector3D scaledOffset = direction * scale;
 
-            return scaledOffset;
-        }
+        //    return scaledOffset;
+        //}
         //------------------------------------------------------------------------------------------
 
 
@@ -7183,6 +7174,8 @@ namespace EliDangHUD
             bootUpAlpha = ClampedD(bootUpAlpha, 0, 1);
             bootUpAlpha = Math.Pow(bootUpAlpha, 0.25);
 
+            //bootUpAlpha (bootTime in drawShields) seems to be the problem, it never increases? 
+
             //Shields, 
             if (shieldMax > 0.01)
             {
@@ -7335,64 +7328,6 @@ namespace EliDangHUD
                     double thicc = gHandler.hologramScaleFactor / (gHandler.localGrid.WorldVolume.Radius / gHandler.localGrid.GridSize);
                     float size = (float)gHandler.hologramScale * 0.65f * (float)thicc * gHandler.localGridClusterSize;
 
-                    //Vector3D gridCenterLocal = gHandler.localGrid.PositionComp.LocalAABB.Center;
-
-                    //// Move pivot to origin
-                    //MatrixD toOrigin = MatrixD.CreateTranslation(-gridCenterLocal);
-
-                    //// Move pivot back
-                    //MatrixD backToCenter = MatrixD.CreateTranslation(gridCenterLocal);
-
-                    //// Wrap rotation with pivot offset
-                    //MatrixD rotationWithPivot = gHandler.localHologramFinalRotation * toOrigin;
-
-                    //// Apply scaling after rotation/pivot
-                    //MatrixD finalScalingAndRotationMatrix = rotationWithPivot * gHandler.localHologramScalingMatrix;
-
-
-
-
-
-                    //Vector3D worldCenter = gHandler.localGrid.WorldVolume.Center;
-
-                    //MatrixD gridWorld = gHandler.localGrid.WorldMatrix;
-
-
-                    //MatrixD gridWorldInv = MatrixD.Invert(gridWorld);
-                    //Vector3D gridCenterLocal = Vector3D.Transform(worldCenter, gridWorldInv);
-
-                    //// Move pivot to origin
-                    //MatrixD toOrigin = MatrixD.CreateTranslation(-gridCenterLocal);
-
-                    //// Rotate
-                    //MatrixD rotationWithPivot = toOrigin * gHandler.localHologramFinalRotation; // rotation around pivot
-
-                    //// Move back
-                    //MatrixD backToPivot = MatrixD.CreateTranslation(gridCenterLocal);
-
-                    //// Apply scaling last
-                    //MatrixD finalScalingAndRotationMatrix = backToPivot * rotationWithPivot * gHandler.localHologramScalingMatrix;
-
-
-
-
-                    ////Test no shift back:
-
-                    //MatrixD gridWorldInv = MatrixD.Invert(gHandler.localGrid.WorldMatrix);
-                    //Vector3D gridCenterLocal = Vector3D.Transform(gHandler.localGrid.WorldVolume.Center, gridWorldInv);
-
-                    //// Move pivot to origin
-                    //MatrixD toOrigin = MatrixD.CreateTranslation(-gridCenterLocal);
-
-                    //// Rotate
-                    //MatrixD rotationAroundCenter = gHandler.localHologramFinalRotation;
-
-                    //// Apply scaling last
-                    //MatrixD finalScalingAndRotationMatrix = rotationAroundCenter * toOrigin * gHandler.localHologramScalingMatrix;
-
-
-
-
                     if (!theSettings.useClusterSlices)
                     {
                         DrawHologramFromClusters(gHandler.localGridBlockClusters, false, hologramDrawPosition, holoCenterPosition, initialColor, finalScalingAndRotationMatrix, size);
@@ -7424,39 +7359,6 @@ namespace EliDangHUD
                     double thicc = gHandler.hologramScaleFactor / (gHandler.targetGrid.WorldVolume.Radius / gHandler.targetGrid.GridSize);
                     float size = (float)gHandler.hologramScale * 0.65f * (float)thicc * gHandler.targetGridClusterSize;
 
-
-
-
-
-                    //Vector3D gridCenterLocal = gHandler.targetGrid.PositionComp.LocalAABB.Center;
-
-                    //// Move pivot to origin
-                    //MatrixD toOrigin = MatrixD.CreateTranslation(-gridCenterLocal);
-
-                    //// Move pivot back
-                    //MatrixD backToCenter = MatrixD.CreateTranslation(gridCenterLocal);
-
-                    //// Wrap rotation with pivot offset
-                    //MatrixD rotationWithPivot = backToCenter * gHandler.targetHologramFinalRotation * toOrigin;
-
-                    //// Apply scaling after rotation/pivot
-                    //MatrixD finalScalingAndRotationMatrix = rotationWithPivot * gHandler.targetHologramScalingMatrix;
-
-
-
-                    //MatrixD gridWorldInv = MatrixD.Invert(gHandler.targetGrid.WorldMatrix);
-                    //Vector3D gridCenterLocal = Vector3D.Transform(gHandler.targetGrid.WorldVolume.Center, gridWorldInv);
-
-                    //// Move pivot to origin
-                    //MatrixD toOrigin = MatrixD.CreateTranslation(-gridCenterLocal);
-
-                    //// Rotate
-                    //MatrixD rotationAroundCenter = gHandler.targetHologramFinalRotation;
-
-                    //// Apply scaling last
-                    //MatrixD finalScalingAndRotationMatrix = rotationAroundCenter * toOrigin * gHandler.targetHologramScalingMatrix;
-
-
                     if (!theSettings.useClusterSlices)
                     {
                         DrawHologramFromClusters(gHandler.targetGridBlockClusters, false, hologramDrawPosition, holoCenterPosition, initialColor, finalScalingAndRotationMatrix, size);
@@ -7466,12 +7368,20 @@ namespace EliDangHUD
                         DrawHologramFromClusterSlices(gHandler.targetGridFloorClusterSlices, false, hologramDrawPosition, holoCenterPosition, finalScalingAndRotationMatrix, gHandler.targetGridHologramPalleteForClusterSlices);
                     }
 
+                    //if (debug) 
+                    //{
+                    //    MyLog.Default.WriteLine($"FENIX_HUD: Target activationTime = {gHandler.targetGridHologramActivationTime}, Target shieldLast = {gHandler.targetGridJumpDrivePowerStoredPrevious}, target shieldCurrent = {gHandler.targetGridJumpDrivePowerStored}, " +
+                    //       $"Target shieldMax = {gHandler.targetGridJumpDrivePowerStoredMax}, Target integrity = {gHandler.targetGridCurrentIntegrity}, " +
+                    //       $"Target maxIntegrity = {gHandler.targetGridMaxIntegrity}, Target deltaLastTick = {gHandler.deltaTimeSinceLastTick}, Target jumpTimeToReady = {gHandler.targetGridJumpDriveTimeToReady}");
+                    //}
+                   
+
                     // TODO track target "shield" status. (Original author had this tracking jumpdrives, but calls it shields? Is that because a former shield mod had shields classed as jump drives? I need to modernize this desparately)
                     Vector3D hgPos_Left = worldRadarPos + radarMatrix.Left * gHandler.localGridControlledEntityCustomData.radarRadius + radarMatrix.Right * _hologramRightOffset_HardCode.X + radarMatrix.Down * 0.0075 + (radarMatrix.Forward * fontSize * 2);
                     Vector3D textPos_Offset = (radarMatrix.Right * 0.065);
                     Vector3D shieldPos_Left = worldRadarPos + radarMatrix.Right * -gHandler.localGridControlledEntityCustomData.radarRadius + radarMatrix.Right * _hologramRightOffset_HardCode.X + radarMatrix.Up * _hologramRightOffset_HardCode.Y + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
-                    DrawHologramStatus(hgPos_Left, shieldPos_Left, textPos_Offset, gHandler.targetGridHologramActivationTime, 1, 1,
-                        1, gHandler.targetGridCurrentIntegrity, gHandler.targetGridMaxIntegrity, gHandler.deltaTimeSinceLastTick, 0, fontSize);
+                    DrawHologramStatus(hgPos_Left, shieldPos_Left, textPos_Offset, gHandler.targetGridHologramActivationTime, gHandler.targetGridJumpDrivePowerStoredPrevious, gHandler.targetGridJumpDrivePowerStored,
+                        gHandler.targetGridJumpDrivePowerStoredMax, gHandler.targetGridCurrentIntegrity, gHandler.targetGridMaxIntegrity, gHandler.deltaTimeSinceLastTick, gHandler.targetGridJumpDriveTimeToReady, fontSize);
                 }
             }
         }
@@ -7519,35 +7429,6 @@ namespace EliDangHUD
                             colorPalletHoloTable = gHandler.BuildIntegrityColors(theData.lineColor * 0.5f);
                         }
 
-                        //Vector3D gridCenterLocal = gHandler.localGrid.PositionComp.LocalAABB.Center;
-
-                        //// Move pivot to origin
-                        //MatrixD toOrigin = MatrixD.CreateTranslation(-gridCenterLocal);
-
-                        //// Move pivot back
-                        //MatrixD backToCenter = MatrixD.CreateTranslation(gridCenterLocal);
-
-                        //// Wrap rotation with pivot offset
-                        //MatrixD rotationWithPivot = backToCenter * localHologramFinalRotationHoloTable * toOrigin;
-
-                        //// Apply scaling after rotation/pivot
-                        //MatrixD finalScalingAndRotationMatrix = rotationWithPivot * holoTableScalingMatrix;
-
-
-
-
-
-                        //MatrixD gridWorldInv = MatrixD.Invert(gHandler.localGrid.WorldMatrix);
-                        //Vector3D gridCenterLocal = Vector3D.Transform(gHandler.localGrid.WorldVolume.Center, gridWorldInv);
-
-                        //// Move pivot to origin
-                        //MatrixD toOrigin = MatrixD.CreateTranslation(-gridCenterLocal);
-
-                        //// Rotate
-                        //MatrixD rotationAroundCenter = localHologramFinalRotationHoloTable;
-
-                        //// Apply scaling last
-                        //MatrixD finalScalingAndRotationMatrix = rotationAroundCenter * toOrigin * holoTableScalingMatrix;
 
                         if (!theSettings.useClusterSlices)
                         {
@@ -7662,8 +7543,7 @@ namespace EliDangHUD
 			}
 			Vector3D textPos = pos + (radarMatrix.Backward * 0.065) + (radarMatrix.Down * fontSize * 4) + (radarMatrix.Left * ShieldValueS.Length * fontSize);
 			DrawText(ShieldValueS, fontSize, textPos, radarMatrix.Forward, ShieldValueC, gHandler.localGridControlledEntityCustomData.radarBrightness, 1, false);
-
-		}
+        }
 
 		public string FormatSecondsToReadableTime(double seconds)
 		{

@@ -885,7 +885,7 @@ namespace EliDangHUD
                 targetGrid.OnBlockAdded += OnTargetBlockAdded;
                 targetGrid.OnBlockRemoved += OnTargetBlockRemoved;
 
-                targetGridHologramActivationTime += deltaTimeSinceLastTick * 0.667;
+                targetGridHologramActivationTime = 0;
                 targetGridHologramBootUpAlpha = ClampedD(targetGridHologramActivationTime, 0, 1);
                 targetGridHologramBootUpAlpha = Math.Pow(targetGridHologramBootUpAlpha, 0.25);
 
@@ -926,6 +926,7 @@ namespace EliDangHUD
             targetGridAllBlocksDictByFloor.Clear();
             targetGridBlockComponentStacks.Clear();
             targetGridAntennasDict.Clear();
+            targetGridJumpDrivesDict.Clear();
 
             // target grid clusters
             targetGridBlockClusters.Clear();
@@ -946,11 +947,34 @@ namespace EliDangHUD
             targetGridCurrentIntegrity = 0f;
             targetGridMaxIntegrity = 0f;
 
+            targetGridJumpDrivePowerStoredPrevious = 0;
+            targetGridJumpDrivePowerStoredMax = 0;
+            targetGridJumpDrivePowerStored = 0;
+            targetGridJumpDriveTimeToReady = 0;
+
             targetHologramScalingMatrix = MatrixD.Identity;
             targetHologramViewRotationCurrent = MatrixD.Identity;
             targetHologramViewRotationGoal = MatrixD.Identity;
             targetHologramFinalRotation = MatrixD.Identity;
+
+
+            targetGridHasPassiveRadar = false;
+            targetGridHasActiveRadar = false;
+            targetGridMaxPassiveRadarRange = 0.0;
+            targetGridMaxActiveRadarRange = 0.0;
+
+
+            targetGridClusterSize = 1;
+            targetGridClustersNeedRefresh = false;
+
+ 
+
+            targetGridHologramActivationTime = 0;
+            targetGridHologramBootUpAlpha = 1;
+
+
         }
+
 
         private void InitializeTargetGridBlocks()
         {
@@ -1055,28 +1079,27 @@ namespace EliDangHUD
                 }
                 jumpDriveChargeMax += jumpDrive.MaxStoredPower;
             }
+
             if (jumpDriveChargeMax != jumpDriveChargeCurrent)
             {
-                float currentStoredPower = jumpDriveChargeCurrent;
-                float lastStoredPower = targetGridJumpDrivePowerStoredPrevious;
-                float difPower = (currentStoredPower - lastStoredPower);
+                float difPower = (jumpDriveChargeCurrent - targetGridJumpDrivePowerStoredPrevious);
 
                 if (difPower > 0)
                 {
-                    double powerPerSecond = (currentStoredPower - lastStoredPower) / deltaTimeSinceLastTick;
+                    double powerPerSecond = difPower / deltaTimeSinceLastTick;
 
                     if (powerPerSecond > 0)
                     {
-                        double timeRemaining = ((jumpDriveChargeMax - currentStoredPower) / powerPerSecond) * 100;
+                        double timeRemaining = ((jumpDriveChargeMax - jumpDriveChargeCurrent) / powerPerSecond) * 100;
 
                         if (timeRemaining < minTime)
                         {
                             minTime = timeRemaining;
                         }
                     }
-                    targetGridJumpDrivePowerStoredPrevious = currentStoredPower;
                 }
             }
+            targetGridJumpDrivePowerStoredPrevious = targetGridJumpDrivePowerStored;
             targetGridJumpDrivePowerStored = jumpDriveChargeCurrent;
             targetGridJumpDrivePowerStoredMax = jumpDriveChargeMax;
             targetGridJumpDriveTimeToReady = minTime != double.MaxValue ? minTime : 0;
@@ -1137,7 +1160,7 @@ namespace EliDangHUD
 
                 InitializeTheSettings();
 
-                localGridHologramActivationTime += deltaTimeSinceLastTick * 0.667;
+                localGridHologramActivationTime = 0;
                 localGridHologramBootUpAlpha = ClampedD(localGridHologramActivationTime, 0, 1);
                 localGridHologramBootUpAlpha = Math.Pow(localGridHologramBootUpAlpha, 0.25);
 
@@ -1312,6 +1335,17 @@ namespace EliDangHUD
             localHologramViewRotationCurrent = MatrixD.Identity;
             localHologramViewRotationGoal = MatrixD.Identity;
             localHologramFinalRotation = MatrixD.Identity;
+            
+            localGridHasPassiveRadar = false;
+            localGridHasActiveRadar = false;
+            localGridMaxPassiveRadarRange = 0.0;
+            localGridMaxActiveRadarRange = 0.0;
+
+            localGridClusterSize = 1;
+
+
+            localGridHologramActivationTime = 0;
+            localGridHologramBootUpAlpha = 1;
 
             ResetTargetGrid(); // If re-setting the local grid, we also re-set the target grid. 
         }
@@ -1522,6 +1556,11 @@ namespace EliDangHUD
                 UpdateLocalGridOxygen();
                 UpdateLocalGridJumpDrives();
 
+                // This is set to 0 on initialization, then increments each tick from there so long as a target is selected. Resets on loss of target, and is reset again on initialization. 
+                localGridHologramActivationTime += deltaTimeSinceLastTick * 0.667;
+                localGridHologramBootUpAlpha = ClampedD(localGridHologramActivationTime, 0, 1);
+                localGridHologramBootUpAlpha = Math.Pow(localGridHologramBootUpAlpha, 0.25);
+
                 if (localHologramScaleNeedsRefresh)
                 {
                     UpdateLocalGridScalingMatrix();
@@ -1552,6 +1591,11 @@ namespace EliDangHUD
                     }
 
                     UpdateTargetGridJumpDrives();
+
+                    // This is set to 0 on initialization, then increments each tick from there so long as a target is selected. Resets on loss of target, and is reset again on initialization. 
+                    targetGridHologramActivationTime += deltaTimeSinceLastTick * 0.667;
+                    targetGridHologramBootUpAlpha = ClampedD(targetGridHologramActivationTime, 0, 1);
+                    targetGridHologramBootUpAlpha = Math.Pow(targetGridHologramBootUpAlpha, 0.25);
 
                     if (targetHologramScaleNeedsRefresh)
                     {
@@ -1986,26 +2030,24 @@ namespace EliDangHUD
             }
             if (jumpDriveChargeMax != jumpDriveChargeCurrent)
             {
-                float currentStoredPower = jumpDriveChargeCurrent;
-                float lastStoredPower = localGridJumpDrivePowerStoredPrevious;
-                float difPower = (currentStoredPower - lastStoredPower);
+                float difPower = (jumpDriveChargeCurrent - localGridJumpDrivePowerStoredPrevious);
 
                 if (difPower > 0)
                 {
-                    double powerPerSecond = (currentStoredPower - lastStoredPower) / deltaTimeSinceLastTick;
+                    double powerPerSecond = difPower / deltaTimeSinceLastTick;
 
                     if (powerPerSecond > 0)
                     {
-                        double timeRemaining = ((jumpDriveChargeMax - currentStoredPower) / powerPerSecond) * 100;
+                        double timeRemaining = ((jumpDriveChargeMax - jumpDriveChargeCurrent) / powerPerSecond) * 100;
 
                         if (timeRemaining < minTime)
                         {
                             minTime = timeRemaining;
                         }
                     }
-                    localGridJumpDrivePowerStoredPrevious = currentStoredPower;
                 }
             }
+            localGridJumpDrivePowerStoredPrevious = localGridJumpDrivePowerStored;
             localGridJumpDrivePowerStored = jumpDriveChargeCurrent;
             localGridJumpDrivePowerStoredMax = jumpDriveChargeMax;
             localGridJumpDriveTimeToReady = minTime != double.MaxValue ? minTime : 0;
@@ -2965,9 +3007,9 @@ namespace EliDangHUD
             theData.radarOffset = new Vector3D(theData.scannerX, theData.scannerY, theData.scannerZ);
 
             // Radar Scale and Radius
-            theData.radarScale = ini.Get(mySection, "ScannerS").ToSingle(1);
-            ini.Set(mySection, "ScannerS", theData.radarScale.ToString());
-            theData.radarRadius = 0.125f * theData.radarScale;
+            theData.radarScannerScale = ini.Get(mySection, "ScannerS").ToSingle(1);
+            ini.Set(mySection, "ScannerS", theData.radarScannerScale.ToString());
+            theData.radarRadius = 0.125f * theData.radarScannerScale;
 
             // Radar Brightness (glow)
             theData.radarBrightness = ini.Get(mySection, "ScannerB").ToSingle(1f);
