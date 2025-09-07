@@ -1,4 +1,4 @@
-# Eli Dang Holo Hud - Open Source
+# Eli Dang Holo Hud - Open Source 2.0
 This project will be my open source repository for the Eli Dang holo hud mod for Space Engineers. I will primarily maintain it on Steam Workshop but the source code lives here. 
 
 It has been branched from Polygon Cherub, the original author. 
@@ -9,12 +9,17 @@ It is being released as GPL 3.0, which I believe was the intention and spirit of
 I hold no desire to police the use of this mod's code. Feel free to modify and re-upload if you make significant changes. Otherwise, share your feedback with me so I can improve it for everyone!"
 
 # Readme / Configuration
-Only cockpits with [ELI_HUD] in the name are eligible, no more reliance on being main cockpit. 
-Local grid settings get stored to CustomData of the cockpit block.
+Can choose between a tag based HUD activation with [ELI_HUD] in the CustomName being eligible, or in the XML settings you can turn the MainCockpit requirement back on where it only works for control seats that are set to MainCockpit. 
+Per-ship settings get stored to CustomData of the control seat. 
+
+Can also run holographic radar from any terminal block (like a holo table, LCD, control panel, even a sound block lol) using [ELI_HOLO] custom name.
+Can also run holographic local grid display from any terminal block using [ELI_LOCAL].
+CustomData of these blocks has options for tweaking how and where the radar or hologram draw. You can re-set this to default by clearing the EliDang section entirely. 
 
 Global settings are stored in the World Save folder, eg SaveGameName\Storage\########_EliDangHud\EDHH_settings.xml
 Each setting has a description that explains what it does.
 This file will only generate after saving your game with the mod enabled. I recommend you add the mod and load the game, save it and exit, then make any changes to the mod config. 
+
 
 You can rebind keys, the enum of available MyKeys are below (Note that mouse clicks are treated special, and have their own settings documented in EDHH_settings.xml).
 
@@ -224,6 +229,21 @@ public enum MyKeys : byte
 }
 
 # Changelog
+## 2025-09-07
+DONE: Make Main Cockpit or Tag be an option. Make custom cockpit sliders/checkboxes etc. load based on only this setting, no longer requires a broadcasting antenna. (Was a leftover of original). 
+
+DONE: Make SigInt lite logic be toggleable. You can have some of the old logic instead. It still checks all powered antennas on the grid and uses the max broadcast range as the radar range for detecting and scaling the radar.
+But doesn't do all the active vs passive radar stuff. 
+
+DONE: More minor optimizations: only checks if entity has power if you can already detect it based on range and the setting to only show powered grids is true. 
+
+DONE: Top priority: Optimize the holograms! Will use a Dictionary of blocks on the grid, then have event handlers for add or remove of block, or damage of block instead of
+scanning all blocks each tick. So we initialize it using getBlocks once, then only update it when something changes. When it comes to drawing their positions we will
+have the grid relative positions, so for local grid this is easy. For target grid we will need to offset based on the current grid positions at Draw() time.
+This is a complete overhaul to initialize once, then use event handlers for updates, and optimized draw by clustering blocks when grids are of a certain block count. Drawing each square gets very heavy.
+This is configurable, defaults to 10,000 so a grid of 10,000 blocks will switch to 2x2x2 clusters of blocks being drawn as a single square instead of one per block. 
+
+
 ## 2025-08-01
 DONE: Fix grid flare setting.
 

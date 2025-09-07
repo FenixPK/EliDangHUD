@@ -1,6 +1,9 @@
-By default only cockpits with [ELI_HUD] in the name are eligible, no more reliance on being main cockpit. However you can enable useMainCockpitInsteadOfTag in the settings if you desire
-the old logic. You can also disable the SigInt lite logic of Active vs Passive radar if desired. 
-Local grid settings get stored to CustomData of the cockpit block.
+Can choose between a tag based HUD activation with [ELI_HUD] in the CustomName being eligible, or in the XML settings you can turn the MainCockpit requirement back on where it only works for control seats that are set to MainCockpit. 
+Per-ship settings get stored to CustomData of the control seat. 
+
+Can also run holographic radar from any terminal block (like a holo table, LCD, control panel, even a sound block lol) using [ELI_HOLO] custom name.
+Can also run holographic local grid display from any terminal block using [ELI_LOCAL].
+CustomData of these blocks has options for tweaking how and where the radar or hologram draw. You can re-set this to default by clearing the EliDang section entirely. 
 
 Global settings are stored in the World Save folder, eg SaveGameName\Storage\########_EliDangHud\EDHH_settings.xml
 Each setting has a description that explains what it does.
