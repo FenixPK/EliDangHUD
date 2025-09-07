@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using VRage.Game;
 using VRage.Game.Components;
 using VRage.Game.Entity;
 using VRage.Game.ModAPI;
@@ -12,6 +13,7 @@ using VRage.Game.ObjectBuilders.Components;
 using VRage.ModAPI;
 using VRage.Utils;
 using VRageMath;
+using VRageRender;
 using static EliDangHUD.CircleRenderer;
 using static VRage.Game.MyObjectBuilder_CurveDefinition;
 
@@ -239,6 +241,7 @@ namespace EliDangHUD
 
         public Vector4[] targetGridHologramPalleteForClusterSlices;
 
+
         //----------------
 
         public ModSettings theSettings = new ModSettings();
@@ -339,6 +342,60 @@ namespace EliDangHUD
             rotationMatrix.Translation = Vector3D.Zero;
 
             return rotationMatrix;
+        }
+
+        private MatrixD CreateNormalizedLocalGridRotationMatrix()
+        {
+            Vector3D angularVelocity = localGrid?.Physics?.AngularVelocity ?? Vector3D.Zero;
+
+            // Transform the angular velocity from world space to grid space. This makes it relative to the grid instead of the world plane so it doesn't matter which way
+            // the grid is currently facing.
+            MatrixD worldToGrid = MatrixD.Invert(localGrid.WorldMatrix);
+            Vector3D gridAngularVelocity = Vector3D.TransformNormal(angularVelocity, worldToGrid);
+
+            // Configuration values - adjust these to tune the effect
+            const double maxAngularVelocity = 6; // Maximum angular velocity in your units, as in X m/s angular velocity = maxTiltAngle.
+                                                 // For eg. if we have 6 m/s max and a maxTilt of 89 radians then at 6 m/s (or higher) the hologram will be tiled 89 degrees in the direction of the angular velocity.
+
+            const double maxTiltAngle = 89.0 * Math.PI / 180.0; // 89 degrees in radians
+            const double sensitivityMultiplier = 1.0; // Adjust this to make the effect more or less pronounced
+
+            // Calculate rotation angles based on angular velocity
+            // Scale each component to the desired range and clamp to prevent flipping
+            double rotationX = ClampAndScale(gridAngularVelocity.X, maxAngularVelocity, maxTiltAngle) * sensitivityMultiplier;
+            double rotationY = ClampAndScale(gridAngularVelocity.Y, maxAngularVelocity, maxTiltAngle) * sensitivityMultiplier;
+            double rotationZ = ClampAndScale(gridAngularVelocity.Z, maxAngularVelocity, maxTiltAngle) * sensitivityMultiplier;
+
+            // Create a rotation matrix purely from the angular velocity components
+            // This creates a rotation around an arbitrary axis defined by the velocity vector
+            Vector3D rotationAxis = new Vector3D(rotationX, rotationY, rotationZ);
+            double rotationAngle = rotationAxis.Length();
+
+            if (rotationAngle > 0.001) // Avoid division by zero
+            {
+                // Normalize the axis
+                rotationAxis = rotationAxis / rotationAngle;
+
+                // Create rotation matrix around the arbitrary axis
+                MatrixD localRotationMatrix = MatrixD.CreateFromAxisAngle(rotationAxis, rotationAngle);
+                return localRotationMatrix;
+            }
+            else
+            {
+                // No rotation needed
+                return MatrixD.Identity;
+            }
+        }
+        private double ClampAndScale(double angularVelocity, double maxVelocity, double maxAngle)
+        {
+            // Normalize the angular velocity to (-1, 1) range
+            double normalizedVelocity = angularVelocity / maxVelocity;
+
+            // Clamp to prevent values outside (-1, 1)
+            normalizedVelocity = Math.Max(-1.0, Math.Min(1.0, normalizedVelocity));
+
+            // Scale to the desired angle range
+            return normalizedVelocity * maxAngle;
         }
 
 
@@ -871,7 +928,7 @@ namespace EliDangHUD
 
                 if (!theSettings.useClusterSlices)
                 {
-                    targetGridClusterSize = GetClusterSize(targetGridAllBlocksDict.Count);
+                    targetGridClusterSize = GetClusterSize(targetGridAllBlocksDict.Count, theSettings.blockCountClusterStep);
                     ClusterBlocks(targetGridAllBlocksDict, ref targetGridBlockClusters, ref targetGridBlockToClusterMap, targetGridClusterSize);
                     targetGridClustersNeedRefresh = false;
                 }
@@ -888,6 +945,18 @@ namespace EliDangHUD
                 targetGridHologramActivationTime = 0;
                 targetGridHologramBootUpAlpha = ClampedD(targetGridHologramActivationTime, 0, 1);
                 targetGridHologramBootUpAlpha = Math.Pow(targetGridHologramBootUpAlpha, 0.25);
+
+                if (localGridControlledEntityInitialized) 
+                {
+                    Quaternion initialQuat = Quaternion.CreateFromYawPitchRoll(
+                              MathHelper.ToRadians(localGridControlledEntityCustomData.holoTargetRotationX),
+                              MathHelper.ToRadians(localGridControlledEntityCustomData.holoTargetRotationY),
+                              MathHelper.ToRadians(localGridControlledEntityCustomData.holoTargetRotationZ));
+                    // Convert back to matrix
+                    targetHologramViewRotationCurrent = MatrixD.CreateFromQuaternion(initialQuat);
+                    targetHologramFinalRotation = targetHologramViewRotationCurrent;
+                }
+                
 
                 targetHologramScaleNeedsRefresh = true;
                 targetGridInitialized = true;
@@ -971,8 +1040,6 @@ namespace EliDangHUD
 
             targetGridHologramActivationTime = 0;
             targetGridHologramBootUpAlpha = 1;
-
-
         }
 
 
@@ -994,7 +1061,7 @@ namespace EliDangHUD
                 Vector3D blockScaledInvertedPosition;
                 block.ComputeWorldCenter(out blockWorldPosition); // Gets world position for the center of the block
                 blockScaledInvertedPosition = Vector3D.Transform((blockWorldPosition - targetGrid.WorldVolume.Center), inverseMatrix) / targetGrid.GridSize; // set scaledPosition to be relative to the center of the grid, invert it, then scale it to block units.
-
+                blockScaledInvertedPosition.X = -blockScaledInvertedPosition.X;
                 GridBlock gridBlock = new GridBlock();
                 gridBlock.Block = block;
                 gridBlock.DrawPosition = blockScaledInvertedPosition;
@@ -1142,7 +1209,7 @@ namespace EliDangHUD
 
                 if (!theSettings.useClusterSlices)
                 {
-                    localGridClusterSize = GetClusterSize(localGridAllBlocksDict.Count);
+                    localGridClusterSize = GetClusterSize(localGridAllBlocksDict.Count, theSettings.blockCountClusterStep);
                     ClusterBlocks(localGridAllBlocksDict, ref localGridBlockClusters, ref localGridBlockToClusterMap, localGridClusterSize);
                     localGridClustersNeedRefresh = false;
                 }
@@ -1229,6 +1296,16 @@ namespace EliDangHUD
 
                 localGridHologramPalleteForClusterSlices = BuildIntegrityColors(theData.scannerColor * 0.5f);
                 targetGridHologramPalleteForClusterSlices = BuildIntegrityColors(theData.lineColorComp * 0.5f);
+
+               
+
+                Quaternion initialQuat = Quaternion.CreateFromYawPitchRoll(
+                           MathHelper.ToRadians(localGridControlledEntityCustomData.holoLocalRotationX),
+                           MathHelper.ToRadians(localGridControlledEntityCustomData.holoLocalRotationY),
+                           MathHelper.ToRadians(localGridControlledEntityCustomData.holoLocalRotationZ));
+                // Convert back to matrix
+                localHologramViewRotationCurrent = MatrixD.CreateFromQuaternion(initialQuat);
+                localHologramFinalRotation = localHologramViewRotationCurrent;
 
                 localGridControlledEntityInitialized = true;
             }
@@ -1573,7 +1650,7 @@ namespace EliDangHUD
 
                 if (!theSettings.useClusterSlices && localGridClustersNeedRefresh)
                 {
-                    localGridClusterSize = GetClusterSize(localGridAllBlocksDict.Count);
+                    localGridClusterSize = GetClusterSize(localGridAllBlocksDict.Count, theSettings.blockCountClusterStep);
                     ClusterBlocks(localGridAllBlocksDict, ref localGridBlockClusters, ref localGridBlockToClusterMap, localGridClusterSize);
                     localGridClustersNeedRefresh = false;
                 }
@@ -1604,7 +1681,7 @@ namespace EliDangHUD
                     UpdateTargetGridRotationMatrix();
                     if (!theSettings.useClusterSlices && targetGridClustersNeedRefresh)
                     {
-                        targetGridClusterSize = GetClusterSize(targetGridAllBlocksDict.Count);
+                        targetGridClusterSize = GetClusterSize(targetGridAllBlocksDict.Count, theSettings.blockCountClusterStep);
                         ClusterBlocks(targetGridAllBlocksDict, ref targetGridBlockClusters, ref targetGridBlockToClusterMap, targetGridClusterSize);
                         targetGridClustersNeedRefresh = false;
                     }
@@ -1720,6 +1797,50 @@ namespace EliDangHUD
                             MathHelper.ToRadians(localGridControlledEntityCustomData.holoLocalRotationY),
                             MathHelper.ToRadians(localGridControlledEntityCustomData.holoLocalRotationZ));
                 MatrixD.Slerp(localHologramViewRotationCurrent, localHologramViewRotationGoal, deltaTimeSinceLastTick * lerpFactor, out localHologramViewRotationCurrent);
+
+
+
+                MatrixD rotationOnlyLocalGridMatrix = localGrid.WorldMatrix;
+                rotationOnlyLocalGridMatrix.Translation = Vector3D.Zero;
+                MatrixD angularRotationWiggle = MatrixD.Identity;
+                
+
+                // Compute interpolation factor, clamped 0–1
+                float t = (float)Math.Min(deltaTimeSinceLastTick * lerpFactor, 1.0);
+
+                // Build goal quaternion from Euler rotations (degrees in custom data)
+                Quaternion goalQuat = Quaternion.CreateFromYawPitchRoll(
+                    MathHelper.ToRadians(localGridControlledEntityCustomData.holoLocalRotationX),
+                    MathHelper.ToRadians(localGridControlledEntityCustomData.holoLocalRotationY),
+                    MathHelper.ToRadians(localGridControlledEntityCustomData.holoLocalRotationZ));
+
+                // Extract current quaternion from the matrix
+                Quaternion currentQuat;
+                Quaternion.CreateFromRotationMatrix(ref localHologramViewRotationCurrent, out currentQuat);
+
+                // Ensure shortest-path interpolation by flipping sign if needed
+                //if (Quaternion.Dot(currentQuat, goalQuat) < 0)
+                //    goalQuat = -goalQuat;
+
+                // Smoothly interpolate
+                currentQuat = Quaternion.Slerp(currentQuat, goalQuat, t);
+
+                // Normalize to prevent floating point drift
+                currentQuat.Normalize();
+
+                // Convert back to matrix
+                localHologramViewRotationCurrent = MatrixD.CreateFromQuaternion(currentQuat);
+
+                // Final hologram rotation
+                if (localGridControlledEntityCustomData.localGridHologramAngularWiggle)
+                {
+                    angularRotationWiggle = CreateNormalizedLocalGridRotationMatrix();  // Used to apply a "wiggle" effect to the hologram based on the angular velocity of the grid.
+                    localHologramFinalRotation = angularRotationWiggle * localHologramViewRotationCurrent * rotationOnlyLocalGridMatrix;
+                }
+                else
+                {
+                    localHologramFinalRotation = localHologramViewRotationCurrent * rotationOnlyLocalGridMatrix;
+                }
             }
         }
 
@@ -1727,98 +1848,128 @@ namespace EliDangHUD
         {
             if (localGrid != null && localGridInitialized)
             {
-                MatrixD rotationOnlyLocalGridMatrix = localGrid.WorldMatrix;
-                rotationOnlyLocalGridMatrix.Translation = Vector3D.Zero;
-                localHologramFinalRotation = localHologramViewRotationCurrent * rotationOnlyLocalGridMatrix;
+                //MatrixD rotationOnlyLocalGridMatrix = localGrid.WorldMatrix;
+                //rotationOnlyLocalGridMatrix.Translation = Vector3D.Zero;
+                //MatrixD angularRotationWiggle = MatrixD.Identity;
+                //if (localGridControlledEntityCustomData.localGridHologramAngularWiggle)
+                //{
+                //    angularRotationWiggle = CreateNormalizedLocalGridRotationMatrix();  // Used to apply a "wiggle" effect to the hologram based on the angular velocity of the grid.
+                //    localHologramFinalRotation = angularRotationWiggle * localHologramViewRotationCurrent * rotationOnlyLocalGridMatrix;
+                //}
+                //else 
+                //{
+                //    localHologramFinalRotation = localHologramViewRotationCurrent * rotationOnlyLocalGridMatrix;
+                //}  
             }
         }
 
-        // This MIGHT need to be called in Draw() only for Orbit and Perspective?
+
         public void UpdateTargetGridRotationMatrix()
         {
             if (targetGrid != null && targetGridInitialized && localGridControlledEntity != null && localGridControlledEntityInitialized && localGridControlledEntityCustomData != null) 
             {
+                MatrixD rotationOnlyLocalGridMatrix = localGrid.WorldMatrix;
+                rotationOnlyLocalGridMatrix.Translation = Vector3D.Zero;
+
+                MatrixD rotationOnlyTargetGridMatrix = targetGrid.WorldMatrix;
+                rotationOnlyTargetGridMatrix.Translation = Vector3D.Zero;
+
+                //// Optional X flip (if needed for handedness)
+                MatrixD flipX = MatrixD.Identity;
+                flipX.M11 = -1; // Because getting the perspective cam to work required storing -X positions and mirroring together to look right. 
+
                 switch (localGridControlledEntityCustomData.targetGridHologramViewType)
                 {
                     case HologramViewType.Static:
                         double lerpFactor = Math.Min(deltaTimeSinceLastTick * 60, 60.0);
-                        targetHologramViewRotationGoal = MatrixD.CreateFromYawPitchRoll(MathHelper.ToRadians(localGridControlledEntityCustomData.holoTargetRotationX),
-                                MathHelper.ToRadians(localGridControlledEntityCustomData.holoTargetRotationY),
-                                MathHelper.ToRadians(localGridControlledEntityCustomData.holoTargetRotationZ));
-                        MatrixD.Slerp(targetHologramViewRotationCurrent, targetHologramViewRotationGoal, deltaTimeSinceLastTick * lerpFactor, out targetHologramViewRotationCurrent);
+                        // Compute interpolation factor, clamped 0–1
+                        float t = (float)Math.Min(deltaTimeSinceLastTick * lerpFactor, 1.0);
+
+                        // Build goal quaternion from Euler rotations (degrees in custom data)
+                        Quaternion goalQuat = Quaternion.CreateFromYawPitchRoll(
+                            MathHelper.ToRadians(localGridControlledEntityCustomData.holoTargetRotationX),
+                            MathHelper.ToRadians(localGridControlledEntityCustomData.holoTargetRotationY),
+                            MathHelper.ToRadians(localGridControlledEntityCustomData.holoTargetRotationZ));
+
+                        // Extract current quaternion from the matrix
+                        Quaternion currentQuat;
+                        Quaternion.CreateFromRotationMatrix(ref targetHologramViewRotationCurrent, out currentQuat);
+
+                        // Ensure shortest-path interpolation by flipping sign if needed
+                        //if (Quaternion.Dot(currentQuat, goalQuat) < 0)
+                        //    goalQuat = -goalQuat;
+
+                        // Smoothly interpolate
+                        currentQuat = Quaternion.Slerp(currentQuat, goalQuat, t);
+
+                        // Normalize to prevent floating point drift
+                        currentQuat.Normalize();
+
+                        // Convert back to matrix
+                        targetHologramViewRotationCurrent = MatrixD.CreateFromQuaternion(currentQuat);
+
+                        // Final hologram rotation
+                        targetHologramFinalRotation = (targetHologramViewRotationCurrent * flipX) * rotationOnlyLocalGridMatrix;
                         break;
+
                     case HologramViewType.Orbit:
 
-                        // This is technically an "Orbit" cam... It will show a hologram of the target grid EXACTLY as it appears in world space relative to your orientation
-                        // but not your translation/position in the world. So you can rotate your ship around and see all sides of gridB from anywhere in the world.
-                        // if you are facing a direction and the target is also facing the same direction you see it's backside, even if it is behind you lol.
+                        //// ORBIT CAM
+                        targetHologramFinalRotation = flipX * rotationOnlyTargetGridMatrix;
 
-                        //What transformation gets us from gridA's coordinate system to gridB's?
-                        MatrixD localGridToTargetGrid = MatrixD.Invert(this.localGrid.WorldMatrix) * this.targetGrid.WorldMatrix;
-                        //Use this as the rotation (this naturally includes both position and orientation differences)
-                        targetHologramViewRotationCurrent = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(localGridToTargetGrid));
                         break;
+
+
                     case HologramViewType.Perspective:
-                        // FenixPK 2025-07-28 there are still problems with this when gridA is rolled but this is sooo beyond my understanding at this point I give up haha. 
-                        // Round 3, the winner, this perpendicular on the left/right being handled made all the difference. It has the effect I was hoping for. 
-                        // Create proxy matrix: gridB's orientation at gridA's position
-                        MatrixD rotationMatrixForView = MatrixD.Identity;
-                        MatrixD proxyMatrix = targetGrid.WorldMatrix;
-                        proxyMatrix.Translation = localGrid.WorldMatrix.Translation;
-                        MatrixD relativeOrientation = targetGrid.WorldMatrix * MatrixD.Invert(proxyMatrix);
-                        // Extract just the rotation part (remove any translation)
-                        rotationMatrixForView = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(relativeOrientation));
 
-                        // Create a "should be looking at" orientation
-                        Vector3D directionToGridB = Vector3D.Normalize(targetGrid.WorldMatrix.Translation - proxyMatrix.Translation);
+                        // This is nearly perfect, degenerates at directly up or below and has some odd behaviour when grid is to the left/right of target AND up or down but I'll live with it. 
+                        Vector3D targetPos = targetGrid.WorldVolume.Center;
+                        Vector3D targetBack = targetGrid.WorldMatrix.Backward; // directly behind
+                        Vector3D idealObserver = targetPos + targetBack;
 
-                        // Project gridA's up vector onto the plane perpendicular to the direction vector
-                        Vector3D gridAUpInWorldSpace = localGrid.WorldMatrix.Up;  //gridA.WorldMatrix.Up;
-                        Vector3D projectedGridAUp = gridAUpInWorldSpace - Vector3D.Dot(gridAUpInWorldSpace, directionToGridB) * directionToGridB;
+                        Vector3D up = targetGrid.WorldMatrix.Up;
+                        Vector3D right = targetGrid.WorldMatrix.Right;
 
-                        Vector3D gridAUp;
-                        // Check if the projection is valid (not too small)
-                        if (projectedGridAUp.LengthSquared() > 0.001)
+                        Vector3D dirActual = localGrid.WorldMatrix.Translation - targetPos;
+
+                        // Detect front vs back using dot with target.Forward
+                        double dot = Vector3D.Dot(targetGrid.WorldMatrix.Forward, dirActual);
+
+                        Vector3D localGridPosition = localGrid.WorldMatrix.Translation;
+                        if (dot > 0)
                         {
-                            gridAUp = Vector3D.Normalize(projectedGridAUp);
-                        }
-                        else
-                        {
-                            // Fallback when projection fails (gridA's up is parallel to direction)
-                            Vector3D rightCandidate = localGrid.WorldMatrix.Right;
-                            Vector3D forwardCandidate = localGrid.WorldMatrix.Forward;
-                            double rightDot = Math.Abs(Vector3D.Dot(directionToGridB, rightCandidate));
-                            double forwardDot = Math.Abs(Vector3D.Dot(directionToGridB, forwardCandidate));
-                            gridAUp = (rightDot < forwardDot) ? rightCandidate : forwardCandidate;
+                            // If localGrid is behind, mirror across plane perpendicular to target up
+                            Vector3D relativePerspective = localGridPosition - targetPos;
+                            relativePerspective = relativePerspective - 2 * Vector3D.Dot(relativePerspective, up) * up;
+                            localGridPosition = targetPos + relativePerspective;
                         }
 
-                        // Handle parallel case (though this should be rare now)
-                        double dotProduct = Math.Abs(Vector3D.Dot(directionToGridB, gridAUp));
-                        if (dotProduct > 0.999)
+                        // Compute a stable forward vector from target to observer
+                        Vector3D forward = Vector3D.Normalize(localGridPosition - targetPos);
+
+                        // Compute a stable right vector in the target’s horizontal plane
+                        Vector3D stableRight = Vector3D.Cross(up, forward);
+                        if (stableRight.LengthSquared() < 1e-6)
                         {
-                            Vector3D rightCandidate = proxyMatrix.Right;
-                            Vector3D forwardCandidate = proxyMatrix.Forward;
-                            double rightDot = Math.Abs(Vector3D.Dot(directionToGridB, rightCandidate));
-                            double forwardDot = Math.Abs(Vector3D.Dot(directionToGridB, forwardCandidate));
-                            gridAUp = (rightDot < forwardDot) ? rightCandidate : forwardCandidate;
+                            // Degenerate case: observer nearly along up axis
+                            stableRight = right; // fallback to target’s right
                         }
+                        stableRight.Normalize();
 
-                        Vector3D shouldBeRight = Vector3D.Normalize(Vector3D.Cross(directionToGridB, gridAUp));
-                        Vector3D shouldBeUp = Vector3D.Cross(shouldBeRight, directionToGridB);
-                        MatrixD shouldBeLookingAt = MatrixD.CreateWorld(Vector3D.Zero, directionToGridB, shouldBeUp);
+                        // Recompute up from stable right and forward to ensure consistent roll
+                        Vector3D stableUp = Vector3D.Cross(forward, stableRight);
 
-                        // Get gridA's actual orientation (no translation)
-                        MatrixD gridAActualOrientation = proxyMatrix;
-                        gridAActualOrientation.Translation = Vector3D.Zero;
+                        // Construct look matrices
+                        MatrixD lookIdeal = MatrixD.CreateWorld(targetPos, idealObserver - targetPos, up);
+                        MatrixD lookActual = MatrixD.CreateWorld(targetPos, forward, stableUp);
 
-                        // Calculate the differential rotation (flip the order)
-                        MatrixD differential = MatrixD.Invert(shouldBeLookingAt) * gridAActualOrientation;
-                        MatrixD differentialRotation = MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(differential));
+                        // Compute offset
+                        MatrixD offset = lookActual * MatrixD.Invert(lookIdeal);
 
-                        // Apply the compensation
-                        rotationMatrixForView = rotationMatrixForView * differentialRotation;
-                        targetHologramViewRotationCurrent = rotationMatrixForView;
+                        // Final hologram rotation
+                        targetHologramFinalRotation = (offset * flipX) * rotationOnlyLocalGridMatrix;
                         break;
+
                 }
             }
             
@@ -1870,18 +2021,17 @@ namespace EliDangHUD
             localGridMaxActiveRadarRange = Math.Min(localGridMaxActiveRadarRange, maxRadarRange);
         }
 
-        
+       //---------------------------------------------------------------------------------
 
         public void UpdateFinalTargetHologramRotation() 
         {
             if (targetGrid != null && targetGridInitialized) 
             {
-                MatrixD rotationOnlyLocalGridMatrix = localGrid.WorldMatrix;
-                rotationOnlyLocalGridMatrix.Translation = Vector3D.Zero;
-                MatrixD rotationOnlyTargetGridMatrix = targetGrid.WorldMatrix;
-                rotationOnlyTargetGridMatrix.Translation = Vector3D.Zero;
-                MatrixD rotationMatrixCancelGrids = MatrixD.Invert(rotationOnlyTargetGridMatrix) * rotationOnlyLocalGridMatrix;
-                targetHologramFinalRotation = targetHologramViewRotationCurrent * rotationMatrixCancelGrids;
+                // We do this at the view level now. 
+                //MatrixD rotationOnlyLocalGridMatrix = localGrid.WorldMatrix;
+                //rotationOnlyLocalGridMatrix.Translation = Vector3D.Zero;
+
+                //targetHologramFinalRotation = targetHologramViewRotationCurrent * rotationOnlyLocalGridMatrix;
             } 
         }
 
@@ -2257,28 +2407,23 @@ namespace EliDangHUD
             }
         }
 
-        //public class BlockCluster
-        //{
-        //    public float Integrity = 0f;
-        //    public float MaxIntegrity = 0f;
-        //}
 
-        public int GetClusterSize(int blockCount) 
+        int GetClusterSize(int blockCount, int targetClusters = 10000)
         {
-            int clusterSize = 1;
-            if (blockCount >= 80000)
+            if (blockCount <= targetClusters) 
             {
-                clusterSize = 4;
+                return 1; // Don't cluster
             }
-            else if (blockCount >= 50000)
+
+            int size = 1;
+
+            // Step up until our cluster size limits the number of block "clusters" drawn on screen to be under our limit. 
+            while (blockCount / Math.Pow(size, 3) > targetClusters)
             {
-                clusterSize = 3;
+                size++;
             }
-            else if (blockCount >= 20000)
-            {
-                clusterSize = 2;
-            }
-            return clusterSize;
+
+            return size;
         }
 
         public void ClusterBlocks(Dictionary<Vector3I, GridBlock> allBlocksDict, ref Dictionary<Vector3I, BlockCluster> blockClusters,  ref Dictionary<Vector3I, Vector3I> blockToClusterMap, int clusterSize)
@@ -2467,147 +2612,6 @@ namespace EliDangHUD
             return cluster;
         }
 
-        private ClusterBox ExpandXZCluster2(Vector3I start, int gridFloor, Dictionary<Vector3I, IMySlimBlock> blocks, HashSet<Vector3I> visited, int bucket)
-        {
-            Vector3I min = start;
-            Vector3I max = start;
-
-            // --- Expand in -X
-            while (true)
-            {
-                Vector3I next = new Vector3I(min.X - 1, gridFloor, min.Z);
-                if (blocks.ContainsKey(next) && !visited.Contains(next))
-                {
-                    min.X--;
-                }
-                else break;
-            }
-
-            // --- Expand in +X
-            while (true)
-            {
-                Vector3I next = new Vector3I(max.X + 1, gridFloor, max.Z);
-                if (blocks.ContainsKey(next) && !visited.Contains(next))
-                {
-                    max.X++;
-                }
-                else break;
-            }
-
-            // --- Expand in +Z
-            bool canExpandPosZ = true;
-            while (canExpandPosZ)
-            {
-                int newZ = max.Z + 1;
-                for (int x = min.X; x <= max.X; x++)
-                {
-                    Vector3I pos = new Vector3I(x, gridFloor, newZ);
-                    if (!blocks.ContainsKey(pos) || visited.Contains(pos))
-                    {
-                        canExpandPosZ = false;
-                        break;
-                    }
-                }
-                if (canExpandPosZ) max.Z++;
-            }
-
-            // --- Expand in -Z
-            bool canExpandNegZ = true;
-            while (canExpandNegZ)
-            {
-                int newZ = min.Z - 1;
-                for (int x = min.X; x <= max.X; x++)
-                {
-                    Vector3I pos = new Vector3I(x, gridFloor, newZ);
-                    if (!blocks.ContainsKey(pos) || visited.Contains(pos))
-                    {
-                        canExpandNegZ = false;
-                        break;
-                    }
-                }
-                if (canExpandNegZ) min.Z--;
-            }
-
-            // --- Build cluster
-            ClusterBox cluster = new ClusterBox { Min = min, Max = max, IntegrityBucket = bucket };
-
-            // Fill with blocks + mark visited
-            for (int x = min.X; x <= max.X; x++)
-            {
-                for (int z = min.Z; z <= max.Z; z++)
-                {
-                    Vector3I pos = new Vector3I(x, gridFloor, z);
-                    IMySlimBlock block;
-                    if (blocks.TryGetValue(pos, out  block))
-                    {
-                        if (block != null) 
-                        {
-                            visited.Add(pos);
-                            cluster.Blocks.Add(block);
-                        }
-                        
-                    }
-                }
-            }
-
-            return cluster;
-        }
-
-        private ClusterBox ExpandXZCluster(Vector3I start, int gridFloor, Dictionary<Vector3I, IMySlimBlock> blocks, HashSet<Vector3I> visited, int bucket)
-        {
-            Vector3I min = start;
-            Vector3I max = start;
-
-            // expand in +X
-            while (true)
-            {
-                Vector3I next = new Vector3I(max.X + 1, gridFloor, max.Z);
-                if (blocks.ContainsKey(next) && !visited.Contains(next))
-                {
-                    max.X++;
-                }
-                else
-                { 
-                    break;
-                }
-            }
-
-            // expand in +Z
-            bool canExpandZ = true;
-            while (canExpandZ)
-            {
-                int newZ = max.Z + 1;
-                for (int x = min.X; x <= max.X; x++)
-                {
-                    Vector3I pos = new Vector3I(x, gridFloor, newZ);
-                    if (!blocks.ContainsKey(pos) || visited.Contains(pos))
-                    {
-                        canExpandZ = false;
-                        break;
-                    }
-                }
-                if (canExpandZ) max.Z++;
-            }
-
-            ClusterBox cluster = new ClusterBox { Min = min, Max = max, IntegrityBucket = bucket };
-
-            // Add all blocks inside bounds
-            for (int x = min.X; x <= max.X; x++)
-            {
-                for (int z = min.Z; z <= max.Z; z++)
-                {
-                    Vector3I pos = new Vector3I(x, gridFloor, z);
-                    IMySlimBlock block;
-                    if (blocks.TryGetValue(pos, out block))
-                    {
-                        visited.Add(pos);
-                        cluster.Blocks.Add(block);
-                    }
-                }
-            }
-            return cluster;
-        }
-
 
         private int GetIntegrityBucket(IMySlimBlock block)
         {
@@ -2684,7 +2688,7 @@ namespace EliDangHUD
                         continue;
                     }
 
-                    ClusterBox cluster = ExpandXZCluster(start, gridFloor, bucketDict, visited, bucket);
+                    ClusterBox cluster = ExpandXZCluster3(start, gridFloor, bucketDict, visited, bucket);
                     clustersThisFloor.Add(cluster);
 
                     // Map all blocks in this cluster
