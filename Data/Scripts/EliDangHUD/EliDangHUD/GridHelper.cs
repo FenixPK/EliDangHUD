@@ -932,11 +932,11 @@ namespace EliDangHUD
                 {
                     targetGridNewClusters = new Dictionary<Vector3I, BlockCluster>();
                     targetGridNewBlockToClusterMap = new Dictionary<Vector3I, Vector3I>();
-                    StartClusterBlocksIterativeThreshold(targetGridAllBlocksDict, maxClusterSizeTarget);
+                    StartClusterBlocksIterativeThreshold(ref targetGridClusterBuildState, targetGridAllBlocksDict, maxClusterSizeTarget);
                 }
 
                 // Then every tick:
-                bool done = ContinueClusterBlocksIterativeThreshold(targetGridAllBlocksDict, ref targetGridNewClusters, ref targetGridNewBlockToClusterMap, 999999, minClusterSizeTarget, theSettings.clusterSplitThreshhold);
+                bool done = ContinueClusterBlocksIterativeThreshold(ref targetGridClusterBuildState, targetGridAllBlocksDict, ref targetGridNewClusters, ref targetGridNewBlockToClusterMap, 999999, minClusterSizeTarget, theSettings.clusterSplitThreshhold);
 
                 if (done)
                 {
@@ -1239,9 +1239,9 @@ namespace EliDangHUD
                 {
                     localGridNewClusters = new Dictionary<Vector3I, BlockCluster>();
                     localGridNewBlockToClusterMap = new Dictionary<Vector3I, Vector3I>();
-                    StartClusterBlocksIterativeThreshold(localGridAllBlocksDict, maxClusterSize);
+                    StartClusterBlocksIterativeThreshold(ref localGridClusterBuildState, localGridAllBlocksDict, maxClusterSize);
                 }
-                bool done = ContinueClusterBlocksIterativeThreshold(localGridAllBlocksDict, ref localGridNewClusters, ref localGridNewBlockToClusterMap, 999999, minClusterSize, theSettings.clusterSplitThreshhold);
+                bool done = ContinueClusterBlocksIterativeThreshold(ref localGridClusterBuildState, localGridAllBlocksDict, ref localGridNewClusters, ref localGridNewBlockToClusterMap, 999999, minClusterSize, theSettings.clusterSplitThreshhold);
 
                 if (done)
                 {
@@ -1711,11 +1711,11 @@ namespace EliDangHUD
                         {
                             localGridNewClusters = new Dictionary<Vector3I, BlockCluster>();
                             localGridNewBlockToClusterMap = new Dictionary<Vector3I, Vector3I>();
-                            StartClusterBlocksIterativeThreshold(localGridAllBlocksDict, maxClusterSize);
+                            StartClusterBlocksIterativeThreshold(ref localGridClusterBuildState, localGridAllBlocksDict, maxClusterSize);
                         }
 
                         // Then every tick:
-                        bool done = ContinueClusterBlocksIterativeThreshold(localGridAllBlocksDict, ref localGridNewClusters, ref localGridNewBlockToClusterMap, theSettings.clusterRebuildClustersPerTick, minClusterSize, theSettings.clusterSplitThreshhold);
+                        bool done = ContinueClusterBlocksIterativeThreshold(ref localGridClusterBuildState, localGridAllBlocksDict, ref localGridNewClusters, ref localGridNewBlockToClusterMap, theSettings.clusterRebuildClustersPerTick, minClusterSize, theSettings.clusterSplitThreshhold);
 
 
                         if (done)
@@ -1775,11 +1775,11 @@ namespace EliDangHUD
                             {
                                 targetGridNewClusters = new Dictionary<Vector3I, BlockCluster>();
                                 targetGridNewBlockToClusterMap = new Dictionary<Vector3I, Vector3I>();
-                                StartClusterBlocksIterativeThreshold(targetGridAllBlocksDict, maxClusterSizeTarget);
+                                StartClusterBlocksIterativeThreshold(ref targetGridClusterBuildState, targetGridAllBlocksDict, maxClusterSizeTarget);
                             }
 
                             // Then every tick:
-                            bool done = ContinueClusterBlocksIterativeThreshold(targetGridAllBlocksDict, ref targetGridNewClusters, ref targetGridNewBlockToClusterMap, theSettings.clusterRebuildClustersPerTick, minClusterSizeTarget, theSettings.clusterSplitThreshhold);
+                            bool done = ContinueClusterBlocksIterativeThreshold(ref targetGridClusterBuildState, targetGridAllBlocksDict, ref targetGridNewClusters, ref targetGridNewBlockToClusterMap, theSettings.clusterRebuildClustersPerTick, minClusterSizeTarget, theSettings.clusterSplitThreshhold);
 
 
                             if (done)
@@ -2724,7 +2724,7 @@ namespace EliDangHUD
         }
 
         // Keeps the state of an incremental build
-        private class ClusterBuildState
+        public class ClusterBuildState
         {
             public Stack<ClusterWorkItem> ClusterStack;
             public HashSet<Vector3I> Used;
@@ -2734,7 +2734,7 @@ namespace EliDangHUD
         }
 
         // Updated ClusterWorkItem with persistent cluster list & indexes
-        private class ClusterWorkItem
+        public class ClusterWorkItem
         {
             public int ClusterSize;
             public List<Vector3I> Positions;
@@ -2750,15 +2750,15 @@ namespace EliDangHUD
             public int ClusterListIndex = 0;
         }
 
-        public void StartClusterBlocksIterativeThreshold(Dictionary<Vector3I, GridBlock> allBlocksDict, int maxClusterSize, int minClusterSize = 1)
+        public void StartClusterBlocksIterativeThreshold(ref ClusterBuildState buildState, Dictionary<Vector3I, GridBlock> allBlocksDict, int maxClusterSize, int minClusterSize = 1)
         {
             if (allBlocksDict == null || allBlocksDict.Count == 0)
             {
-                localGridClusterBuildState = null;
+                buildState = null;
                 return;
             }
 
-            localGridClusterBuildState = new ClusterBuildState
+            buildState = new ClusterBuildState
             {
                 ClusterStack = new Stack<ClusterWorkItem>(),
                 Used = new HashSet<Vector3I>(),
@@ -2779,11 +2779,11 @@ namespace EliDangHUD
                         (position.Z / size) * size
                     );
                 }
-                localGridClusterBuildState.ClusterKeysPerBlockSize[size] = dict;
+                buildState.ClusterKeysPerBlockSize[size] = dict;
             }
 
             // Seed the stack with one top-level work item
-            localGridClusterBuildState.ClusterStack.Push(
+            buildState.ClusterStack.Push(
                 new ClusterWorkItem
                 {
                     ClusterSize = maxClusterSize,
@@ -2796,10 +2796,10 @@ namespace EliDangHUD
         }
 
         // Call once per tick until it returns true (done)
-        public bool ContinueClusterBlocksIterativeThreshold(Dictionary<Vector3I, GridBlock> allBlocksDict, ref Dictionary<Vector3I, BlockCluster> blockClusters, ref Dictionary<Vector3I, Vector3I> blockToClusterMap,
+        public bool ContinueClusterBlocksIterativeThreshold(ref ClusterBuildState buildState, Dictionary<Vector3I, GridBlock> allBlocksDict, ref Dictionary<Vector3I, BlockCluster> blockClusters, ref Dictionary<Vector3I, Vector3I> blockToClusterMap,
             int clustersPerTick, int minClusterSize = 1, double splitThreshold = 0.9)
         {
-            if (localGridClusterBuildState == null || localGridClusterBuildState.IsComplete)
+            if (buildState == null || buildState.IsComplete)
             {
                 return true;  // already done
             }
@@ -2813,12 +2813,14 @@ namespace EliDangHUD
                 blockToClusterMap = new Dictionary<Vector3I, Vector3I>(); 
             }
 
+            Vector3D clusterCenter = buildState.Center;
+
             int processedThisTick = 0;
 
             // Process work items until budget exhausted or stack empty
-            while (localGridClusterBuildState.ClusterStack.Count > 0 && processedThisTick < clustersPerTick)
+            while (buildState.ClusterStack.Count > 0 && processedThisTick < clustersPerTick)
             {
-                ClusterWorkItem work = localGridClusterBuildState.ClusterStack.Pop();
+                ClusterWorkItem work = buildState.ClusterStack.Pop();
                 int clusterSize = work.ClusterSize;
 
                 if (clusterSize < minClusterSize || work.Positions == null || work.Positions.Count == 0)
@@ -2831,16 +2833,16 @@ namespace EliDangHUD
                 {
                     // Order positions by distance to center to preserve deterministic ordering
                     work.Positions = work.Positions
-                        .OrderBy(p => Vector3D.DistanceSquared(p, localGridClusterBuildState.Center))
+                        .OrderBy(p => Vector3D.DistanceSquared(p, clusterCenter))
                         .ToList();
 
-                    Dictionary<Vector3I, Vector3I> clusterKeys = localGridClusterBuildState.ClusterKeysPerBlockSize[clusterSize];
+                    Dictionary<Vector3I, Vector3I> clusterKeys = buildState.ClusterKeysPerBlockSize[clusterSize];
                     Dictionary<Vector3I, List<Vector3I>> clustersDict = new Dictionary<Vector3I, List<Vector3I>>();
 
                     // Group positions into clusterKey -> list
                     foreach (Vector3I pos in work.Positions)
                     {
-                        if (localGridClusterBuildState.Used.Contains(pos))
+                        if (buildState.Used.Contains(pos))
                         { 
                             continue;
                         }
@@ -2880,7 +2882,7 @@ namespace EliDangHUD
                     if (clusterSize > minClusterSize && fillRatio < splitThreshold)
                     {
                         // Push a smaller work item to split this cluster further
-                        localGridClusterBuildState.ClusterStack.Push(new ClusterWorkItem
+                        buildState.ClusterStack.Push(new ClusterWorkItem
                         {
                             ClusterSize = clusterSize - 1,
                             Positions = clusterBlockPositions,
@@ -2913,7 +2915,7 @@ namespace EliDangHUD
                             sumY += gridBlock.DrawPosition.Y;
                             sumZ += gridBlock.DrawPosition.Z;
 
-                            localGridClusterBuildState.Used.Add(pos);
+                            buildState.Used.Add(pos);
                             blockToClusterMap[pos] = clusterKey;
                         }
 
@@ -2932,7 +2934,7 @@ namespace EliDangHUD
                     {
                         // Save index to resume next tick
                         work.ClusterListIndex = ci + 1; // next cluster to process
-                        localGridClusterBuildState.ClusterStack.Push(work);
+                        buildState.ClusterStack.Push(work);
                         return false;
                     }
                 }
@@ -2941,9 +2943,9 @@ namespace EliDangHUD
             }
 
             // Stack drained means we are done
-            if (localGridClusterBuildState.ClusterStack.Count == 0)
+            if (buildState.ClusterStack.Count == 0)
             {
-                localGridClusterBuildState.IsComplete = true;
+                buildState.IsComplete = true;
                 return true;
             }
 
