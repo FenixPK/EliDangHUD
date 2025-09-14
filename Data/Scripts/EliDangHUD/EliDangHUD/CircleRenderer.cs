@@ -8,6 +8,7 @@ using Sandbox.ModAPI.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Xml.Serialization;
@@ -22,6 +23,8 @@ using VRage.Game.ObjectBuilders.Components;
 using VRage.Input;
 using VRage.Library.Utils;
 using VRage.ModAPI;
+using VRage.ObjectBuilders;
+
 //using VRage.ModAPI;
 using VRage.Utils;
 //using VRage.Input;
@@ -142,7 +145,14 @@ have the grid relative positions, so for local grid this is easy. For target gri
 
 --TODO--
 TODO: Make unpowered grids have a darker icon on radar
+TODO: Add sprite billboards for different block types. Would love if Turrets, fixed weapons, torpedos/missiles etc. have custom material drawn. Same for reactors, batteries, hydrogen tanks, engines/thrusters.
+TODO: Could I make clusterblocks even better? Smaller squares for more fidelity for blocks that can't be clustered (Currently included separately already but drawn at larger size). 
+I could even try to do "only the outside" layer for armor blocks, then only the other blocks mentioned above (turrets, batteries etc). 
+Perhaps I can bake in subsquares into different dds sprites for this. Eg. a size 2 clusterblock would be 2x2x2 volume, so we have a square that is divided into 4 squares to give an illusion of detail. 
 
+TODO: Make small grid sprites slightly smaller.
+TODO: Make holograms show more data, weapons, effective range, DPS?
+TODO: Make radar sprites show more data for selected target. Eg. when you pick a target the radar screen has an "effective range" bubble for the target. 
 
 
 TODO: I'd like to do further settings to allow users to more specifically choose to filter our floating items of name 'Stone' for eg, or only voxels (asteroids and deposits) of certain types or sizes even. 
@@ -281,12 +291,31 @@ namespace EliDangHUD
         public VRage.Game.ModAPI.IMySlimBlock Block;
         public Vector3D DrawPosition;
     }
-
+    public enum BlockClusterType
+    {
+        Structure = 0,
+        Turret = 1,
+        FixedWeapon = 2,
+        Missile = 3,
+        Reactor = 4,
+        Battery = 5,
+        Antenna = 6,
+        IonThruster = 7,
+        HydrogenThruster = 8,
+        AtmosphericThruster = 9,
+        HydrogenTank = 10,
+        OxygenTank = 11,
+        JumpDrive = 12,
+        Shield = 13
+    }
     public class BlockCluster
     {
         public float Integrity = 0f;
         public float MaxIntegrity = 0f;
         public Vector3D DrawPosition = Vector3D.Zero;
+        public int ClusterSize = 1;
+        public BlockClusterType ClusterType = BlockClusterType.Structure;
+        public Dictionary<Vector3I, GridBlock> Blocks = new Dictionary<Vector3I, GridBlock>();
     }
     public class ClusterBox
     {
@@ -522,13 +551,30 @@ namespace EliDangHUD
         public string renderHoloHologramsInSeat_DESCRIPTION = "Whether holo table holograms should still render if you are in a cockpit that has active hud.";
 
         public int blockCountClusterStep = 10000;
-        public string blockCountClusterStep_DESCRIPTION = "Number of hologram blocks to draw on screen before moving to the next cluster step. Cluster steps switch from drawing 1x1x1 blocks to drawing 2x2x2, or 3x3x3... clusters of blocks instead. " +
-            "This provides the biggest performance increase of all the changes I've made. Lowering this value reduces fidelity as it will cluster sooner. " +
-            "Eg. at 10000 a grid of 9999 blocks will draw 9999 squares for the hologram. A grid of 10000 blocks will draw (10000/(2^3=8)) = 1250 squares.";
+        public string blockCountClusterStep_DESCRIPTION = "Used for setting max and min cluster sizes when building the grid hologram (There is a complex relationship with this and clusterSplitRatio for fidelity). " +
+            "Basically we don't want to draw more than this number of squares on screen for performance so we step up the size of clusters when over this number. " +
+            "A grid with this number of blocks or lower will be set to cluster size 1 (ie 1x1x1). A grid over this number of blocks will be set to size 2 (2x2x2). " +
+            "Because this is cubic after this point it isn't about block count, but about how many clusters would be drawn on screen which is blockCount / (#x#x#) where # = clusterSize. " +
+            "Max cluster size is set to clusterSize +1, Min is set to clusterSize -1 (but with a min of 1). Which allows for more fidelity where blocks are not concentrated but still clusters them larger where possible to reduce draw calls." +
+            "This provides the biggest performance increase of all the changes I've made. Lowering this value reduces fidelity as it will increase clusterSize sooner." +
+            "Eg. At blockClusterStep = 10000: a grid of 9999 blocks will range between 1x1x1 and 2x2x2 clusters and a grid of 10001 - 80000 blocks will range between 1x1x1 and 3x3x3 clusters. " +
+            "A grid of 80001 blocks will range between 2x2x2 and 4x4x4 (because the next step is at blockCount / (2x2x2) and we do clusterSize-1 to clusterSize+1). " +
+            "This clustering logic is the largest performance increase we can make, the number of squares drawn is the largest bottleneck. We can adjust this to cluster sooner/later. And adjust the splitThreshold to allow more/less fidelity around sparse blocks.";
 
-        public bool useClusterSlices = false;
-        public string useClusterSlices_DESCRIPTION = "EXPERIMENTAL - Recommend don't use this! When true will use slices of grouped blocks that expand in the XZ direction one Y level at a time, draws holographic boxes instead of each block. Currently much harder on performance.";
+        public float clusterSplitThreshhold = 0.33f;
+        public string clusterSplitThreshhold_DESCRIPTION = "The fill ratio threshhold at which a larger block cluster will be split into smaller clusters. Eg at 0.33 (33%) a larger cluster will only break down to smaller clusters if less than 33% full. " +
+            "So for a 3x3x3 cluster at 8/27 blocks it will break to smaller 2x2x2 and 1x1x1 clusters. At 9/27 blocks it will show as one 3x3x3 cluster. Combined with the blockCountClusterStep this allows drawing larger grids at larger cluster sizes with " +
+            "less fidelity but more performance by reducing the number of block squares drawn on screen. By tweaking the splitThreshhold we can add fidelity for sparse clusters, while allowing larger clusters for the rest of the grid.";
+        
+        public int clusterRebuildClustersPerTick = 200;
+        public string clusterRebuildClustersPerTick_DESCRIPTION = "The number of block clusters built per game tick on a rebuild of the hologram clusters triggered due to blocks being removed or added. This spreads load over time to reduce stutter. " +
+            "Lowering this value will increase the speed at which add/removal of blocks reprocesses the hologram but increases load. ";
 
+        public int ticksUntilClusterRebuildAfterChange = 100;
+        public string ticksUntilClusterRebuildAfterChange_DESCRIPTION = "The number of game ticks that must pass after add or remove of a block before re-processing the hologram. Prevents rebuilds until after a period of inactivity to reduce stutter. " +
+            "Note: On taking damage clusters will update integrity/maxIntegrity immediately and thus update hologram color. Loss of blocks in a cluster will also update integrity (or remove if no blocks left), but the hologram won't reprocess fully until after this many ticks have passed. " +
+            "Then it will start a rebuild and process clusterRebuildClustersPerTick clusters each tick. If another add/removal occurs that process stops, and only restarts after this number of ticks have passed. " +
+            "Lowering this values will increase the speed at which the hologram reprocess starts. ";
     }
 
     public class ControlledEntityCustomData
@@ -5841,6 +5887,10 @@ namespace EliDangHUD
                 VRage.Game.ModAPI.IMyCubeGrid cubeGrid = e as VRage.Game.ModAPI.IMyCubeGrid;
                 if (cubeGrid != null)
                 {
+                    if (cubeGrid.EntityId == gHandler.localGrid.EntityId) 
+                    {
+                        return false;
+                    }
 					if (gHandler.localGridControlledEntityCustomData.scannerOnlyPoweredGrids && !HasPowerProduction(cubeGrid))
 					{
 						// If powered only don't allow selecting unpowered grids. 
@@ -5982,7 +6032,7 @@ namespace EliDangHUD
             {
                 // TODO for some reason the local hologram rotation is not being cancelled out so it moves as you rotate :C
                 double fontSize = 0.005;
-                if (gHandler.localGridControlledEntityCustomData.enableHologramsLocalGrid && gHandler.localGridInitialized && gHandler.localGridBlocksInitialized)
+                if (gHandler.localGridControlledEntityCustomData.enableHologramsLocalGrid && gHandler.localGridInitialized && gHandler.localGridBlocksInitialized && gHandler.localGridBlockClusters != null)
                 {
                     double flipperAxis = 1;
                     Vector3D hologramOffset = radarMatrix.Left * -gHandler.localGridControlledEntityCustomData.radarRadius * flipperAxis + radarMatrix.Left * _hologramRightOffset_HardCode.X * flipperAxis + radarMatrix.Up * _hologramRightOffset_HardCode.Y + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
@@ -5994,18 +6044,9 @@ namespace EliDangHUD
                     MatrixD finalScalingAndRotationMatrix = gHandler.localHologramFinalRotation * gHandler.localHologramScalingMatrix;
 
                     double thicc = gHandler.hologramScaleFactor / (gHandler.localGrid.WorldVolume.Radius / gHandler.localGrid.GridSize);
-                    float size = (float)gHandler.hologramScale * 0.65f * (float)thicc * gHandler.localGridClusterSize;
+                    float size = (float)gHandler.hologramScale * 0.65f * (float)thicc;
 
-                    if (!theSettings.useClusterSlices)
-                    {
-
-                        DrawHologramFromClusters(gHandler.localGridBlockClusters, false, hologramDrawPosition, holoCenterPosition, initialColor, finalScalingAndRotationMatrix, size);
-                        //DrawHologramFromClustersTest(gHandler.localGridBlockClusters, false, hologramDrawPosition, holoCenterPosition, initialColor, combinedRotationFinal, size);
-                    }
-                    else 
-                    {
-                        DrawHologramFromClusterSlices(gHandler.localGridFloorClusterSlices, false, hologramDrawPosition, holoCenterPosition, finalScalingAndRotationMatrix, gHandler.localGridHologramPalleteForClusterSlices);
-                    }
+                    DrawHologramFromClusters(gHandler.localGridBlockClusters, false, hologramDrawPosition, holoCenterPosition, initialColor, finalScalingAndRotationMatrix, size);
 
                     Vector3D hgPos_Right = worldRadarPos + radarMatrix.Right * gHandler.localGridControlledEntityCustomData.radarRadius + radarMatrix.Left * _hologramRightOffset_HardCode.X + radarMatrix.Down * 0.0075 + (radarMatrix.Forward * fontSize * 2);
                     Vector3D textPos_Offset = (radarMatrix.Left * 0.065);
@@ -6014,7 +6055,7 @@ namespace EliDangHUD
                         gHandler.localGridJumpDrivePowerStoredMax, gHandler.localGridCurrentIntegrity, gHandler.localGridMaxIntegrity, gHandler.deltaTimeSinceLastTick, gHandler.localGridJumpDriveTimeToReady, fontSize);
                 }
 
-                if (gHandler.localGridControlledEntityCustomData.enableHologramsTargetGrid && gHandler.targetGridInitialized && gHandler.targetGridBlocksInitialized)
+                if (gHandler.localGridControlledEntityCustomData.enableHologramsTargetGrid && gHandler.targetGridInitialized && gHandler.targetGridBlocksInitialized && gHandler.targetGridBlockClusters != null)
                 {
                     double flipperAxis = -1;
                     Vector3D hologramOffset = radarMatrix.Left * -gHandler.localGridControlledEntityCustomData.radarRadius * flipperAxis + radarMatrix.Left * _hologramRightOffset_HardCode.X * flipperAxis + radarMatrix.Up * _hologramRightOffset_HardCode.Y + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
@@ -6026,17 +6067,10 @@ namespace EliDangHUD
                     MatrixD finalScalingAndRotationMatrix = gHandler.targetHologramScalingMatrix * gHandler.targetHologramFinalRotation;
 
                     double thicc = gHandler.hologramScaleFactor / (gHandler.targetGrid.WorldVolume.Radius / gHandler.targetGrid.GridSize);
-                    float size = (float)gHandler.hologramScale * 0.65f * (float)thicc * gHandler.targetGridClusterSize;
+                    float size = (float)gHandler.hologramScale * 0.65f * (float)thicc;
 
-                    if (!theSettings.useClusterSlices)
-                    {
-                        DrawHologramFromClusters(gHandler.targetGridBlockClusters, true, hologramDrawPosition, holoCenterPosition, initialColor, finalScalingAndRotationMatrix, size);
-                    }
-                    else
-                    {
-                        DrawHologramFromClusterSlices(gHandler.targetGridFloorClusterSlices, false, hologramDrawPosition, holoCenterPosition, finalScalingAndRotationMatrix, gHandler.targetGridHologramPalleteForClusterSlices);
-                    }
-
+                    DrawHologramFromClusters(gHandler.targetGridBlockClusters, true, hologramDrawPosition, holoCenterPosition, initialColor, finalScalingAndRotationMatrix, size);
+                   
                     Vector3D hgPos_Left = worldRadarPos + radarMatrix.Left * gHandler.localGridControlledEntityCustomData.radarRadius + radarMatrix.Right * _hologramRightOffset_HardCode.X + radarMatrix.Down * 0.0075 + (radarMatrix.Forward * fontSize * 2);
                     Vector3D textPos_Offset = (radarMatrix.Right * 0.065);
                     Vector3D shieldPos_Left = worldRadarPos + radarMatrix.Right * -gHandler.localGridControlledEntityCustomData.radarRadius + radarMatrix.Right * _hologramRightOffset_HardCode.X + radarMatrix.Up * _hologramRightOffset_HardCode.Y + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
@@ -6048,7 +6082,7 @@ namespace EliDangHUD
 
         public void DrawHologramsHoloTables() 
         {
-            if (gHandler.localGridHologramTerminals.Count > 0)
+            if (gHandler.localGridHologramTerminals.Count > 0 && gHandler.localGridBlockClusters != null)
             {
                 MatrixD rotationOnlyLocalGridMatrix = gHandler.localGrid.WorldMatrix;
                 rotationOnlyLocalGridMatrix.Translation = Vector3D.Zero;
@@ -6067,7 +6101,7 @@ namespace EliDangHUD
                         MatrixD localHologramFinalRotationHoloTable = localHologramViewRotationHoloTable * rotationOnlyLocalGridMatrix;
 
                         double thicc = gHandler.hologramScaleFactor / (gHandler.localGrid.WorldVolume.Radius / gHandler.localGrid.GridSize);
-                        float size = (float)theData.holoScale * 0.65f * (float)thicc * gHandler.localGridClusterSize;
+                        float size = (float)theData.holoScale * 0.65f * (float)thicc;
                         MatrixD holoTableScalingMatrix = MatrixD.CreateScale(theData.holoScale * thicc);
 
                         MatrixD finalScalingAndRotationMatrix = localHologramFinalRotationHoloTable * holoTableScalingMatrix;
@@ -6087,15 +6121,7 @@ namespace EliDangHUD
                             colorPalletHoloTable = gHandler.BuildIntegrityColors(theData.lineColor * 0.5f);
                         }
 
-
-                        if (!theSettings.useClusterSlices)
-                        {
-                            DrawHologramFromClusters(gHandler.localGridBlockClusters, false, holoTablePos, holoCenterPosition, initialColor, finalScalingAndRotationMatrix, size);
-                        }
-                        else
-                        {
-                            DrawHologramFromClusterSlices(gHandler.localGridFloorClusterSlices, false, holoTablePos, holoCenterPosition, finalScalingAndRotationMatrix, colorPalletHoloTable);
-                        }
+                        DrawHologramFromClusters(gHandler.localGridBlockClusters, false, holoTablePos, holoCenterPosition, initialColor, finalScalingAndRotationMatrix, size);
                     }
                 }
             }
@@ -6218,7 +6244,47 @@ namespace EliDangHUD
 		}
 
 
-       
+        /// <summary>
+        /// Computes a stable left and up vector for oriented billboards.
+        /// Always faces the camera, keeps hologram's Up, and avoids degenerate cross products.
+        /// </summary>
+        public static void GetBillboardAxes(Vector3D hologramUp, Vector3D cameraPos, Vector3D clusterPos, out Vector3D axisLeft, out Vector3D axisUp)
+        {
+            // Vector from cluster to camera
+            Vector3D cameraDir = cameraPos - clusterPos;
+            if (cameraDir.LengthSquared() < 1e-9)
+                cameraDir = Vector3D.Forward; // fallback if camera is exactly at cluster
+
+            cameraDir.Normalize();
+
+            // Check if cameraDir is almost parallel to Up
+            double dot = Math.Abs(Vector3D.Dot(cameraDir, hologramUp));
+            Vector3D tempUp = hologramUp;
+
+            if (dot > 0.90) // nearly parallel, pick fallback
+            {
+                Vector3D fallback = Vector3D.Right;
+                if (Math.Abs(Vector3D.Dot(tempUp, fallback)) > 0.90)
+                    fallback = Vector3D.Forward;
+
+                axisLeft = Vector3D.Cross(tempUp, fallback);
+                axisLeft.Normalize();
+                axisUp = Vector3D.Cross(cameraDir, axisLeft);
+                axisUp.Normalize();
+            }
+            else
+            {
+                axisLeft = Vector3D.Cross(tempUp, cameraDir);
+                axisLeft.Normalize();
+                axisUp = Vector3D.Cross(cameraDir, axisLeft);
+                axisUp.Normalize();
+            }
+        }
+
+
+
+        // TODO adjust the size a bit, it seems when we mix small clusters with big clusters there is a bit of a gap between them, but clusters of the same size fit perfectly with each other? 
+        // TODO decide if the facing axis logic is worth the oddness of trying to keep it square? Odd angles cause weird fluctuations?
         private void DrawHologramFromClusters(Dictionary<Vector3I, BlockCluster> blockClusters, bool isTarget, Vector3D hologramDrawPosition, Vector3D holoCenterPosition, Vector4 initialColor, 
             MatrixD finalScalingAndRotationMatrix, float size) 
         {
@@ -6226,6 +6292,7 @@ namespace EliDangHUD
             Vector3D AxisLeft = camera.WorldMatrix.Left;
             Vector3D AxisUp = camera.WorldMatrix.Up;
             Vector3D AxisForward = camera.WorldMatrix.Forward;
+
 
             initialColor.W = 1;
 
@@ -6252,10 +6319,37 @@ namespace EliDangHUD
                 float blockClusterIntegrityRatio = (blockCluster.MaxIntegrity != 0) ? blockCluster.Integrity / blockCluster.MaxIntegrity : 0;
                 Vector3D clusterDrawPosition = Vector3D.Zero;
 
-                if (blockClusterIntegrityRatio < 0.01) 
+                if (blockClusterIntegrityRatio < 0.01)
                 {
                     continue; // Skip clusters too low integrity to draw. 
                 }
+
+                Vector3I[] neighborOffsets = new Vector3I[]
+                {
+                    new Vector3I(blockCluster.ClusterSize, 0, 0),    // +X
+                    new Vector3I(-blockCluster.ClusterSize, 0, 0),   // -X
+                    new Vector3I(0, blockCluster.ClusterSize, 0),    // +Y
+                    new Vector3I(0, -blockCluster.ClusterSize, 0),   // -Y
+                    new Vector3I(0, 0, blockCluster.ClusterSize),    // +Z
+                    new Vector3I(0, 0, -blockCluster.ClusterSize)    // -Z
+                };
+
+                bool fullySurrounded = true;
+                foreach (Vector3I offset in neighborOffsets)
+                {
+                    if (!blockClusters.ContainsKey(blockClusterKeyPair.Key + offset))
+                    {
+                        fullySurrounded = false;
+                        break;
+                    }
+                }
+
+                if (fullySurrounded) 
+                {
+                    continue; // skip drawing fully surrounded clusters
+                }
+
+                float drawSize = size * blockCluster.ClusterSize;
 
                 bool randomize = false;
                 if (gHandler.localGridGlitchAmount > 0.5 || GetRandomFloat() > 0.95f  || GetRandomDouble() > bootUpAlpha)
@@ -6288,21 +6382,11 @@ namespace EliDangHUD
                     float interpolationFactor = blockClusterIntegrityRatio / 0.5f;
                     finalColor = Vector4.Lerp(red, yellow, interpolationFactor);
                 }
+
                 // finalScalingAndRotationMatrix takes the local or target final rotation matrix. The final matrix is re-calculated each draw tick by taking the view rotation matrix (calculated each physics tick) * the localGrid worldMatrix to offset
                 // current grid rotation AND apply the user selected "view" override (ie. yaw 90 degrees, pitch 90 degrees etc.)
-                if (isTarget)
-                {
-                    MatrixD hologramTransform = finalScalingAndRotationMatrix * MatrixD.CreateTranslation(hologramDrawPosition);
-                    clusterDrawPosition = Vector3D.Transform(blockClusterPosition, hologramTransform);
-                    
-                }
-                else 
-                {
-                    MatrixD hologramTransform = finalScalingAndRotationMatrix * MatrixD.CreateTranslation(hologramDrawPosition);
-                    clusterDrawPosition = Vector3D.Transform(blockClusterPosition, hologramTransform);
-                    //clusterDrawPosition = Vector3D.Transform((Vector3D)blockClusterPosition, finalScalingAndRotationMatrix);
-                    //clusterDrawPosition += hologramDrawPosition; // hologramDrawPosition has pre-computed where the hologram will draw with axis-flip and offsets applied
-                }
+                MatrixD hologramTransform = finalScalingAndRotationMatrix * MatrixD.CreateTranslation(hologramDrawPosition);
+                clusterDrawPosition = Vector3D.Transform(blockClusterPosition, hologramTransform);  
 
                 MyTransparentGeometry.AddBillboardOriented(
                             drawMaterial,
@@ -6310,9 +6394,8 @@ namespace EliDangHUD
                             clusterDrawPosition,
                             AxisLeft, // Billboard orientation
                             AxisUp, // Billboard orientation
-                            size,
+                            drawSize,
                             MyBillboard.BlendTypeEnum.AdditiveBottom);
-
 
                 if (GetRandomFloat() > 0.9f)
                 {
