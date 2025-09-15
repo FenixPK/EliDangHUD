@@ -197,6 +197,7 @@ namespace EliDangHUD
         public Dictionary<Vector3I, Vector3I> localGridBlockToClusterMap = new Dictionary<Vector3I, Vector3I>();
         public int localGridClusterSize = 1;
         public bool localGridClustersNeedRefresh = false;
+        public bool localGridIntegrityNeedsRefresh = false;
 
         //public List<ClusterBox> localGridBlockClusterSlices = new List<ClusterBox>();
         //public Dictionary<Vector3I, int> localGridBlockToClusterSliceIndexMap = new Dictionary<Vector3I, int>(); // WIP, probably will re-factor the slice logic first before doing more.
@@ -248,6 +249,7 @@ namespace EliDangHUD
         public Dictionary<Vector3I, Vector3I> targetGridBlockToClusterMap = new Dictionary<Vector3I, Vector3I>();
         public int targetGridClusterSize = 1;
         public bool targetGridClustersNeedRefresh = false;
+        public bool targetGridIntegrityNeedsRefresh = false;
 
         public Dictionary<int, List<ClusterBox>> targetGridFloorClusterSlices = new Dictionary<int, List<ClusterBox>>();
         public Dictionary<int, Dictionary<Vector3I, int>> targetGridBlockToFloorClusterSlicesMap = new Dictionary<int, Dictionary<Vector3I, int>>();
@@ -434,6 +436,7 @@ namespace EliDangHUD
                 GridBlock gridBlock = new GridBlock();
                 gridBlock.Block = block;
                 gridBlock.DrawPosition = blockScaledInvertedPosition;
+                gridBlock.lastCurrentIntegrity = block.Integrity;
 
                 localGridAllBlocksDict[block.Position] = gridBlock;
 
@@ -517,8 +520,9 @@ namespace EliDangHUD
                 {
                     localGridJumpDrivesDict[block.Position] = jumpDrive;
                 }
-                localGridCurrentIntegrity += block.Integrity;
-                localGridMaxIntegrity += block.MaxIntegrity;
+                //localGridCurrentIntegrity += block.Integrity;
+                //localGridMaxIntegrity += block.MaxIntegrity;
+                localGridIntegrityNeedsRefresh = true;
 
                 localHologramScaleNeedsRefresh = true;
                 
@@ -603,8 +607,8 @@ namespace EliDangHUD
                     }
                 }
                
-                localGridCurrentIntegrity -= block.Integrity;
-                localGridMaxIntegrity -= block.MaxIntegrity;
+                localGridCurrentIntegrity -= block.Integrity; // Only remove current integrity, so the arc calculates correctly.
+                //localGridMaxIntegrity -= block.MaxIntegrity;
 
                 localHologramScaleNeedsRefresh = true;
                 
@@ -630,8 +634,9 @@ namespace EliDangHUD
                         block = gridBlock.Block;
                         if (block != null)
                         {
-                            float integrityDiff = newIntegrity - oldIntegrity;
+                            float integrityDiff = block.Integrity - gridBlock.lastCurrentIntegrity; //newIntegrity - oldIntegrity;
                             localGridCurrentIntegrity += integrityDiff;
+                            gridBlock.lastCurrentIntegrity = block.Integrity;
 
                             // If we are using block clusters we can update the integrity of the cluster this block belongs to. 
                             Vector3I clusterKey;
@@ -791,6 +796,7 @@ namespace EliDangHUD
                 GridBlock gridBlock = new GridBlock();
                 gridBlock.Block = block;
                 gridBlock.DrawPosition = blockScaledInvertedPosition;
+                gridBlock.lastCurrentIntegrity = block.Integrity;
 
                 targetGridAllBlocksDict[block.Position] = gridBlock;
 
@@ -819,14 +825,18 @@ namespace EliDangHUD
                 {
                     targetGridJumpDrivesDict[block.Position] = jumpDrive;
                 }
-                targetGridCurrentIntegrity += block.Integrity;
-                targetGridMaxIntegrity += block.MaxIntegrity;
+                //targetGridCurrentIntegrity += block.Integrity;
+                //targetGridMaxIntegrity += block.MaxIntegrity;
+                targetGridIntegrityNeedsRefresh = true;
 
                 targetHologramScaleNeedsRefresh = true;
                 
                 targetGridClusterBuildState = null;
                 targetGridClusterBlocksUpdateTicksCounter = 0;
                 targetGridClustersNeedRefresh = true; // In case we are using block clusters instead of slices
+
+
+                
                 
             }
         }
@@ -867,8 +877,8 @@ namespace EliDangHUD
                     }
                 }
                
-                targetGridCurrentIntegrity -= block.Integrity;
-                targetGridMaxIntegrity -= block.MaxIntegrity;
+                targetGridCurrentIntegrity -= block.Integrity; // Only remove current integrity, don't remove max. This might be small if damaged at removal time, but the integritychange logic should have tracked those deductions already.
+                //targetGridMaxIntegrity -= block.MaxIntegrity; 
 
                 targetHologramScaleNeedsRefresh = true;
 
@@ -895,8 +905,9 @@ namespace EliDangHUD
                         block = gridBlock.Block;
                         if (block != null)
                         {
-                            float integrityDiff = newIntegrity - oldIntegrity;
+                            float integrityDiff = block.Integrity - gridBlock.lastCurrentIntegrity; //newIntegrity - oldIntegrity;
                             targetGridCurrentIntegrity += integrityDiff;
+                            gridBlock.lastCurrentIntegrity = block.Integrity;
 
                             // If we are using block clusters we can updaste the integrity of the cluster this block belongs to. 
                             Vector3I clusterKey;
@@ -908,7 +919,6 @@ namespace EliDangHUD
                                     clusterEntry.Integrity += integrityDiff;
                                 }
                             }
-                            
                         }
                     }
                 }
@@ -924,8 +934,8 @@ namespace EliDangHUD
 
                 // Trigger Update
                 targetGridClusterSize = GetClusterSize(targetGridAllBlocksDict.Count, theSettings.blockCountClusterStep);
-                int minClusterSizeTarget = targetGridClusterSize - 1 > 0 ? targetGridClusterSize - 1 : 1;
-                int maxClusterSizeTarget = targetGridClusterSize + minClusterSizeTarget;
+                int minClusterSizeTarget = (targetGridClusterSize - theSettings.blockClusterAddlMin) > 0 ? (targetGridClusterSize - theSettings.blockClusterAddlMin) : 1; // Min of 1.
+                int maxClusterSizeTarget = targetGridClusterSize + theSettings.blockClusterAddlMax;
 
                 // Start a new build
                 if (targetGridClusterBuildState == null)
@@ -936,7 +946,7 @@ namespace EliDangHUD
                 }
 
                 // Then every tick:
-                bool done = ContinueClusterBlocksIterativeThreshold(ref targetGridClusterBuildState, targetGridAllBlocksDict, ref targetGridNewClusters, ref targetGridNewBlockToClusterMap, 999999, minClusterSizeTarget, theSettings.clusterSplitThreshhold);
+                bool done = ContinueClusterBlocksIterativeThreshold(ref targetGridClusterBuildState, targetGridAllBlocksDict, ref targetGridNewClusters, ref targetGridNewBlockToClusterMap, 999999, minClusterSizeTarget, theSettings.clusterSplitThreshold);
 
                 if (done)
                 {
@@ -947,14 +957,6 @@ namespace EliDangHUD
                     targetGridClusterBuildState = null;
                     targetGridClustersNeedRefresh = false;
                 }
-
-                //targetGridClusterSize = GetClusterSize(targetGridAllBlocksDict.Count, theSettings.blockCountClusterStep);
-                ////ClusterBlocks(targetGridAllBlocksDict, ref targetGridBlockClusters, ref targetGridBlockToClusterMap, targetGridClusterSize);
-                ////ClusterBlocksGreedyTiled(targetGridAllBlocksDict, ref targetGridBlockClusters, ref targetGridBlockToClusterMap, 3);
-                //int minClusterSize = targetGridClusterSize - 1 > 0 ? targetGridClusterSize - 1 : 1;
-                //int maxClusterSize = targetGridClusterSize + minClusterSize;
-                //ClusterBlocksIterativeThreshold(targetGridAllBlocksDict, ref targetGridBlockClusters, ref targetGridBlockToClusterMap, maxClusterSize, minClusterSize, 0.33);
-                //targetGridClustersNeedRefresh = false;
 
                 // Add Event Handlers
                 targetGrid.OnBlockAdded += OnTargetBlockAdded;
@@ -1086,6 +1088,7 @@ namespace EliDangHUD
                 GridBlock gridBlock = new GridBlock();
                 gridBlock.Block = block;
                 gridBlock.DrawPosition = blockScaledInvertedPosition;
+                gridBlock.lastCurrentIntegrity = block.Integrity;
 
                 targetGridAllBlocksDict[block.Position] = gridBlock;
 
@@ -1232,8 +1235,8 @@ namespace EliDangHUD
                 
                 // On initialization we start a build, but set the number of clusters to process to an amount sufficient to build the whole hologram in one go. 
                 localGridClusterSize = GetClusterSize(localGridAllBlocksDict.Count, theSettings.blockCountClusterStep);
-                int minClusterSize = localGridClusterSize - 1 > 0 ? localGridClusterSize - 1 : 1;
-                int maxClusterSize = localGridClusterSize + minClusterSize;
+                int minClusterSize = (localGridClusterSize - theSettings.blockClusterAddlMin) > 0 ? (localGridClusterSize - theSettings.blockClusterAddlMin) : 1;
+                int maxClusterSize = localGridClusterSize + theSettings.blockClusterAddlMax;
 
                 if (localGridClusterBuildState == null)
                 {
@@ -1241,7 +1244,7 @@ namespace EliDangHUD
                     localGridNewBlockToClusterMap = new Dictionary<Vector3I, Vector3I>();
                     StartClusterBlocksIterativeThreshold(ref localGridClusterBuildState, localGridAllBlocksDict, maxClusterSize);
                 }
-                bool done = ContinueClusterBlocksIterativeThreshold(ref localGridClusterBuildState, localGridAllBlocksDict, ref localGridNewClusters, ref localGridNewBlockToClusterMap, 999999, minClusterSize, theSettings.clusterSplitThreshhold);
+                bool done = ContinueClusterBlocksIterativeThreshold(ref localGridClusterBuildState, localGridAllBlocksDict, ref localGridNewClusters, ref localGridNewBlockToClusterMap, 999999, minClusterSize, theSettings.clusterSplitThreshold);
 
                 if (done)
                 {
@@ -1252,13 +1255,6 @@ namespace EliDangHUD
                     localGridClusterBuildState = null;
                     localGridClustersNeedRefresh = false;
                 }
-
-                //localGridClusterSize = GetClusterSize(localGridAllBlocksDict.Count, theSettings.blockCountClusterStep);
-                //int minClusterSize = localGridClusterSize - 1 > 0 ? localGridClusterSize - 1 : 1;
-                //int maxClusterSize = localGridClusterSize + minClusterSize;
-                //ClusterBlocksIterativeThreshold(localGridAllBlocksDict, ref localGridBlockClusters, ref localGridBlockToClusterMap, maxClusterSize, minClusterSize, 0.33);
-                ////ClusterBlocks(localGridAllBlocksDict, ref localGridBlockClusters, ref localGridBlockToClusterMap, localGridClusterSize);
-                //localGridClustersNeedRefresh = false;
 
                 // Add Event Handlers
                 localGrid.OnBlockAdded += OnLocalBlockAdded;
@@ -1569,6 +1565,7 @@ namespace EliDangHUD
                 GridBlock gridBlock = new GridBlock();
                 gridBlock.Block = block;
                 gridBlock.DrawPosition = blockScaledInvertedPosition;
+                gridBlock.lastCurrentIntegrity = block.Integrity;
 
                 localGridAllBlocksDict[block.Position] = gridBlock;
 
@@ -1697,14 +1694,27 @@ namespace EliDangHUD
                 UpdateLocalGridHologramCustomData();
                 UpdateLocalGridRotationMatrix();
 
+                if (localGridIntegrityNeedsRefresh)
+                {
+                    localGridCurrentIntegrity = 0f;
+                    localGridMaxIntegrity = 0f;
+                    foreach (GridBlock gridBlock in localGridAllBlocksDict.Values)
+                    {
+                        localGridCurrentIntegrity += gridBlock.Block.Integrity;
+                        localGridMaxIntegrity += gridBlock.Block.MaxIntegrity;
+                        gridBlock.lastCurrentIntegrity = gridBlock.Block.Integrity;
+                    }
+                    localGridIntegrityNeedsRefresh = false;
+                }
+
                 if (localGridClustersNeedRefresh)
                 {
                     if (localGridClusterBlocksUpdateTicksCounter > theSettings.ticksUntilClusterRebuildAfterChange)
                     {
                         // Trigger Update
                         localGridClusterSize = GetClusterSize(localGridAllBlocksDict.Count, theSettings.blockCountClusterStep);
-                        int minClusterSize = localGridClusterSize - 1 > 0 ? localGridClusterSize - 1 : 1;
-                        int maxClusterSize = localGridClusterSize + minClusterSize;
+                        int minClusterSize = (localGridClusterSize - theSettings.blockClusterAddlMin) > 0 ? (localGridClusterSize - theSettings.blockClusterAddlMin) : 1;
+                        int maxClusterSize = localGridClusterSize + theSettings.blockClusterAddlMax;
 
                         // Start a new build
                         if (localGridClusterBuildState == null)
@@ -1715,7 +1725,7 @@ namespace EliDangHUD
                         }
 
                         // Then every tick:
-                        bool done = ContinueClusterBlocksIterativeThreshold(ref localGridClusterBuildState, localGridAllBlocksDict, ref localGridNewClusters, ref localGridNewBlockToClusterMap, theSettings.clusterRebuildClustersPerTick, minClusterSize, theSettings.clusterSplitThreshhold);
+                        bool done = ContinueClusterBlocksIterativeThreshold(ref localGridClusterBuildState, localGridAllBlocksDict, ref localGridNewClusters, ref localGridNewBlockToClusterMap, theSettings.clusterRebuildClustersPerTick, minClusterSize, theSettings.clusterSplitThreshold);
 
 
                         if (done)
@@ -1730,14 +1740,6 @@ namespace EliDangHUD
                     }
                     localGridClusterBlocksUpdateTicksCounter++;
 
-
-
-                    //localGridClusterSize = GetClusterSize(localGridAllBlocksDict.Count, theSettings.blockCountClusterStep);
-                    //int minClusterSize = localGridClusterSize - 1 > 0 ? localGridClusterSize - 1 : 1;
-                    //int maxClusterSize = localGridClusterSize + minClusterSize;
-                    //ClusterBlocksIterativeThreshold(localGridAllBlocksDict, ref localGridBlockClusters, ref localGridBlockToClusterMap, maxClusterSize, minClusterSize, 0.33);
-                    ////ClusterBlocks(localGridAllBlocksDict, ref localGridBlockClusters, ref localGridBlockToClusterMap, localGridClusterSize);
-                    //localGridClustersNeedRefresh = false;
 
                 }
 
@@ -1761,14 +1763,27 @@ namespace EliDangHUD
                     }
                     UpdateTargetGridRotationMatrix();
 
+                    if (targetGridIntegrityNeedsRefresh) 
+                    {
+                        targetGridCurrentIntegrity = 0f;
+                        targetGridMaxIntegrity = 0f;
+                        foreach (GridBlock gridBlock in targetGridAllBlocksDict.Values) 
+                        {
+                            targetGridCurrentIntegrity += gridBlock.Block.Integrity;
+                            targetGridMaxIntegrity += gridBlock.Block.MaxIntegrity;
+                            gridBlock.lastCurrentIntegrity = gridBlock.Block.Integrity;
+                        }
+                        targetGridIntegrityNeedsRefresh = false;
+                    }
+
                     if (targetGridClustersNeedRefresh)
                     {
                         if (targetGridClusterBlocksUpdateTicksCounter > theSettings.ticksUntilClusterRebuildAfterChange)
                         {
                             // Trigger Update
                             targetGridClusterSize = GetClusterSize(targetGridAllBlocksDict.Count, theSettings.blockCountClusterStep);
-                            int minClusterSizeTarget = targetGridClusterSize - 1 > 0 ? targetGridClusterSize - 1 : 1;
-                            int maxClusterSizeTarget = targetGridClusterSize + minClusterSizeTarget;
+                            int minClusterSizeTarget = (targetGridClusterSize - theSettings.blockClusterAddlMin) > 0 ? (targetGridClusterSize - theSettings.blockClusterAddlMin) : 1;
+                            int maxClusterSizeTarget = targetGridClusterSize + theSettings.blockClusterAddlMax;
 
                             // Start a new build
                             if (targetGridClusterBuildState == null)
@@ -1779,7 +1794,7 @@ namespace EliDangHUD
                             }
 
                             // Then every tick:
-                            bool done = ContinueClusterBlocksIterativeThreshold(ref targetGridClusterBuildState, targetGridAllBlocksDict, ref targetGridNewClusters, ref targetGridNewBlockToClusterMap, theSettings.clusterRebuildClustersPerTick, minClusterSizeTarget, theSettings.clusterSplitThreshhold);
+                            bool done = ContinueClusterBlocksIterativeThreshold(ref targetGridClusterBuildState, targetGridAllBlocksDict, ref targetGridNewClusters, ref targetGridNewBlockToClusterMap, theSettings.clusterRebuildClustersPerTick, minClusterSizeTarget, theSettings.clusterSplitThreshold);
 
 
                             if (done)
@@ -2603,10 +2618,6 @@ namespace EliDangHUD
             }
         }
 
-
-
-
-
         public void ClusterBlocksIterativeThreshold(Dictionary<Vector3I, GridBlock> allBlocksDict, ref Dictionary<Vector3I, BlockCluster> blockClusters, ref Dictionary<Vector3I, Vector3I> blockToClusterMap,
             int maxClusterSize, int minClusterSize = 1, double splitThreshold = 0.9)
         {
@@ -2795,7 +2806,7 @@ namespace EliDangHUD
             );
         }
 
-        // Call once per tick until it returns true (done)
+        
         public bool ContinueClusterBlocksIterativeThreshold(ref ClusterBuildState buildState, Dictionary<Vector3I, GridBlock> allBlocksDict, ref Dictionary<Vector3I, BlockCluster> blockClusters, ref Dictionary<Vector3I, Vector3I> blockToClusterMap,
             int clustersPerTick, int minClusterSize = 1, double splitThreshold = 0.9)
         {
@@ -3387,13 +3398,21 @@ namespace EliDangHUD
             theData.lineColorRGBComplimentary = secondaryColor(theData.lineColorRGB) * 2 + new Vector3(0.01f, 0.01f, 0.01f);
             theData.lineColorComp = new Vector4(theData.lineColorRGBComplimentary, 1f);
 
-            // Velocity Toggle
-            theData.enableVelocityLines = ini.Get(mySection, "ScannerLines").ToBoolean(true);
-            ini.Set(mySection, "ScannerLines", theData.enableVelocityLines.ToString());
+            // Velocity lines
+            theData.enableVelocityLines = ini.Get(mySection, "ScannerVelocityLines").ToBoolean(true);
+            ini.Set(mySection, "ScannerVelocityLines", theData.enableVelocityLines.ToString());
+
+            // Velocity lines
+            theData.velocityLineSpeedThreshold = ini.Get(mySection, "ScannerVelocitySpeed").ToSingle(10);
+            ini.Set(mySection, "ScannerVelocitySpeed", theData.velocityLineSpeedThreshold.ToString());
+
+            // Orbit lines
+            theData.enablePlanetOrbits = ini.Get(mySection, "ScannerPlanetOrbits").ToBoolean(true);
+            ini.Set(mySection, "ScannerPlanetOrbits", theData.enablePlanetOrbits.ToString());
 
             // Orbit Line Speed Threshold
-            theData.orbitSpeedThreshold = ini.Get(mySection, "ScannerOrbits").ToSingle(500);
-            ini.Set(mySection, "ScannerOrbits", theData.orbitSpeedThreshold.ToString());
+            theData.planetOrbitSpeedThreshold = ini.Get(mySection, "ScannerOrbitsSpeed").ToSingle(10);
+            ini.Set(mySection, "ScannerOrbitsSpeed", theData.planetOrbitSpeedThreshold.ToString());
 
             // Voxel toggle
             theData.scannerShowVoxels = ini.Get(mySection, "ScannerShowVoxels").ToBoolean(true);

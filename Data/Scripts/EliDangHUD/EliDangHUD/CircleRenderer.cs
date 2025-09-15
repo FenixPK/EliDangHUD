@@ -6,6 +6,7 @@ using Sandbox.ModAPI;
 using Sandbox.ModAPI.Ingame;
 using Sandbox.ModAPI.Interfaces;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -142,17 +143,25 @@ DONE: More minor optimizations: only checks if entity has power if you can alrea
 DONE: Top priority: Optimize the holograms! Will use a Dictionary of blocks on the grid, then have event handlers for add or remove of block, or damage of block instead of
 scanning all blocks each tick. So we initialize it using getBlocks once, then only update it when something changes. When it comes to drawing their positions we will
 have the grid relative positions, so for local grid this is easy. For target grid we will need to offset based on the current grid positions at Draw() time.
+DONE: Dynamic block clustering that uses a range. It will still pick a cluster size based on grid block count, but then can go up and down from there. Sparse regions can be broken down to smaller
+clusters, and denser regions will be represented by one larger square. Eg. at cluster size 2 we get 1x1x1, 2x2x2, or 3x3x3 clusters. Based on various settings this can be tweaked. 
+Goal is to preserve fidelity for sparse regions, but cluster dense regions for performance. 
+DONE: Added occlusion culling for the interior of holograms, so those clusters aren't drawn if they are completely enclosed by other clusters.
+DONE: Wrap orbit lines in a customdata setting, and also toggle off completely at global level.
 
 --TODO--
+TODO: Fix target integrity arc (and likely shields too), should be inverted??
 TODO: Make unpowered grids have a darker icon on radar
 TODO: Add sprite billboards for different block types. Would love if Turrets, fixed weapons, torpedos/missiles etc. have custom material drawn. Same for reactors, batteries, hydrogen tanks, engines/thrusters.
 TODO: Could I make clusterblocks even better? Smaller squares for more fidelity for blocks that can't be clustered (Currently included separately already but drawn at larger size). 
 I could even try to do "only the outside" layer for armor blocks, then only the other blocks mentioned above (turrets, batteries etc). 
 Perhaps I can bake in subsquares into different dds sprites for this. Eg. a size 2 clusterblock would be 2x2x2 volume, so we have a square that is divided into 4 squares to give an illusion of detail. 
 
-TODO: Make small grid sprites slightly smaller.
+TODO: Make small grid radar sprites slightly smaller.
 TODO: Make holograms show more data, weapons, effective range, DPS?
 TODO: Make radar sprites show more data for selected target. Eg. when you pick a target the radar screen has an "effective range" bubble for the target. 
+TODO: Add chat commands to edit/update settings that otherwise must be written to the xml in world storage. Remember to refresh GridHelpers settings as well as CircleRenderer when changed.
+TODO: Polishing pass - add summaries to methods etc. It's becoming less documented as I go haha. 
 
 
 TODO: I'd like to do further settings to allow users to more specifically choose to filter our floating items of name 'Stone' for eg, or only voxels (asteroids and deposits) of certain types or sizes even. 
@@ -290,6 +299,7 @@ namespace EliDangHUD
     {
         public VRage.Game.ModAPI.IMySlimBlock Block;
         public Vector3D DrawPosition;
+        public float lastCurrentIntegrity;
     }
     public enum BlockClusterType
     {
@@ -380,12 +390,12 @@ namespace EliDangHUD
         public string holoTableRenderDistance_DESCRIPTION = "How far away can a holo table be before it no longer renders the radar.";
 
         /// <summary>
-        /// Percentage threshhold at which radar pings start to fade out at the edge of the radar range Eg. 0.01 = 0.01*100 = 1%. 
-		/// Also used for notifying the player of new pings. When pings cross the threshhold distance they will be announced audibly and visually on the radar. 
+        /// Percentage threshold at which radar pings start to fade out at the edge of the radar range Eg. 0.01 = 0.01*100 = 1%. 
+		/// Also used for notifying the player of new pings. When pings cross the threshold distance they will be announced audibly and visually on the radar. 
         /// </summary>
-        public double fadeThreshhold = 0.01;
-        public string fadeThreshhold_DESCRIPTION = "Percentage threshhold at which radar pings start to fade out at the edge of the radar range Eg. 0.01 = 0.01*100 = 1%. \r\n" +
-            " Also used for notifying the player of new pings. \r\n When pings cross the threshhold distance they will be announced audibly and visually on the radar.";
+        public double fadeThreshold = 0.01;
+        public string fadeThreshold_DESCRIPTION = "Percentage threshold at which radar pings start to fade out at the edge of the radar range Eg. 0.01 = 0.01*100 = 1%. \r\n" +
+            " Also used for notifying the player of new pings. \r\n When pings cross the threshold distance they will be announced audibly and visually on the radar.";
 
         /// <summary>
         /// The thickness of the lines used for rendering circles and other shapes in the HUD.
@@ -439,6 +449,12 @@ namespace EliDangHUD
         /// </summary>
         public bool enableVisor = true;
         public string enableVisor_DESCRIPTION = "Show visor effects or not.";
+
+        public bool enableVelocityLines = true;
+        public string enableVelocityLines_DESCRIPTION = "Show the velocity lines or not.";
+
+        public bool enablePlanetOrbits = true;
+        public string enablePlanetOrbits_DESCRIPTION = "Show the planet orbit lines or not.";
 
         /// <summary>
         /// Whether any kind of Hologram can be shown or not. Each cockpit can override this setting, and turn on/off holograms for the local grid or the target grid separately in the block's custom data.
@@ -561,10 +577,16 @@ namespace EliDangHUD
             "A grid of 80001 blocks will range between 2x2x2 and 4x4x4 (because the next step is at blockCount / (2x2x2) and we do clusterSize-1 to clusterSize+1). " +
             "This clustering logic is the largest performance increase we can make, the number of squares drawn is the largest bottleneck. We can adjust this to cluster sooner/later. And adjust the splitThreshold to allow more/less fidelity around sparse blocks.";
 
-        public float clusterSplitThreshhold = 0.33f;
-        public string clusterSplitThreshhold_DESCRIPTION = "The fill ratio threshhold at which a larger block cluster will be split into smaller clusters. Eg at 0.33 (33%) a larger cluster will only break down to smaller clusters if less than 33% full. " +
+        public int blockClusterAddlMax = 1;
+        public string blockCLusterAddlMax_DESCRIPTION = "The value to add to get the max cluster range. eg. for a grid identified as clusterSize = 2, the max would be 3 if this value is 1, meaning it would start at 3x3x3 clusters and size down where sparse.";
+
+        public int blockClusterAddlMin = 1;
+        public string blockCLusterAddlMin_DESCRIPTION = "The value to subtract to get the min cluster range. eg. for a grid identified as clusterSize = 3, the min would be 2 if this value is 1, meaning it wouldn't go smaller than 2x2x2 clusters for sparse regions.";
+
+        public float clusterSplitThreshold = 0.33f;
+        public string clusterSplitThreshold_DESCRIPTION = "The fill ratio threshold at which a larger block cluster will be split into smaller clusters. Eg at 0.33 (33%) a larger cluster will only break down to smaller clusters if less than 33% full. " +
             "So for a 3x3x3 cluster at 8/27 blocks it will break to smaller 2x2x2 and 1x1x1 clusters. At 9/27 blocks it will show as one 3x3x3 cluster. Combined with the blockCountClusterStep this allows drawing larger grids at larger cluster sizes with " +
-            "less fidelity but more performance by reducing the number of block squares drawn on screen. By tweaking the splitThreshhold we can add fidelity for sparse clusters, while allowing larger clusters for the rest of the grid.";
+            "less fidelity but more performance by reducing the number of block squares drawn on screen. By tweaking the splitThreshold we can add fidelity for sparse clusters, while allowing larger clusters for the rest of the grid.";
         
         public int clusterRebuildClustersPerTick = 200;
         public string clusterRebuildClustersPerTick_DESCRIPTION = "The number of block clusters built per game tick on a rebuild of the hologram clusters triggered due to blocks being removed or added. This spreads load over time to reduce stutter. " +
@@ -616,7 +638,9 @@ namespace EliDangHUD
         public Vector4 lineColor = new Vector4(1f, 0.5f, 0.0f, 1f);
         public Vector4 lineColorComp = new Vector4((new Vector3(0f, 0.5f, 1f) * 2f) + new Vector3(0.01f, 0.01f, 0.01f), 1f);
         public bool enableVelocityLines = true;
-        public float orbitSpeedThreshold = 500;
+        public float velocityLineSpeedThreshold;
+        public bool enablePlanetOrbits = true;
+        public float planetOrbitSpeedThreshold = 10;
         public bool scannerShowVoxels = true;
         public bool scannerOnlyPoweredGrids = true;
     }
@@ -757,7 +781,7 @@ namespace EliDangHUD
 
         // Some global variables to use for dimming?
         //public static float GLOW = 1f; // This is overwritten by the configurable brightness settings per cockpit. But is here as a default, it is not something in the mod settings but rather the BLOCK settings.
-        public float GlobalDimmer = 1f;
+        public float OrbitDimmer = 1f;
 		public float ControlDimmer = 1f;
 		public float SpeedDimmer = 1f;
 
@@ -797,7 +821,7 @@ namespace EliDangHUD
 
         Dictionary<VRage.ModAPI.IMyEntity, RadarPing> radarPings = new Dictionary<VRage.ModAPI.IMyEntity, RadarPing>();
 
-        private float SpeedThreshold = 10f;
+        //private float SpeedThreshold = 10f;
 
         private IMyPlayer _thePlayer;
         private bool _isFirstPerson; 
@@ -1768,7 +1792,7 @@ namespace EliDangHUD
 
             radarScale = (gHandler.localGridControlledEntityCustomData.radarRadius / radarScaleRange);
 
-            _fadeDistance = radarScaleRange * (1 - theSettings.fadeThreshhold); // Eg at 0.01 would be 0.99%. For a radar distance of 20,000m this means the last 19800-19999 becomes fuzzy/dims the blip.
+            _fadeDistance = radarScaleRange * (1 - theSettings.fadeThreshold); // Eg at 0.01 would be 0.99%. For a radar distance of 20,000m this means the last 19800-19999 becomes fuzzy/dims the blip.
             _fadeDistanceSqr = _fadeDistance * _fadeDistance; // Sqr for fade distance in comparisons.
             _radarShownRangeSqr = radarScaleRange * radarScaleRange; // Anything over this range, even if within sensor range, can't be drawn on screen. 
 
@@ -1850,7 +1874,7 @@ namespace EliDangHUD
                 // Check if relationship status has changed and update ping (eg. if a ship flipped from neutral to hostile or hostile to friendly via capture). 
                 UpdateExistingRadarPingStatus(entity);
 
-                if (entityDistanceSqr < _radarShownRangeSqr * (1 - theSettings.fadeThreshhold)) // Once we pass the fade threshold an auidible and visual cue should be applied. 
+                if (entityDistanceSqr < _radarShownRangeSqr * (1 - theSettings.fadeThreshold)) // Once we pass the fade threshold an auidible and visual cue should be applied. 
                 {
                     if (!radarPings[entity].Announced)
                     {
@@ -1911,7 +1935,7 @@ namespace EliDangHUD
             radarScaleRange_Current = LerpD(radarScaleRange_Current, radarScaleRange_Goal, 0.1);
             radarScaleRange = radarScaleRange_Current;
 
-            _fadeDistance = radarScaleRange * (1 - theSettings.fadeThreshhold); // Eg at 0.01 would be 0.99%. For a radar distance of 20,000m this means the last 19800-19999 becomes fuzzy/dims the blip.
+            _fadeDistance = radarScaleRange * (1 - theSettings.fadeThreshold); // Eg at 0.01 would be 0.99%. For a radar distance of 20,000m this means the last 19800-19999 becomes fuzzy/dims the blip.
             _fadeDistanceSqr = _fadeDistance * _fadeDistance; // Sqr for fade distance in comparisons.
             _radarShownRangeSqr = radarScaleRange * radarScaleRange; // Anything over this range, even if within sensor range, can't be drawn on screen. 
 
@@ -1989,7 +2013,7 @@ namespace EliDangHUD
                 // Check if relationship status has changed and update ping (eg. if a ship flipped from neutral to hostile or hostile to friendly via capture). 
                 UpdateExistingRadarPingStatus(entity);
 
-                if (entityDistanceSqr < _radarShownRangeSqr * (1 - theSettings.fadeThreshhold)) // Once we pass the fade threshold an auidible and visual cue should be applied. 
+                if (entityDistanceSqr < _radarShownRangeSqr * (1 - theSettings.fadeThreshold)) // Once we pass the fade threshold an auidible and visual cue should be applied. 
                 {
                     if (!radarPings[entity].Announced)
                     {
@@ -2032,18 +2056,18 @@ namespace EliDangHUD
             }
         }
 
-        public void UpdateSpeedSettings() 
+        public void UpdateVelocityLines() 
 		{
             ControlDimmer += 0.05f;
             SpeedDimmer = Clamped((float)gHandler.localGridSpeed * 0.01f + 0.05f, 0f, 1f);
 
             SpeedDimmer = (float)(Math.Pow(SpeedDimmer, 2));
 
-            SpeedDimmer = MathHelper.Clamp(Remap((float)gHandler.localGridSpeed, (SpeedThreshold * 0.75f), SpeedThreshold, 0f, 1f), 0f, 1f);
+            SpeedDimmer = MathHelper.Clamp(Remap((float)gHandler.localGridSpeed, (gHandler.localGridControlledEntityCustomData.velocityLineSpeedThreshold * 0.75f), gHandler.localGridControlledEntityCustomData.velocityLineSpeedThreshold, 0f, 1f), 0f, 1f);
             ControlDimmer = Clamped(ControlDimmer, 0f, 1f);
-            GlobalDimmer = ControlDimmer * SpeedDimmer;
+            OrbitDimmer = ControlDimmer * SpeedDimmer;
 
-            if (GlobalDimmer > 0.01f)
+            if (OrbitDimmer > 0.01f)
             {
                 //Get Sun direction
                 if (theSettings.starFollowSky)
@@ -2058,22 +2082,22 @@ namespace EliDangHUD
             }
         }
 
-		public void DrawSpeedLinesAndPlanetOrbits()
+		public void DrawVelocityLinesAndPlanetOrbits()
 		{
-            if (gHandler.localGridControlledEntityCustomData.enableVelocityLines && (float)gHandler.localGridSpeed > 10)
+            if (theSettings.enableVelocityLines && gHandler.localGridControlledEntityCustomData.enableVelocityLines && (float)gHandler.localGridSpeed > gHandler.localGridControlledEntityCustomData.velocityLineSpeedThreshold)
             {
                 //DrawSpeedGaugeLines(gHandler.localGridControlledEntity, gHandler.localGridVelocity); // Original author disabled this function
                 UpdateAndDrawVerticalSegments(gHandler.localGridControlledEntity, gHandler.localGridVelocity);
             }
 
-            if (GlobalDimmer > 0.01f)
+            if (theSettings.enablePlanetOrbits && gHandler.localGridControlledEntityCustomData.enablePlanetOrbits && (float)gHandler.localGridSpeed > gHandler.localGridControlledEntityCustomData.planetOrbitSpeedThreshold && OrbitDimmer > 0.01f)
             {
                 //Draw orbit lines
-                foreach (var i in planetListDetails)
+                foreach (PlanetInfo planetInfo in planetListDetails)
                 {
                     // Cast the entity to IMyPlanet
-                    MyPlanet planet = (MyPlanet)i.Entity;
-                    Vector3D parentPos = (i.ParentEntity != null) ? i.ParentEntity.GetPosition() : theSettings.starPos;
+                    MyPlanet planet = (MyPlanet)planetInfo.Entity;
+                    Vector3D parentPos = (planetInfo.ParentEntity != null) ? planetInfo.ParentEntity.GetPosition() : theSettings.starPos;
 
                     DrawPlanetOutline(planet);
                     DrawPlanetOrbit(planet, parentPos);
@@ -2183,9 +2207,9 @@ namespace EliDangHUD
 
                     CheckPlayerInput();
 
-                    if (gHandler.localGridControlledEntityCustomData.enableVelocityLines && (float)gHandler.localGridSpeed > 10)
+                    if (theSettings.enableVelocityLines && gHandler.localGridControlledEntityCustomData.enableVelocityLines && (float)gHandler.localGridSpeed > gHandler.localGridControlledEntityCustomData.velocityLineSpeedThreshold)
                     {
-                        UpdateSpeedSettings();
+                        UpdateVelocityLines();
                     }
                     if (theSettings.enableCockpitDust)
                     {
@@ -2262,7 +2286,7 @@ namespace EliDangHUD
                 {
                     UpdateUIPositions(); // Update the positions of the UI elements based on the current grid and camera position.
 
-                    DrawSpeedLinesAndPlanetOrbits();
+                    DrawVelocityLinesAndPlanetOrbits();
 
                     DrawRadar();
 
@@ -2665,17 +2689,17 @@ namespace EliDangHUD
 		}
 
 		// Method to draw a circle in 3D space
-		void DrawCircle(Vector3D center, double radius, Vector3 planeDirection, Vector4 colorOverride, float brightnessOverride, bool dotted = false, float dimmerOverride = 0f, 
+		void DrawCircle(Vector3D center, double radius, Vector3 planeDirection, Vector4 color, float brightness, bool dotted = false, bool isOrbit = false, float dimmerOverride = 0f, 
             float thicknessOverride = 0f)
 		{
-			// Define orbit parameters
-			Vector3D planetPosition = center;   // Position of the center of the circle
-			double orbitRadius = radius;        // Radius of the circle
+            // Define circle parameters
+            Vector3D circleCenter = center;   // Position of the center of the circle
+			double circleRadius = radius;        // Radius of the circle
 			int segments = theSettings.lineDetail;                 // Number of segments to approximate the circle
 			bool dotFlipper = true;
 
 			//Lets adjust the tesselation based on radius instead of an arbitrary value.
-			int segmentsInterval = (int)Math.Round(Remap((float)orbitRadius,1000, 10000000, 1, 8));
+			int segmentsInterval = (int)Math.Round(Remap((float)circleRadius,1000, 10000000, 1, 8));
 			segments = segments * (int)Clamped((float)segmentsInterval, 1, 16);
 
 			float lineLength = 1.01f;           // Length of each line segment
@@ -2685,12 +2709,12 @@ namespace EliDangHUD
 			lineThickness = ((float)GetScreenHeight()/1080f)*lineThickness;
 
 			BlendTypeEnum blendType = BlendTypeEnum.Standard;  // Blend type for rendering
-			Vector4 lineColor = colorOverride * brightnessOverride;  // Color of the lines
+			Vector4 lineColor = color * brightness;  // Color of the lines
 
 			Vector3D cameraPosition = MyAPIGateway.Session.Camera.Position;  // Position of the camera
 
-			// Calculate points on the orbit
-			Vector3D[] orbitPoints = new Vector3D[segments];  // Array to hold points on the orbit
+            // Calculate points on the circle
+            Vector3D[] circlePoints = new Vector3D[segments];  // Array to hold points on the circle
 			double angleIncrement = 2 * Math.PI / segments;   // Angle increment for each segment
 
 			// Normalize the plane direction vector
@@ -2699,30 +2723,30 @@ namespace EliDangHUD
 			// Calculate the rotation matrix based on the plane direction
 			MatrixD rotationMatrix = MatrixD.CreateFromDir(planeDirection);
 
-			// Generate points on the orbit
-			for (int i = 0; i < segments; i++)
+            // Generate points on the circle
+            for (int i = 0; i < segments; i++)
 			{
 				double angle = angleIncrement * i;
-				double x = orbitRadius * Math.Cos(angle);
-				double y = orbitRadius * Math.Sin(angle);
+				double x = circleRadius * Math.Cos(angle);
+				double y = circleRadius * Math.Sin(angle);
 
 				// Apply rotation transformation to the point
 				Vector3D point = new Vector3D(x, y, 0);
 				point = Vector3D.Transform(point, rotationMatrix);
 
 				// Translate the point to the planet's position
-				point += planetPosition;
+				point += circleCenter;
 
-				orbitPoints[i] = point;  // Store the transformed point
+				circlePoints[i] = point;  // Store the transformed point
 			}
 
-			int count = orbitPoints.Length;
+			int count = circlePoints.Length;
 
-			// Draw lines between adjacent points on the orbit to form the circle
+			// Draw lines between adjacent points on the circle to form the circle
 			for (int i = 0; i < segments; i++)
 			{
-				Vector3D point1 = orbitPoints[i];
-				Vector3D point2 = orbitPoints[(i + 1) % count];  // Wrap around to the beginning
+				Vector3D point1 = circlePoints[i];
+				Vector3D point2 = circlePoints[(i + 1) % count];  // Wrap around to the beginning
 				Vector3 direction = (point2 - point1);  // Direction vector of the line segment
 
 				Vector3D normalizedPoint1 = Vector3D.Normalize(point1-center);
@@ -2733,20 +2757,23 @@ namespace EliDangHUD
 				// Calculate camera distance from whole segment.
 				float distanceToSegment = DistanceToLineSegment(cameraPosition, point1, point2);
 
-				// Calculate the segment thickness based on distance from camera.
-				float segmentThickness = Math.Max(Remap(distanceToSegment, 1000f, 1000000f, 0f, 1000f) * lineThickness, 0f);
+                float segmentThickness = 1f;
+                float dimmer = 1f;
 
-				// Calculate the segment brightness based on distance from camera.
-				float dimmer = Clamped(Remap(distanceToSegment, -10000f, 10000000f, 1f, 0f), 0f, 1f)*1f;
-				dimmer *= GlobalDimmer;
+                if (isOrbit)
+                {
+                    // Calculate the segment thickness based on distance from camera.
+                    segmentThickness = Math.Max(Remap(distanceToSegment, 1000f, 1000000f, 0f, 1000f) * lineThickness, 0f);
 
-				if (thicknessOverride != 0) {
-					segmentThickness = thicknessOverride;
-				}
-
-				if (dimmerOverride != 0) {
-					dimmer = dimmerOverride;
-				}
+                    // Calculate the segment brightness based on distance from camera.
+                    dimmer = Clamped(Remap(distanceToSegment, -10000f, 10000000f, 1f, 0f), 0f, 1f) * 1f;
+                    dimmer *= OrbitDimmer;
+                }
+                else 
+                {
+                    segmentThickness = thicknessOverride;
+                    dimmer = dimmerOverride;
+                }
 
 				if (dotFlipper || !dotted) {
 					dotFlipper = false;
@@ -2779,7 +2806,7 @@ namespace EliDangHUD
 
 			// Draw a circle representing the outline of the planet
 			DrawCircle(planetPosition, (float)planetRadius, aimDirection, gHandler.localGridControlledEntityCustomData.lineColor, 
-                gHandler.localGridControlledEntityCustomData.radarBrightness, true);
+                gHandler.localGridControlledEntityCustomData.radarBrightness, true, true);
 		}
 
 		// Fake an orbit for a planet
@@ -2810,7 +2837,7 @@ namespace EliDangHUD
 
 			// Draw a circle representing the planet's orbit around its parent
 			DrawCircle(parentPosition, (float)orbitRadius, orbitDirection, gHandler.localGridControlledEntityCustomData.lineColor,
-                gHandler.localGridControlledEntityCustomData.radarBrightness);
+                gHandler.localGridControlledEntityCustomData.radarBrightness, false, true);
 		}
 
 		void DrawVelocityLines()
@@ -3515,8 +3542,8 @@ namespace EliDangHUD
 
                 DrawQuad(_hologramPositionRight + (radarUp * _hologramRightOffset_HardCode.Y * 0.5), viewBackward, 0.15, MaterialCircleSeeThroughAdd, lineColor * 0.125f, true);
 
-                DrawCircle(_hologramPositionRight, 0.04 * lockInTime_Right, radarUp, lineColor, radarBrightness, false, 0.5f, 0.00075f);
-                DrawCircle(_hologramPositionRight - (radarUp * 0.015), 0.045, radarUp, lineColor, radarBrightness, false, 0.25f, 0.00125f);
+                DrawCircle(_hologramPositionRight, 0.04 * lockInTime_Right, radarUp, lineColor, radarBrightness, false, false, 0.5f, 0.00075f);
+                DrawCircle(_hologramPositionRight - (radarUp * 0.015), 0.045, radarUp, lineColor, radarBrightness, false, false, 0.25f, 0.00125f);
 
                 DrawQuad(_hologramPositionRight + (radarUp * _hologramRightOffset_HardCode.Y), viewBackward, 0.1, MaterialCircleSeeThrough, new Vector4(0, 0, 0, 0.75f)); //Dim Backing
             }
@@ -3527,8 +3554,8 @@ namespace EliDangHUD
                 lockInTime_Left = ClampedD(lockInTime_Left, 0, 1);
                 lockInTime_Left = Math.Pow(lockInTime_Left, 0.1);
 
-                DrawCircle(_hologramPositionLeft, 0.04 * lockInTime_Left, radarUp, lineColor, radarBrightness, false, 0.5f, 0.00075f);
-                DrawCircle(_hologramPositionLeft - (radarUp * 0.015), 0.045, radarUp, lineColor, radarBrightness, false, 0.25f, 0.00125f);
+                DrawCircle(_hologramPositionLeft, 0.04 * lockInTime_Left, radarUp, lineColor, radarBrightness, false, false, 0.5f, 0.00075f);
+                DrawCircle(_hologramPositionLeft - (radarUp * 0.015), 0.045, radarUp, lineColor, radarBrightness, false, false, 0.25f, 0.00125f);
 
                 // We will have cleared target lock earlier in loop if no longer able to target due to distance or lack of antenna etc.
                 if (gHandler.targetGrid != null && !gHandler.targetGrid.Closed)
@@ -3593,7 +3620,7 @@ namespace EliDangHUD
 					radarPulse = 2;
 				}
 				DrawCircle(radarPos-(radarUp*0.003), (gHandler.localGridControlledEntityCustomData.radarRadius*0.95)-(gHandler.localGridControlledEntityCustomData.radarRadius*0.95)*(Math.Pow((float)i/10, 4)), radarUp, lineColor, radarBrightness, 
-                    false, 0.25f*radarPulse, 0.00035f);
+                    false, false, 0.25f *radarPulse, 0.00035f);
 			}
             
 			// Draw border
@@ -3751,7 +3778,7 @@ namespace EliDangHUD
                     float ringSize = blipSize * pulseScale; // Scale the ring size based on the pulse
                     Vector4 haloColor = color_Current * 0.25f * (float)haloPulse; // subtle, fading
                     // Use the same position and orientation as the blip
-                    DrawCircle(radarEntityPos, ringSize, radarUp, Color.WhiteSmoke, radarBrightness, false, 1.0f * pulseAlpha, 0.00035f * gHandler.localGridControlledEntityCustomData.radarScannerScale); //0.5f * haloPulse
+                    DrawCircle(radarEntityPos, ringSize, radarUp, Color.WhiteSmoke, radarBrightness, false, false, 1.0f * pulseAlpha, 0.00035f * gHandler.localGridControlledEntityCustomData.radarScannerScale); //0.5f * haloPulse
                 }
 
                 if (gHandler.targetGrid != null && entityGrid == gHandler.targetGrid)
@@ -4088,7 +4115,7 @@ namespace EliDangHUD
                             ringSize = ringSize * 1.25f;
                         }
 
-                        DrawCircle(radarEntityPos, ringSize, holoUp, Color.WhiteSmoke, 1f, false, 1.0f * pulseAlpha, 0.0005f * holoRadarRadius); //0.5f * haloPulse
+                        DrawCircle(radarEntityPos, ringSize, holoUp, Color.WhiteSmoke, 1f, false, false, 1.0f * pulseAlpha, 0.0005f * holoRadarRadius); //0.5f * haloPulse
                     }
 
                     if (gHandler.targetGrid != null && entityGrid == gHandler.targetGrid)
@@ -4968,7 +4995,7 @@ namespace EliDangHUD
             deleteList.Clear();
         }
 
-        void DrawArc(Vector3D center, double radius, Vector3D planeDirection, float startAngle, float endAngle, Vector4 colorr, float width = 0.005f, float gap = 0)
+        void DrawArc(Vector3D center, double radius, Vector3D planeDirection, float startAngle, float endAngle, Vector4 color, float width = 0.005f, float gap = 0)
 		{
 			// Convert start and end angles from degrees to radians
 			double startRadians = Math.PI / 180 * startAngle;
@@ -5012,7 +5039,7 @@ namespace EliDangHUD
 				if (orbitPoints[i] != Vector3D.Zero && orbitPoints[i + 1] != Vector3D.Zero) // Check if points are set
 				{
 					Vector3D position = orbitPoints [i];
-					Vector4 color = colorr;
+					Vector4 drawColor = color;
 					if (GetRandomBoolean()) 
 					{
 						if (gHandler.localGridGlitchAmount > 0.001) {
@@ -5022,13 +5049,13 @@ namespace EliDangHUD
 							double dis2Cam = Vector3D.Distance (MyAPIGateway.Session.Camera.Position, position);
 
 							position += offsetRan * dis2Cam * glitchValue * 0.005;
-							color *= GetRandomFloat();
+							drawColor *= GetRandomFloat();
 						}
 					}
 
 					double dis = Vector3D.Distance(position, orbitPoints [(i + 1) % segments]);
 					Vector3D dir = Vector3D.Normalize(orbitPoints [(i + 1) % segments] - position);
-					MyTransparentGeometry.AddBillboardOriented(MaterialSquare,color, position,dir,left,(float)dis*gap,width);
+					MyTransparentGeometry.AddBillboardOriented(MaterialSquare,drawColor, position,dir,left,(float)dis*gap,width);
 				}
 			}
 		}
@@ -5040,7 +5067,7 @@ namespace EliDangHUD
 			Vector3 direction = point2 - point1;
 			float distanceToSegment = DistanceToLineSegment(cameraPosition, point1, point2);
 			float segmentThickness = lineThickness;//Math.Max(Remap(distanceToSegment, 1000f, 1000000f, 0f, 1000f) * lineThickness, 0f);
-			float dimmer = GlobalDimmer;//Clamped(Remap(distanceToSegment, -10000f, 10000000f, 1f, 0f), 0f, 1f) * GlobalDimmer;
+			float dimmer = OrbitDimmer;//Clamped(Remap(distanceToSegment, -10000f, 10000000f, 1f, 0f), 0f, 1f) * GlobalDimmer;
 
 			if (thicknessOverride != 0)
 				segmentThickness = thicknessOverride;
@@ -5989,8 +6016,12 @@ namespace EliDangHUD
         /// <param name="fontSize"></param>
         /// <param name="blockCount"></param>
         private void DrawHologramStatus(Vector3D hgPos, Vector3D shieldPos, Vector3D textPosOffset, double activationTime, double shieldLast, double shieldCurrent, double shieldMax, double healthCurrent, double healthMax, 
-			double deltaTime, double timeToReady, double fontSize)
+			double deltaTime, double timeToReady, double fontSize, bool isTarget)
         {
+            if (isTarget) 
+            {
+                //MyLog.Default.WriteLine($"FENIX_HUD: TargetGrid drawstatus healthCurrent = {healthCurrent}");
+            }
             // An alpha value that ramps up over time, used for boot-up effect
             double bootUpAlpha = activationTime;
             bootUpAlpha = ClampedD(bootUpAlpha, 0, 1);
@@ -6017,8 +6048,14 @@ namespace EliDangHUD
             hitPoints = Math.Round(hitPoints * 100 * bootUpAlpha);
 
             //hgPos_Right = worldRadarPos + radarMatrix.Right * radarRadius + radarMatrix.Left * HG_Offset.X + radarMatrix.Down * 0.0075 + (radarMatrix.Forward * fontSize * 2);
-            DrawArc(hgPos, 0.065, radarMatrix.Up, 0, 90 * ((float)hitPoints / 100) * (float)bootUpAlpha, gHandler.localGridControlledEntityCustomData.lineColor, 0.015f, 1f);
-
+            if (!isTarget)
+            {
+                DrawArc(hgPos, 0.065, radarMatrix.Up, 0, 90 * ((float)hitPoints / 100) * (float)bootUpAlpha, gHandler.localGridControlledEntityCustomData.lineColor, 0.015f, 1f);
+            }
+            else 
+            {
+                DrawArc(hgPos, 0.065, radarMatrix.Up, 368 - (88 * (float)hitPoints / 100) * (float)bootUpAlpha, 360, gHandler.localGridControlledEntityCustomData.lineColor, 0.015f, 1f);
+            }
             string hitPointsString = Convert.ToString(Math.Ceiling(healthCurrent / 100 * bootUpAlpha));
             Vector3D textPos = hgPos + (radarMatrix.Left * (hitPointsString.Length * fontSize)) + (radarMatrix.Up * fontSize) + (radarMatrix.Forward * fontSize * 0.5) + textPosOffset;
             DrawText(hitPointsString, fontSize, textPos, radarMatrix.Forward, gHandler.localGridControlledEntityCustomData.lineColor, gHandler.localGridControlledEntityCustomData.radarBrightness, 1f, false);
@@ -6046,13 +6083,13 @@ namespace EliDangHUD
                     double thicc = gHandler.hologramScaleFactor / (gHandler.localGrid.WorldVolume.Radius / gHandler.localGrid.GridSize);
                     float size = (float)gHandler.hologramScale * 0.65f * (float)thicc;
 
-                    DrawHologramFromClusters(gHandler.localGridBlockClusters, false, hologramDrawPosition, holoCenterPosition, initialColor, finalScalingAndRotationMatrix, size);
+                    DrawHologramFromClusters(gHandler.localGridBlockClusters, false, hologramDrawPosition, holoCenterPosition, initialColor, finalScalingAndRotationMatrix, size, (float)gHandler.hologramScale * 0.5f);
 
                     Vector3D hgPos_Right = worldRadarPos + radarMatrix.Right * gHandler.localGridControlledEntityCustomData.radarRadius + radarMatrix.Left * _hologramRightOffset_HardCode.X + radarMatrix.Down * 0.0075 + (radarMatrix.Forward * fontSize * 2);
                     Vector3D textPos_Offset = (radarMatrix.Left * 0.065);
                     Vector3D shieldPos_Right = worldRadarPos + radarMatrix.Left * -gHandler.localGridControlledEntityCustomData.radarRadius + radarMatrix.Left * _hologramRightOffset_HardCode.X + radarMatrix.Up * _hologramRightOffset_HardCode.Y + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
                     DrawHologramStatus(hgPos_Right, shieldPos_Right, textPos_Offset, gHandler.localGridHologramActivationTime, gHandler.localGridJumpDrivePowerStoredPrevious, gHandler.localGridJumpDrivePowerStored,
-                        gHandler.localGridJumpDrivePowerStoredMax, gHandler.localGridCurrentIntegrity, gHandler.localGridMaxIntegrity, gHandler.deltaTimeSinceLastTick, gHandler.localGridJumpDriveTimeToReady, fontSize);
+                        gHandler.localGridJumpDrivePowerStoredMax, gHandler.localGridCurrentIntegrity, gHandler.localGridMaxIntegrity, gHandler.deltaTimeSinceLastTick, gHandler.localGridJumpDriveTimeToReady, fontSize, false);
                 }
 
                 if (gHandler.localGridControlledEntityCustomData.enableHologramsTargetGrid && gHandler.targetGridInitialized && gHandler.targetGridBlocksInitialized && gHandler.targetGridBlockClusters != null)
@@ -6069,13 +6106,13 @@ namespace EliDangHUD
                     double thicc = gHandler.hologramScaleFactor / (gHandler.targetGrid.WorldVolume.Radius / gHandler.targetGrid.GridSize);
                     float size = (float)gHandler.hologramScale * 0.65f * (float)thicc;
 
-                    DrawHologramFromClusters(gHandler.targetGridBlockClusters, true, hologramDrawPosition, holoCenterPosition, initialColor, finalScalingAndRotationMatrix, size);
+                    DrawHologramFromClusters(gHandler.targetGridBlockClusters, true, hologramDrawPosition, holoCenterPosition, initialColor, finalScalingAndRotationMatrix, size, (float)gHandler.hologramScale * 0.5f);
                    
                     Vector3D hgPos_Left = worldRadarPos + radarMatrix.Left * gHandler.localGridControlledEntityCustomData.radarRadius + radarMatrix.Right * _hologramRightOffset_HardCode.X + radarMatrix.Down * 0.0075 + (radarMatrix.Forward * fontSize * 2);
                     Vector3D textPos_Offset = (radarMatrix.Right * 0.065);
                     Vector3D shieldPos_Left = worldRadarPos + radarMatrix.Right * -gHandler.localGridControlledEntityCustomData.radarRadius + radarMatrix.Right * _hologramRightOffset_HardCode.X + radarMatrix.Up * _hologramRightOffset_HardCode.Y + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
                     DrawHologramStatus(hgPos_Left, shieldPos_Left, textPos_Offset, gHandler.targetGridHologramActivationTime, gHandler.targetGridJumpDrivePowerStoredPrevious, gHandler.targetGridJumpDrivePowerStored,
-                        gHandler.targetGridJumpDrivePowerStoredMax, gHandler.targetGridCurrentIntegrity, gHandler.targetGridMaxIntegrity, gHandler.deltaTimeSinceLastTick, gHandler.targetGridJumpDriveTimeToReady, fontSize);
+                        gHandler.targetGridJumpDrivePowerStoredMax, gHandler.targetGridCurrentIntegrity, gHandler.targetGridMaxIntegrity, gHandler.deltaTimeSinceLastTick, gHandler.targetGridJumpDriveTimeToReady, fontSize, true);
                 }
             }
         }
@@ -6121,7 +6158,7 @@ namespace EliDangHUD
                             colorPalletHoloTable = gHandler.BuildIntegrityColors(theData.lineColor * 0.5f);
                         }
 
-                        DrawHologramFromClusters(gHandler.localGridBlockClusters, false, holoTablePos, holoCenterPosition, initialColor, finalScalingAndRotationMatrix, size);
+                        DrawHologramFromClusters(gHandler.localGridBlockClusters, false, holoTablePos, holoCenterPosition, initialColor, finalScalingAndRotationMatrix, size, (float)theData.holoScale * 0.5f);
                     }
                 }
             }
@@ -6148,22 +6185,22 @@ namespace EliDangHUD
 				if (yShieldPer1 > 0.01) 
 				{
 					dotty = yShieldPer1 < 0.25;
-					DrawCircle(pos, 0.08 - (1 - boot3) * 0.08, dir, gHandler.localGridControlledEntityCustomData.lineColorComp * (float)Math.Ceiling (boot3), gHandler.localGridControlledEntityCustomData.radarBrightness, dotty, 1, 0.001f * (float)yShieldPer1);
+					DrawCircle(pos, 0.08 - (1 - boot3) * 0.08, dir, gHandler.localGridControlledEntityCustomData.lineColorComp * (float)Math.Ceiling (boot3), gHandler.localGridControlledEntityCustomData.radarBrightness, dotty, false, 1, 0.001f * (float)yShieldPer1);
 				}
 				if (yShieldPer2 > 0.01) 
 				{
 					dotty = yShieldPer2 < 0.25;
-					DrawCircle(pos, 0.085 - (1-boot2)*0.085, dir, gHandler.localGridControlledEntityCustomData.lineColorComp * (float)Math.Ceiling(boot2), gHandler.localGridControlledEntityCustomData.radarBrightness, dotty, 1, 0.001f * (float)yShieldPer2);
+					DrawCircle(pos, 0.085 - (1-boot2)*0.085, dir, gHandler.localGridControlledEntityCustomData.lineColorComp * (float)Math.Ceiling(boot2), gHandler.localGridControlledEntityCustomData.radarBrightness, dotty, false, 1, 0.001f * (float)yShieldPer2);
 				}
 				if (yShieldPer3 > 0.01) 
 				{
 					dotty = yShieldPer3 < 0.25;
-					DrawCircle(pos, 0.09 - (1-boot1)*0.09, dir, gHandler.localGridControlledEntityCustomData.lineColorComp * (float)Math.Ceiling(boot1), gHandler.localGridControlledEntityCustomData.radarBrightness, dotty, 1, 0.001f * (float)yShieldPer3);
+					DrawCircle(pos, 0.09 - (1-boot1)*0.09, dir, gHandler.localGridControlledEntityCustomData.lineColorComp * (float)Math.Ceiling(boot1), gHandler.localGridControlledEntityCustomData.radarBrightness, dotty, false, 1, 0.001f * (float)yShieldPer3);
 				}
 			}
 			else
 			{
-				DrawCircle(pos, 0.08, dir, new Vector4(1,0,0,1), 1f, true, 0.5f, 0.001f);
+				DrawCircle(pos, 0.08, dir, new Vector4(1,0,0,1), 1f, true, false, 0.5f, 0.001f);
 			}
 
 			double fontSize = 0.005;
@@ -6286,7 +6323,7 @@ namespace EliDangHUD
         // TODO adjust the size a bit, it seems when we mix small clusters with big clusters there is a bit of a gap between them, but clusters of the same size fit perfectly with each other? 
         // TODO decide if the facing axis logic is worth the oddness of trying to keep it square? Odd angles cause weird fluctuations?
         private void DrawHologramFromClusters(Dictionary<Vector3I, BlockCluster> blockClusters, bool isTarget, Vector3D hologramDrawPosition, Vector3D holoCenterPosition, Vector4 initialColor, 
-            MatrixD finalScalingAndRotationMatrix, float size) 
+            MatrixD finalScalingAndRotationMatrix, float size, float scale) 
         {
             IMyCamera camera = MyAPIGateway.Session.Camera;
             Vector3D AxisLeft = camera.WorldMatrix.Left;
@@ -6310,6 +6347,9 @@ namespace EliDangHUD
             //float size = (float)gHandler.hologramScale * 0.65f * (float)thicc * (isTarget ? gHandler.targetGridClusterSize : gHandler.localGridClusterSize);
 
             MyStringId drawMaterial = MaterialSquare;
+
+            float projectorRatio = Math.Min(0.5f, 100f / blockClusters.Count); // Clamp at max of 50% of the time, but base it around trying to draw around 100 projector lines.
+                                                                               // For larger grids it will limit it at 100 lines. But for smaller grids it will draw only 50% of the time so the lines still look good.
 
             foreach (KeyValuePair<Vector3I, BlockCluster> blockClusterKeyPair in blockClusters) 
             {
@@ -6397,11 +6437,11 @@ namespace EliDangHUD
                             drawSize,
                             MyBillboard.BlendTypeEnum.AdditiveBottom);
 
-                if (GetRandomFloat() > 0.9f)
+                if (GetRandomFloat() < projectorRatio)
                 {
                     Vector3D holoDir = Vector3D.Normalize(clusterDrawPosition - holoCenterPosition);
                     double holoLength = Vector3D.Distance(holoCenterPosition, clusterDrawPosition);
-                    DrawLineBillboard(MaterialSquare, initialColor * 0.15f * (float)bootUpAlpha, holoCenterPosition, holoDir, (float)holoLength, 0.0025f, BlendTypeEnum.AdditiveBottom);
+                    DrawLineBillboard(MaterialSquare, initialColor * 0.15f * (float)bootUpAlpha, holoCenterPosition, holoDir, (float)holoLength, scale, BlendTypeEnum.AdditiveBottom);
                 }
             }
         }
@@ -6708,7 +6748,7 @@ namespace EliDangHUD
 			Vector3D pos = getToolbarPos();
 			//two arcs
 
-			DrawCircle(pos, 0.01, radarMatrix.Forward, gHandler.localGridControlledEntityCustomData.lineColor, gHandler.localGridControlledEntityCustomData.radarBrightness, false, 0.25f, 0.001f); // Center Dot
+			DrawCircle(pos, 0.01, radarMatrix.Forward, gHandler.localGridControlledEntityCustomData.lineColor, gHandler.localGridControlledEntityCustomData.radarBrightness, false, false, 0.25f, 0.001f); // Center Dot
 			DrawToolbarBack(pos);			// Left
 			DrawToolbarBack(pos, true);	// Right
 		}
