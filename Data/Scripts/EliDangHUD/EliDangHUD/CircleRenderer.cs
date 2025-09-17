@@ -148,10 +148,11 @@ clusters, and denser regions will be represented by one larger square. Eg. at cl
 Goal is to preserve fidelity for sparse regions, but cluster dense regions for performance. 
 DONE: Added occlusion culling for the interior of holograms, so those clusters aren't drawn if they are completely enclosed by other clusters.
 DONE: Wrap orbit lines in a customdata setting, and also toggle off completely at global level.
+DONE: Fix Target integrity arc direction. Also fix integrity calculations on IntegrityChange and on BlockRemoved. 
+DONE: Make unpowered grids have a darker icon on radar
 
 --TODO--
-TODO: Fix target integrity arc (and likely shields too), should be inverted??
-TODO: Make unpowered grids have a darker icon on radar
+TODO: Fix the maxSpeed variable, it should load the max speed for the localGrid's gridsize from the world. 
 TODO: Add sprite billboards for different block types. Would love if Turrets, fixed weapons, torpedos/missiles etc. have custom material drawn. Same for reactors, batteries, hydrogen tanks, engines/thrusters.
 TODO: Could I make clusterblocks even better? Smaller squares for more fidelity for blocks that can't be clustered (Currently included separately already but drawn at larger size). 
 I could even try to do "only the outside" layer for armor blocks, then only the other blocks mentioned above (turrets, batteries etc). 
@@ -162,6 +163,8 @@ TODO: Make holograms show more data, weapons, effective range, DPS?
 TODO: Make radar sprites show more data for selected target. Eg. when you pick a target the radar screen has an "effective range" bubble for the target. 
 TODO: Add chat commands to edit/update settings that otherwise must be written to the xml in world storage. Remember to refresh GridHelpers settings as well as CircleRenderer when changed.
 TODO: Polishing pass - add summaries to methods etc. It's becoming less documented as I go haha. 
+TODO: Waypoint system with GPS. Would show on screen and on radar. Could we do something global that syncs between players? So a CIC could set waypoints or even pin radar pings?
+TODO: Maybe a lightweight player hud that matches this, we could keep default toolbar but hide other elements. 
 
 
 TODO: I'd like to do further settings to allow users to more specifically choose to filter our floating items of name 'Stone' for eg, or only voxels (asteroids and deposits) of certain types or sizes even. 
@@ -299,24 +302,32 @@ namespace EliDangHUD
     {
         public VRage.Game.ModAPI.IMySlimBlock Block;
         public Vector3D DrawPosition;
-        public float lastCurrentIntegrity;
+        public float LastCurrentIntegrity;
+        public BlockClusterType ClusterType = BlockClusterType.Structure;
+        public int ClusterSize = 1;
     }
     public enum BlockClusterType
     {
         Structure = 0,
-        Turret = 1,
-        FixedWeapon = 2,
-        Missile = 3,
-        Reactor = 4,
-        Battery = 5,
-        Antenna = 6,
-        IonThruster = 7,
-        HydrogenThruster = 8,
-        AtmosphericThruster = 9,
-        HydrogenTank = 10,
-        OxygenTank = 11,
-        JumpDrive = 12,
-        Shield = 13
+        PDC = 1,
+        Railgun = 2,
+        MediumBallistic = 3,
+        LargeBallistic = 4,
+        EnergyWeapon = 5,
+        Torpedo = 6,
+        Missile = 7,
+        Reactor = 8,
+        Battery = 9,
+        Antenna = 10,
+        IonThruster = 11,
+        HydrogenThruster = 12,
+        AtmosphericThruster = 13,
+        HydrogenTank = 14,
+        OxygenTank = 15,
+        JumpDrive = 16,
+        Shield = 17,
+        SolarPanel = 18,
+        PowerProducer = 19
     }
     public class BlockCluster
     {
@@ -1077,7 +1088,6 @@ namespace EliDangHUD
         /// </summary>
         private void DrawPower() 
 		{
-
 			Vector4 color = gHandler.localGridControlledEntityCustomData.lineColor;
             float brightness = gHandler.localGridControlledEntityCustomData.radarBrightness;
 
@@ -1403,6 +1413,9 @@ namespace EliDangHUD
 			return dust;
 		}
 
+        /// <summary>
+        /// Draw the dust effect on screen.
+        /// </summary>
 		private void DrawDust()
 		{
 			if (dustList.Count > 0)
@@ -1834,19 +1847,12 @@ namespace EliDangHUD
                 VRage.Game.ModAPI.IMyCubeGrid entityGrid = entity as VRage.Game.ModAPI.IMyCubeGrid;
                 if (entityGrid != null)
                 {
+                    radarPings[entity].RadarPingHasPower = HasPowerProduction(entityGrid);
                     // Store whether radar ping is powered regardless of whether we only show powered or not, in case we want to do something like make the non powered
                     // grids darker and powered ones lighter. Then we check if _onlyPoweredGrids is true and we don't have power for current entity we skip it. 
-                    if (onlyPowered) // Only check power if we are set to only show powered grids to save cycles. 
+                    if (onlyPowered && !radarPings[entity].RadarPingHasPower)
                     {
-                        radarPings[entity].RadarPingHasPower = HasPowerProduction(entityGrid);
-                        if (!radarPings[entity].RadarPingHasPower)
-                        {
-                            continue;
-                        }
-                    }
-                    else
-                    {
-                        radarPings[entity].RadarPingHasPower = true;
+                        continue;
                     }
                 }
 
@@ -1910,6 +1916,9 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// Lightweight update for when we aren't directly controlling a grid. 
+        /// </summary>
         public void UpdateRadarDetectionsHoloTable()
         {
             IMyCharacter character = MyAPIGateway.Session.Player?.Character;
@@ -1972,21 +1981,13 @@ namespace EliDangHUD
                 VRage.Game.ModAPI.IMyCubeGrid entityGrid = entity as VRage.Game.ModAPI.IMyCubeGrid;
                 if (entityGrid != null)
                 {
+                    radarPings[entity].RadarPingHasPower = HasPowerProduction(entityGrid);
                     // Store whether radar ping is powered regardless of whether we only show powered or not, in case we want to do something like make the non powered
                     // grids darker and powered ones lighter. Then we check if _onlyPoweredGrids is true and we don't have power for current entity we skip it. 
-                    if (onlyPowered) // Only check power if at least one holo table is set to only show powered grids, to save cycles when not needed.
+                    if (onlyPowered && !radarPings[entity].RadarPingHasPower) // Only check power if at least one holo table is set to only show powered grids, to save cycles when not needed.
                     {
-                        radarPings[entity].RadarPingHasPower = HasPowerProduction(entityGrid);
-                        if (!radarPings[entity].RadarPingHasPower)
-                        {
-                            continue;
-                        }
+                        continue;
                     }
-                    else
-                    {
-                        radarPings[entity].RadarPingHasPower = true;
-                    }
-
                 }
 
                 bool playerCanDetect = false;
@@ -2056,6 +2057,9 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// Update values for the Velocity Lines.
+        /// </summary>
         public void UpdateVelocityLines() 
 		{
             ControlDimmer += 0.05f;
@@ -2082,6 +2086,9 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// Draw velocity lines and planet orbits if applicable.
+        /// </summary>
 		public void DrawVelocityLinesAndPlanetOrbits()
 		{
             if (theSettings.enableVelocityLines && gHandler.localGridControlledEntityCustomData.enableVelocityLines && (float)gHandler.localGridSpeed > gHandler.localGridControlledEntityCustomData.velocityLineSpeedThreshold)
@@ -3760,14 +3767,14 @@ namespace EliDangHUD
 
                 // Set drawMaterial based on type of entity/relationship.
                 MyStringId drawMat = radarPings[entity].Material;
-
+                float powerDimmer = !radarPings[entity].RadarPingHasPower ? 0.5f : 1.0f;
                 // Draw each entity as a billboard on the radar
                 float blipSize = 0.004f * fadeDimmer * radarPings[entity].Width * gHandler.localGridControlledEntityCustomData.radarScannerScale; // Scale blip size based on radar scale
                 Vector3D blipPos = radarEntityPos + (lineDir * vertDistance);
                 // Draw the blip with vertical elevation +/- relative to radar plane, with line connecting it to the radar plane.
                 DrawLineBillboard(MaterialSquare, color_Current * 0.25f * fadeDimmer * pulseTimer, radarEntityPos, lineDir, vertDistance, 0.001f * fadeDimmer);
                 DrawQuad(blipPos, radarUp, blipSize * 0.75f, MaterialCircle, color_Current * upDownDimmer * 0.5f * pulseTimer * 0.5f); // Add blip "shadow" on radar plane
-                MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize);
+                MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * powerDimmer * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize);
 
                 // DONE UNTESTED: need to check that they have it AND it can reach us, if we aren't being painted by it don't show it. For situations where our active radar is set far enough to pickup grids
                 // that also have active radar and thus the bool would be true but it's range is low enough they can't reach us (see us). As in only show grids that can see us. 
@@ -4081,6 +4088,7 @@ namespace EliDangHUD
 
                     // Set drawMaterial based on type of entity/relationship.
                     MyStringId drawMat = radarPings[entity].Material;
+                    float powerDimmer = !radarPings[entity].RadarPingHasPower ? 0.5f : 1.0f;
 
                     // Draw each entity as a billboard on the radar
                     float blipSize = 0.015f * fadeDimmer * radarPings[entity].Width * holoRadarRadius; // was 0.005f
@@ -4094,15 +4102,14 @@ namespace EliDangHUD
                         blipSize = blipSize * 0.66f;
                         //DrawLineBillboard(MaterialSquare, color_Current * 0.25f * fadeDimmer * pulseTimer, radarEntityPos, lineDir, vertDistance, 0.004f * fadeDimmer);
                         DrawQuad(blipPos, holoUp, holoRadarRadius * 1.15f, MaterialCircle, radiusColor * 0.5f); // Add blip "shadow" on radar plane
-                        MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize);
+                        MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * powerDimmer * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize);
                     }
                     else
                     {
                         DrawLineBillboard(MaterialSquare, color_Current * 0.25f * fadeDimmer * pulseTimer, radarEntityPos, lineDir, vertDistance, 0.004f * fadeDimmer);
                         DrawQuad(blipPos, holoUp, blipSize * 0.75f, MaterialCircle, color_Current * upDownDimmer * 0.5f * pulseTimer * 0.5f);
                         // Add blip "shadow" on radar plane
-                        MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize);
-
+                        MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * powerDimmer * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize);
                     }
 
                     if (radarPings[entity].RadarPingHasActiveRadar && radarPings[entity].RadarPingDistanceSqr <= (radarPings[entity].RadarPingMaxActiveRange * radarPings[entity].RadarPingMaxActiveRange))
@@ -4676,8 +4683,7 @@ namespace EliDangHUD
 
                 if (gridEntity != null)
                 {
-                    //double gridWidth = gridEntity.PositionComp.WorldVolume.Radius;
-                    ping.Width = 2f; //(float)gridWidth / 25;
+                    
 
                     // Get Grid size (Large/Small and block count).
                     MyCubeGrid cubeGrid = gridEntity as MyCubeGrid;
@@ -4687,7 +4693,7 @@ namespace EliDangHUD
                     }
                     ping.GridCubeSize = gridEntity.GridSizeEnum;
                     ping.Material = GetBlipMaterial(ping.BlockCount, ping.GridCubeSize);
-
+                    ping.Width = ping.GridCubeSize == MyCubeSize.Small ? 1.5f : 2.0f;
 
                     long lpID = GetLocalPlayerId();
                     if (lpID != -1)
@@ -6159,6 +6165,8 @@ namespace EliDangHUD
                         }
 
                         DrawHologramFromClusters(gHandler.localGridBlockClusters, false, holoTablePos, holoCenterPosition, initialColor, finalScalingAndRotationMatrix, size, (float)theData.holoScale * 0.5f);
+                        initialColor =  new Vector4(0.0f, 1.0f, 0.0f, 1f);
+                        DrawHologramFromClusters(gHandler.localGridSpecialBlockClusters, false, holoTablePos, holoCenterPosition, initialColor, finalScalingAndRotationMatrix, size, (float)theData.holoScale * 0.5f);
                     }
                 }
             }

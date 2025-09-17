@@ -1,5 +1,10 @@
+using Sandbox.Definitions;
 using Sandbox.Game.Entities;
+using Sandbox.Game.Entities.Cube;
+using Sandbox.Game.Weapons;
 using Sandbox.ModAPI;
+using SpaceEngineers.Game.Entities.Weapons;
+using SpaceEngineers.Game.ModAPI;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -186,6 +191,10 @@ namespace EliDangHUD
         public Dictionary<Vector3I, MatrixD> localGridHologramTerminalRotations = new Dictionary<Vector3I, MatrixD>();
         // TODO add shield generators from shield mods? Midnight something or other was a new one I saw?
 
+        public Dictionary<Vector3I, GridBlock> localGridStructureBlocksDict = new Dictionary<Vector3I, GridBlock>();
+        public Dictionary<Vector3I, GridBlock> localGridSpecialBlocksDict = new Dictionary<Vector3I, GridBlock>();
+        public Dictionary<Vector3I, BlockCluster> localGridSpecialBlockClusters = new Dictionary<Vector3I, BlockCluster>();
+
         public Dictionary<Vector3I, IMyRadioAntenna> localGridAntennasDict = new Dictionary<Vector3I, IMyRadioAntenna>();
         public bool localGridHasPassiveRadar = false;
         public bool localGridHasActiveRadar = false;
@@ -318,6 +327,34 @@ namespace EliDangHUD
             return tank.Capacity > 0 && (tank.DetailedInfo.Contains("Oxygen") || tank.DefinitionDisplayNameText.Contains("Oxygen") || tank.BlockDefinition.SubtypeName.Contains("Oxygen"));
         }
 
+
+        /*
+        "Energy Weapon" seems to be a string mentioned in all energy weapons, they may also contain words like cannon eg. laser cannon. So search for energy first and if not then search for other terms.
+        "PD Laser" for pdc lasers seems common
+        Autocannon
+        PDC or "Gattling" "rotary cannon" "Point Defence Cannon" for pdc
+        cannon
+        railgun or gauss
+        missile/rocket
+        torpedo
+
+        We seem to have fixed "energy weapon", cannon, missile/rocket, torpedo, railgun/gauss, autocannon
+        Then turreted "energy weapon", cannon, missile/rocket, torpedo, railgun/gauss, autocannon, PDC/"gattling"/"rotary cannon"/"point defence cannon"
+
+        So we could do fixed or turret
+        then energy weapon or else
+        then specific type, and fallback on "cannon" type/icon for everything else.
+
+
+
+        (tank.DetailedInfo.Contains("Oxygen") || tank.DefinitionDisplayNameText.Contains("Oxygen") || tank.BlockDefinition.SubtypeName.Contains("Oxygen")
+         IMyCubeBlock fat = block.FatBlock;
+        if (fat is IMyLargeTurretBase) return BlockClusterType.Turret;
+            if (fat is IMyUserControllableGun) return BlockClusterType.FixedWeapon;
+         */
+        
+
+
         public int GetIntegrityIndex(float integrityRatio)
         {
             int sliceIndex = 0;
@@ -417,8 +454,201 @@ namespace EliDangHUD
             return normalizedVelocity * maxAngle;
         }
 
-        
-        
+
+        private BlockClusterType GetClusterType(IMySlimBlock block)
+        {
+            IMyCubeBlock fatBlock = block.FatBlock;
+            if (fatBlock == null)
+            {
+                return BlockClusterType.Structure;
+            }
+
+            IMyLargeTurretBase largeTurretBase = fatBlock as IMyLargeTurretBase;
+            IMySmallMissileLauncher smallMissileLauncher = fatBlock as IMySmallMissileLauncher;
+            IMySmallGatlingGun smallGatlingGun = fatBlock as IMySmallGatlingGun;
+            IMyConveyorSorter conveyorSorter = fatBlock as IMyConveyorSorter;
+
+            MyCubeBlockDefinition blockDefinition = MyDefinitionManager.Static.GetCubeBlockDefinition(fatBlock.BlockDefinition);
+            string blockName = blockDefinition.DisplayNameText.ToLower();
+            string blockDescription = blockDefinition.DescriptionText.ToLower();
+            ;
+
+            // Alright, due to how modders are adding weapons as ConveyorSorters we need to do some funky checks...
+            // I can add most using IMyLargeTurretBase etc. and the rest as IMyConveyorSorter however I need to check that it isn't a REAL conveyor or sorter. 
+            // There might be modded conveyors or sorters that cause issues but I'll do my best, and if one ends up being picked up as a weapon I guess we deal with it at that point. 
+            // It also turns out the distinction between fixed and turret gets blurred with the ConveyorSorter which a lot of amazing mods use, so I'll scrap that and just track weapons in general.
+
+            bool isWeapon = false;
+            if (largeTurretBase != null)
+            {
+                isWeapon = true;
+            }
+            else if (smallMissileLauncher != null)
+            {
+                isWeapon = true;
+            }
+            else if (smallGatlingGun != null)
+            {
+                isWeapon = true;
+            }
+            else if (conveyorSorter != null)
+            {
+                string blockPairName = blockDefinition.BlockPairName.ToString().ToLower();
+                if (!(blockPairName.Contains("conveyor") || blockPairName.Contains("sorter")))
+                {
+                    isWeapon = true;
+                }
+            }
+
+            if (isWeapon)
+            {
+                // What kind of weapon?
+                // Check PDC First as it's finnicky. Lots of missiles use "vulnerable to point defence" in the description but not usually "point defence cannon"
+                if (blockName.Contains("pdc") || blockName.Contains("gatling") ||
+                    blockName.Contains("pd laser") || blockName.Contains("rotary cannon") ||
+                    blockName.Contains("point defence cannon") || blockName.Contains("ciws") ||
+                    blockDescription.Contains("pdc") ||
+                    blockDescription.Contains("gatling") || blockDescription.Contains("pd laser") ||
+                    blockDescription.Contains("rotary cannon") || blockDescription.Contains("point defence cannon") ||
+                    blockDescription.Contains("point defence laser") || blockDescription.Contains("ciws"))
+                {
+                    return BlockClusterType.PDC;
+                }
+                // Check railgun and gauss next, because they might be called railgun CANNON or gauss CANNON and we want to filter these out first before checking for cannon.
+                else if (blockName.Contains("railgun") || blockName.Contains("rail gun") ||
+                    blockName.Contains("gauss") ||
+                    blockDescription.Contains("railgun") || blockDescription.Contains("rail gun") ||
+                    blockDescription.Contains("gauss"))
+                {
+                    return BlockClusterType.Railgun;
+                }
+                // Check autocannon or flak next, for medium ballistic or small grid anti-fighter type weapons
+                else if (blockName.Contains("autocannon") || blockName.Contains("flak") ||
+                    blockDescription.Contains("autocannon") || blockDescription.Contains("flak"))
+                {
+                    return BlockClusterType.MediumBallistic;
+                }
+                // Check energy weapon next, as it might be an "energy cannon" like a laser cannon or phase cannon, before we match on cannon itself.
+                else if (blockName.Contains("laser") || blockName.Contains("plasma") || blockName.Contains("particle") ||
+                    blockName.Contains("beam") || blockName.Contains("disruptor") ||
+                    blockName.Contains("ion") || blockName.Contains("tesla") ||
+                    blockName.Contains("quantum") || blockName.Contains("graviton") ||
+                    blockDescription.Contains("energy weapon") || blockDescription.Contains("laser") ||
+                    blockDescription.Contains("plasma") || blockDescription.Contains("particle") ||
+                    blockDescription.Contains("beam") || blockDescription.Contains("shock cannon") ||
+                    blockDescription.Contains("phase cannon") || blockDescription.Contains("disruptor") ||
+                    blockDescription.Contains("ion") || blockDescription.Contains("tesla") ||
+                    blockDescription.Contains("quantum") || blockDescription.Contains("graviton"))
+                {
+                    return BlockClusterType.EnergyWeapon;
+                }
+                // Check ballistic weapon
+                else if (blockName.Contains("cannon") || blockName.Contains("gun") ||
+                    blockName.Contains("artillery") || blockName.Contains("bombard") ||
+                    blockDescription.Contains("cannon") || blockDescription.Contains("gun") ||
+                    blockDescription.Contains("artillery") || blockDescription.Contains("bombard"))
+                {
+                    return BlockClusterType.LargeBallistic;
+                }
+                // Check Torpedo
+                else if (blockName.Contains("torpedo") || blockDescription.Contains("torpedo"))
+                {
+                    return BlockClusterType.Torpedo;
+                }
+                // Check Missile/Rocket
+                else if (blockName.Contains("missile") || blockName.Contains("rocket") ||
+                    blockDescription.Contains("missile") || blockDescription.Contains("rocket"))
+                {
+                    return BlockClusterType.Missile;
+                }
+                // Fallback on Ballistic weapon
+                else
+                {
+                    return BlockClusterType.LargeBallistic;
+                }
+            }
+            else
+            {
+                // If not a weapon, is it another special block we want to draw separately on hologram?
+                IMyGasTank tank = fatBlock as IMyGasTank;
+                if (tank != null)
+                {
+                    if (IsHydrogenTank(tank))
+                    {
+                        return BlockClusterType.HydrogenTank;
+                    }
+                    if (IsOxygenTank(tank))
+                    {
+                        return BlockClusterType.OxygenTank;
+                    }
+                }
+
+                IMyPowerProducer producer = fatBlock as IMyPowerProducer;
+                IMyBatteryBlock battery = fatBlock as IMyBatteryBlock;
+                if (producer != null)
+                {
+                    IMyReactor reactor = fatBlock as IMyReactor;
+                    IMySolarPanel solar = fatBlock as IMySolarPanel;
+                    if (reactor != null)
+                    {
+                        return BlockClusterType.Reactor;
+                    }
+                    else if (solar != null)
+                    {
+                        return BlockClusterType.SolarPanel;
+                    }
+                    else
+                    {
+                        return BlockClusterType.PowerProducer; // Engine? Other?
+                    }
+                }
+                else if (battery != null)
+                {
+                    return BlockClusterType.Battery;
+                }
+
+                IMyJumpDrive jumpDrive = fatBlock as IMyJumpDrive;
+                if (jumpDrive != null)
+                {
+                    return BlockClusterType.JumpDrive;
+                }
+
+                IMyRadioAntenna antenna = fatBlock as IMyRadioAntenna;
+                if (antenna != null)
+                {
+                    return BlockClusterType.Antenna;
+                }
+
+                IMyThrust thruster = fatBlock as IMyThrust;
+                if (thruster != null)
+                {
+                    if (blockName.Contains("hydrogen") || blockDescription.Contains("hydrogen"))
+                    {
+                        return BlockClusterType.HydrogenThruster;
+                    }
+                    else if (blockName.Contains("ion") || blockDescription.Contains("ion"))
+                    {
+                        return BlockClusterType.IonThruster;
+                    }
+                    else if (blockName.Contains("atmospheric") || blockDescription.Contains("atmospheric"))
+                    {
+                        return BlockClusterType.AtmosphericThruster;
+                    }
+                    else
+                    {
+                        return BlockClusterType.HydrogenThruster;
+                    }
+                }
+
+                // TODO Add the Shield type from perhaps midnight systems?
+            }
+            // Failsafe if nothing else matches
+            return BlockClusterType.Structure;
+        }
+
+
+
+
         private void OnLocalBlockAdded(VRage.Game.ModAPI.IMySlimBlock block)
         {
             if (localGridBlocksInitialized && localGrid != null) // Safety check
@@ -436,7 +666,7 @@ namespace EliDangHUD
                 GridBlock gridBlock = new GridBlock();
                 gridBlock.Block = block;
                 gridBlock.DrawPosition = blockScaledInvertedPosition;
-                gridBlock.lastCurrentIntegrity = block.Integrity;
+                gridBlock.LastCurrentIntegrity = block.Integrity;
 
                 localGridAllBlocksDict[block.Position] = gridBlock;
 
@@ -520,6 +750,129 @@ namespace EliDangHUD
                 {
                     localGridJumpDrivesDict[block.Position] = jumpDrive;
                 }
+
+                IMyCubeBlock fatBlock = block.FatBlock;
+                int clusterSize = 1;
+                if (fatBlock != null)
+                {
+                    MyCubeBlockDefinition blockDefinition = MyDefinitionManager.Static.GetCubeBlockDefinition(block.FatBlock.BlockDefinition);
+                    Vector3I blockDimensions = blockDefinition.Size; // (X,Y,Z) block dimensions in grid cells
+                    clusterSize = (int)Math.Truncate((blockDimensions.X + blockDimensions.Y + blockDimensions.Z) / 3.0d); // Actually lets use average and round down (really truncate).
+                    //Math.Min(Math.Min(blockDimensions.X, blockDimensions.Y), blockDimensions.Z); // Use the smallest, so a 2x5x1 block becomes a cluster size of 1.
+                }
+
+                
+                BlockClusterType clusterType = GetClusterType(block);
+                switch (clusterType) 
+                {
+                    case BlockClusterType.Structure:
+                        gridBlock.ClusterSize = 1;
+                        gridBlock.ClusterType = clusterType;
+                        localGridStructureBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.PDC:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Railgun:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.MediumBallistic:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.LargeBallistic:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.EnergyWeapon:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Torpedo:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Missile:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Reactor:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Battery:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.SolarPanel:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.PowerProducer:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Antenna:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.IonThruster:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.HydrogenThruster:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.AtmosphericThruster:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.HydrogenTank:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.OxygenTank:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.JumpDrive:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Shield:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    default:
+                        // Structure
+                        gridBlock.ClusterSize = 1;
+                        gridBlock.ClusterType = BlockClusterType.Structure;
+                        localGridStructureBlocksDict[block.Position] = gridBlock;
+                        break;
+                }
+
                 //localGridCurrentIntegrity += block.Integrity;
                 //localGridMaxIntegrity += block.MaxIntegrity;
                 localGridIntegrityNeedsRefresh = true;
@@ -529,7 +882,6 @@ namespace EliDangHUD
                 localGridClusterBuildState = null;
                 localGridClusterBlocksUpdateTicksCounter = 0;
                 localGridClustersNeedRefresh = true; // In case we are using block clusters instead of slices
-                
             }
         }
 
@@ -634,9 +986,9 @@ namespace EliDangHUD
                         block = gridBlock.Block;
                         if (block != null)
                         {
-                            float integrityDiff = block.Integrity - gridBlock.lastCurrentIntegrity; //newIntegrity - oldIntegrity;
+                            float integrityDiff = block.Integrity - gridBlock.LastCurrentIntegrity; //newIntegrity - oldIntegrity;
                             localGridCurrentIntegrity += integrityDiff;
-                            gridBlock.lastCurrentIntegrity = block.Integrity;
+                            gridBlock.LastCurrentIntegrity = block.Integrity;
 
                             // If we are using block clusters we can update the integrity of the cluster this block belongs to. 
                             Vector3I clusterKey;
@@ -796,7 +1148,7 @@ namespace EliDangHUD
                 GridBlock gridBlock = new GridBlock();
                 gridBlock.Block = block;
                 gridBlock.DrawPosition = blockScaledInvertedPosition;
-                gridBlock.lastCurrentIntegrity = block.Integrity;
+                gridBlock.LastCurrentIntegrity = block.Integrity;
 
                 targetGridAllBlocksDict[block.Position] = gridBlock;
 
@@ -833,11 +1185,7 @@ namespace EliDangHUD
                 
                 targetGridClusterBuildState = null;
                 targetGridClusterBlocksUpdateTicksCounter = 0;
-                targetGridClustersNeedRefresh = true; // In case we are using block clusters instead of slices
-
-
-                
-                
+                targetGridClustersNeedRefresh = true; 
             }
         }
 
@@ -905,9 +1253,9 @@ namespace EliDangHUD
                         block = gridBlock.Block;
                         if (block != null)
                         {
-                            float integrityDiff = block.Integrity - gridBlock.lastCurrentIntegrity; //newIntegrity - oldIntegrity;
+                            float integrityDiff = block.Integrity - gridBlock.LastCurrentIntegrity; //newIntegrity - oldIntegrity;
                             targetGridCurrentIntegrity += integrityDiff;
-                            gridBlock.lastCurrentIntegrity = block.Integrity;
+                            gridBlock.LastCurrentIntegrity = block.Integrity;
 
                             // If we are using block clusters we can updaste the integrity of the cluster this block belongs to. 
                             Vector3I clusterKey;
@@ -1088,7 +1436,7 @@ namespace EliDangHUD
                 GridBlock gridBlock = new GridBlock();
                 gridBlock.Block = block;
                 gridBlock.DrawPosition = blockScaledInvertedPosition;
-                gridBlock.lastCurrentIntegrity = block.Integrity;
+                gridBlock.LastCurrentIntegrity = block.Integrity;
 
                 targetGridAllBlocksDict[block.Position] = gridBlock;
 
@@ -1234,7 +1582,7 @@ namespace EliDangHUD
 
                 
                 // On initialization we start a build, but set the number of clusters to process to an amount sufficient to build the whole hologram in one go. 
-                localGridClusterSize = GetClusterSize(localGridAllBlocksDict.Count, theSettings.blockCountClusterStep);
+                localGridClusterSize = GetClusterSize(localGridStructureBlocksDict.Count, theSettings.blockCountClusterStep);
                 int minClusterSize = (localGridClusterSize - theSettings.blockClusterAddlMin) > 0 ? (localGridClusterSize - theSettings.blockClusterAddlMin) : 1;
                 int maxClusterSize = localGridClusterSize + theSettings.blockClusterAddlMax;
 
@@ -1242,9 +1590,9 @@ namespace EliDangHUD
                 {
                     localGridNewClusters = new Dictionary<Vector3I, BlockCluster>();
                     localGridNewBlockToClusterMap = new Dictionary<Vector3I, Vector3I>();
-                    StartClusterBlocksIterativeThreshold(ref localGridClusterBuildState, localGridAllBlocksDict, maxClusterSize);
+                    StartClusterBlocksIterativeThreshold(ref localGridClusterBuildState, localGridStructureBlocksDict, maxClusterSize);
                 }
-                bool done = ContinueClusterBlocksIterativeThreshold(ref localGridClusterBuildState, localGridAllBlocksDict, ref localGridNewClusters, ref localGridNewBlockToClusterMap, 999999, minClusterSize, theSettings.clusterSplitThreshold);
+                bool done = ContinueClusterBlocksIterativeThreshold(ref localGridClusterBuildState, localGridStructureBlocksDict, ref localGridNewClusters, ref localGridNewBlockToClusterMap, 999999, minClusterSize, theSettings.clusterSplitThreshold);
 
                 if (done)
                 {
@@ -1255,6 +1603,8 @@ namespace EliDangHUD
                     localGridClusterBuildState = null;
                     localGridClustersNeedRefresh = false;
                 }
+
+                ClusterSpecialBlocks(localGridSpecialBlocksDict, ref localGridSpecialBlockClusters, ref localGridBlockToClusterMap);
 
                 // Add Event Handlers
                 localGrid.OnBlockAdded += OnLocalBlockAdded;
@@ -1378,11 +1728,14 @@ namespace EliDangHUD
 
             // Local grid blocks
             localGridAllBlocksDict.Clear();
+            localGridStructureBlocksDict.Clear();
+            localGridSpecialBlocksDict.Clear();
             localGridAllBlocksDictByFloor.Clear();
             localGridBlockComponentStacks.Clear();
 
             // Local grid clusters
             localGridBlockClusters.Clear();
+            localGridSpecialBlockClusters.Clear();
             localGridBlockToClusterMap.Clear();
             localGridClustersNeedRefresh = false;
 
@@ -1500,10 +1853,9 @@ namespace EliDangHUD
                     ResetLocalGrid();
                 }
             }
-            else
             {
                 // If not directly controlling a grid we find out if the player is inside the AABB of a grid, and if inside multiple AABB we use the nearest one. 
-                if (localGridControlledEntity != null) 
+                if (localGridControlledEntity != null)
                 {
                     // If we were controlling a grid prior, and aren't anymore, clear the localGridControlledEntity and eventHandlers. 
                     if (localGridControlledEntity.CubeGrid == localGrid)
@@ -1532,12 +1884,12 @@ namespace EliDangHUD
                     localGrid = nearestGrid;
                     //MyLog.Default.WriteLine($"FENIX_HUD: Cleared old localGrid then Set localGrid = nearestGrid");
                 }
-                else if (nearestGrid != null) 
+                else if (nearestGrid != null)
                 {
                     localGrid = nearestGrid;
                     //MyLog.Default.WriteLine($"FENIX_HUD: Set localGrid = nearestGrid");
                 }
-                
+
             }
         }
 
@@ -1565,7 +1917,7 @@ namespace EliDangHUD
                 GridBlock gridBlock = new GridBlock();
                 gridBlock.Block = block;
                 gridBlock.DrawPosition = blockScaledInvertedPosition;
-                gridBlock.lastCurrentIntegrity = block.Integrity;
+                gridBlock.LastCurrentIntegrity = block.Integrity;
 
                 localGridAllBlocksDict[block.Position] = gridBlock;
 
@@ -1647,6 +1999,129 @@ namespace EliDangHUD
                 {
                     localGridJumpDrivesDict[block.Position] = jumpDrive;
                 }
+
+                IMyCubeBlock fatBlock = block.FatBlock;
+                int clusterSize = 1;
+                if (fatBlock != null)
+                {
+                    MyCubeBlockDefinition blockDefinition = MyDefinitionManager.Static.GetCubeBlockDefinition(block.FatBlock.BlockDefinition);
+                    Vector3I blockDimensions = blockDefinition.Size; // (X,Y,Z) block dimensions in grid cells
+                    clusterSize = (int)Math.Truncate((blockDimensions.X + blockDimensions.Y + blockDimensions.Z) / 3.0d); // Actually lets use average and round down (really truncate).
+                    //Math.Min(Math.Min(blockDimensions.X, blockDimensions.Y), blockDimensions.Z); // Use the smallest, so a 2x5x1 block becomes a cluster size of 1.
+                }
+
+
+                BlockClusterType clusterType = GetClusterType(block);
+                switch (clusterType)
+                {
+                    case BlockClusterType.Structure:
+                        gridBlock.ClusterSize = 1;
+                        gridBlock.ClusterType = clusterType;
+                        localGridStructureBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.PDC:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Railgun:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.MediumBallistic:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.LargeBallistic:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.EnergyWeapon:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Torpedo:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Missile:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Reactor:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Battery:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.SolarPanel:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.PowerProducer:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Antenna:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.IonThruster:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.HydrogenThruster:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.AtmosphericThruster:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.HydrogenTank:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.OxygenTank:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.JumpDrive:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Shield:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        localGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    default:
+                        // Structure
+                        gridBlock.ClusterSize = 1;
+                        gridBlock.ClusterType = BlockClusterType.Structure;
+                        localGridStructureBlocksDict[block.Position] = gridBlock;
+                        break;
+                }
+
                 localGridCurrentIntegrity += block.Integrity;
                 localGridMaxIntegrity += block.MaxIntegrity;
             }
@@ -1702,7 +2177,7 @@ namespace EliDangHUD
                     {
                         localGridCurrentIntegrity += gridBlock.Block.Integrity;
                         localGridMaxIntegrity += gridBlock.Block.MaxIntegrity;
-                        gridBlock.lastCurrentIntegrity = gridBlock.Block.Integrity;
+                        gridBlock.LastCurrentIntegrity = gridBlock.Block.Integrity;
                     }
                     localGridIntegrityNeedsRefresh = false;
                 }
@@ -1736,11 +2211,10 @@ namespace EliDangHUD
                             localGridNewBlockToClusterMap = null;
                             localGridClusterBuildState = null;
                             localGridClustersNeedRefresh = false;
+                            ClusterSpecialBlocks(localGridSpecialBlocksDict, ref localGridSpecialBlockClusters, ref localGridBlockToClusterMap);
                         }
                     }
                     localGridClusterBlocksUpdateTicksCounter++;
-
-
                 }
 
                 if (targetGrid != null) 
@@ -1771,7 +2245,7 @@ namespace EliDangHUD
                         {
                             targetGridCurrentIntegrity += gridBlock.Block.Integrity;
                             targetGridMaxIntegrity += gridBlock.Block.MaxIntegrity;
-                            gridBlock.lastCurrentIntegrity = gridBlock.Block.Integrity;
+                            gridBlock.LastCurrentIntegrity = gridBlock.Block.Integrity;
                         }
                         targetGridIntegrityNeedsRefresh = false;
                     }
@@ -2618,6 +3092,64 @@ namespace EliDangHUD
             }
         }
 
+
+        public void ClusterSpecialBlocks(Dictionary<Vector3I, GridBlock> specialBlocksDict, ref Dictionary<Vector3I, BlockCluster> blockClusters, ref Dictionary<Vector3I, Vector3I> blockToClusterMap)
+        {
+            if (specialBlocksDict == null || specialBlocksDict.Count == 0)
+            {
+                return;
+            }
+
+            blockClusters = new Dictionary<Vector3I, BlockCluster>(); // CLear it
+
+            foreach (KeyValuePair<Vector3I, GridBlock> blockKeyValuePair in specialBlocksDict)
+            {
+                Vector3I blockKey = blockKeyValuePair.Key; // Grid block position of this block
+                Vector3D blockPos = blockKeyValuePair.Value.DrawPosition; // World position of this block in grid reference
+                IMySlimBlock block = blockKeyValuePair.Value.Block; // The block itself
+                BlockClusterType clusterType = blockKeyValuePair.Value.ClusterType;
+                int blockClusterSize = blockKeyValuePair.Value.ClusterSize;
+
+                if (clusterType == BlockClusterType.Structure)
+                {
+                    continue; // Structure should never be here, skip if so.
+                }
+
+                // Compute which cluster this block belongs to, for special blocks we just use the key directly regardless of cluster size. 
+                Vector3I clusterKey = new Vector3I(
+                    blockKey.X,
+                    blockKey.Y,
+                    blockKey.Z
+                );
+
+                // Compute the draw position of this cluster, for special blocks we just use the pos directly regardless of cluster size. 
+                Vector3D clusterPos = new Vector3D(
+                    blockPos.X,
+                    blockPos.Y,
+                    blockPos.Z
+                );
+
+                if (blockClusters.ContainsKey(clusterKey))
+                {
+                    continue; // There should only be one block per cluster in this one
+                }
+                else
+                {
+                    blockClusters[clusterKey] = new BlockCluster
+                    {
+                        Integrity = block.Integrity,
+                        MaxIntegrity = block.MaxIntegrity,
+                        DrawPosition = clusterPos,
+                        Blocks = new Dictionary<Vector3I, GridBlock>(),
+                        ClusterType = clusterType,
+                        ClusterSize = blockClusterSize,
+                    };
+                    blockClusters[clusterKey].Blocks[blockKey] = blockKeyValuePair.Value; // Add the gridblock.
+                    blockToClusterMap[blockKey] = clusterKey; // Map this block to its cluster position
+                }
+            }
+        }
+
         public void ClusterBlocksIterativeThreshold(Dictionary<Vector3I, GridBlock> allBlocksDict, ref Dictionary<Vector3I, BlockCluster> blockClusters, ref Dictionary<Vector3I, Vector3I> blockToClusterMap,
             int maxClusterSize, int minClusterSize = 1, double splitThreshold = 0.9)
         {
@@ -2705,7 +3237,8 @@ namespace EliDangHUD
                             Blocks = new Dictionary<Vector3I, GridBlock>(),
                             ClusterSize = clusterSize,
                             Integrity = 0,
-                            MaxIntegrity = 0
+                            MaxIntegrity = 0,
+                            ClusterType = BlockClusterType.Structure // Always structure
                         };
 
                         double sumX = 0, sumY = 0, sumZ = 0;
@@ -2880,10 +3413,10 @@ namespace EliDangHUD
                 }
 
                 // Consume clusters from the stored ClusterList, resuming at ClusterListIndex
-                List<KeyValuePair<Vector3I, List<Vector3I>>> clist = work.ClusterList;
-                for (int ci = work.ClusterListIndex; ci < clist.Count; ci++)
+                List<KeyValuePair<Vector3I, List<Vector3I>>> clusterList = work.ClusterList;
+                for (int clusterIndex = work.ClusterListIndex; clusterIndex < clusterList.Count; clusterIndex++)
                 {
-                    KeyValuePair<Vector3I, List<Vector3I>> kvp = clist[ci];
+                    KeyValuePair<Vector3I, List<Vector3I>> kvp = clusterList[clusterIndex];
                     Vector3I clusterKey = kvp.Key;
                     List<Vector3I> clusterBlockPositions = kvp.Value;
 
@@ -2910,7 +3443,8 @@ namespace EliDangHUD
                             Blocks = new Dictionary<Vector3I, GridBlock>(),
                             ClusterSize = clusterSize,
                             Integrity = 0,
-                            MaxIntegrity = 0
+                            MaxIntegrity = 0,
+                            ClusterType = BlockClusterType.Structure // Always structure
                         };
 
                         double sumX = 0, sumY = 0, sumZ = 0;
@@ -2940,11 +3474,11 @@ namespace EliDangHUD
 
                     processedThisTick++;
 
-                    // hit cluster per tick budget? Save progress and return
+                    // Hit cluster per tick budget? Save progress and return
                     if (processedThisTick >= clustersPerTick)
                     {
                         // Save index to resume next tick
-                        work.ClusterListIndex = ci + 1; // next cluster to process
+                        work.ClusterListIndex = clusterIndex + 1; // next cluster to process
                         buildState.ClusterStack.Push(work);
                         return false;
                     }
@@ -3032,43 +3566,7 @@ namespace EliDangHUD
 
 
 
-        private BlockClusterType GetClusterType(IMySlimBlock block)
-        {
-            IMyCubeBlock fat = block.FatBlock;
-            if (fat == null) 
-            { 
-                return BlockClusterType.Structure; 
-            }
-
-            string subtype = fat.BlockDefinition.SubtypeName.ToLowerInvariant();
-
-            if (fat is IMyLargeTurretBase) return BlockClusterType.Turret;
-            if (fat is IMyUserControllableGun) return BlockClusterType.FixedWeapon;
-
-            if (subtype.Contains("missile") || subtype.Contains("torpedo"))
-                return BlockClusterType.Missile;
-
-            if (fat is IMyReactor) return BlockClusterType.Reactor;
-            if (fat is IMyBatteryBlock) return BlockClusterType.Battery;
-            if (fat is IMyRadioAntenna) return BlockClusterType.Antenna;
-
-            if (fat is IMyThrust)
-            {
-                if (subtype.Contains("ion")) return BlockClusterType.IonThruster;
-                if (subtype.Contains("hydrogen")) return BlockClusterType.HydrogenThruster;
-                if (subtype.Contains("atmospheric")) return BlockClusterType.AtmosphericThruster;
-            }
-
-            if (fat is IMyGasTank)
-            {
-                if (subtype.Contains("hydrogen")) return BlockClusterType.HydrogenTank;
-                if (subtype.Contains("oxygen")) return BlockClusterType.OxygenTank;
-            }
-
-            if (fat is IMyJumpDrive) return BlockClusterType.JumpDrive;
-
-            return BlockClusterType.Structure;
-        }
+        
 
         private Color ParseColor(string colorString)
         {
