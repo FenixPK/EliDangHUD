@@ -249,6 +249,11 @@ namespace EliDangHUD
         public Dictionary<IMyComponentStack, Vector3I> targetGridBlockComponentStacks = new Dictionary<IMyComponentStack, Vector3I>();
         public Dictionary<Vector3I, IMyJumpDrive> targetGridJumpDrivesDict = new Dictionary<Vector3I, IMyJumpDrive>();
         public Dictionary<Vector3I, IMyRadioAntenna> targetGridAntennasDict = new Dictionary<Vector3I, IMyRadioAntenna>();
+
+        public Dictionary<Vector3I, GridBlock> targetGridStructureBlocksDict = new Dictionary<Vector3I, GridBlock>();
+        public Dictionary<Vector3I, GridBlock> targetGridSpecialBlocksDict = new Dictionary<Vector3I, GridBlock>();
+        public Dictionary<Vector3I, BlockCluster> targetGridSpecialBlockClusters = new Dictionary<Vector3I, BlockCluster>();
+
         public bool targetGridHasPassiveRadar = false;
         public bool targetGridHasActiveRadar = false;
         public double targetGridMaxPassiveRadarRange = 0.0;
@@ -1177,6 +1182,129 @@ namespace EliDangHUD
                 {
                     targetGridJumpDrivesDict[block.Position] = jumpDrive;
                 }
+
+                IMyCubeBlock fatBlock = block.FatBlock;
+                int clusterSize = 1;
+                if (fatBlock != null)
+                {
+                    MyCubeBlockDefinition blockDefinition = MyDefinitionManager.Static.GetCubeBlockDefinition(block.FatBlock.BlockDefinition);
+                    Vector3I blockDimensions = blockDefinition.Size; // (X,Y,Z) block dimensions in grid cells
+                    clusterSize = (int)Math.Truncate((blockDimensions.X + blockDimensions.Y + blockDimensions.Z) / 3.0d); // Actually lets use average and round down (really truncate).
+                    //Math.Min(Math.Min(blockDimensions.X, blockDimensions.Y), blockDimensions.Z); // Use the smallest, so a 2x5x1 block becomes a cluster size of 1.
+                }
+
+
+                BlockClusterType clusterType = GetClusterType(block);
+                switch (clusterType)
+                {
+                    case BlockClusterType.Structure:
+                        gridBlock.ClusterSize = 1;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridStructureBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.PDC:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Railgun:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.MediumBallistic:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.LargeBallistic:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.EnergyWeapon:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Torpedo:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Missile:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Reactor:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Battery:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.SolarPanel:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.PowerProducer:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Antenna:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.IonThruster:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.HydrogenThruster:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.AtmosphericThruster:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.HydrogenTank:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.OxygenTank:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.JumpDrive:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Shield:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    default:
+                        // Structure
+                        gridBlock.ClusterSize = 1;
+                        gridBlock.ClusterType = BlockClusterType.Structure;
+                        targetGridStructureBlocksDict[block.Position] = gridBlock;
+                        break;
+                }
+
                 //targetGridCurrentIntegrity += block.Integrity;
                 //targetGridMaxIntegrity += block.MaxIntegrity;
                 targetGridIntegrityNeedsRefresh = true;
@@ -1360,6 +1488,8 @@ namespace EliDangHUD
 
             // target grid blocks
             targetGridAllBlocksDict.Clear();
+            targetGridStructureBlocksDict.Clear();
+            targetGridSpecialBlocksDict.Clear();
             targetGridAllBlocksDictByFloor.Clear();
             targetGridBlockComponentStacks.Clear();
             targetGridAntennasDict.Clear();
@@ -1367,6 +1497,7 @@ namespace EliDangHUD
 
             // target grid clusters
             targetGridBlockClusters.Clear();
+            targetGridSpecialBlockClusters.Clear();
             targetGridBlockToClusterMap.Clear();
             targetGridClustersNeedRefresh = false;
 
@@ -1464,6 +1595,129 @@ namespace EliDangHUD
                 if (jumpDrive != null)
                 {
                     targetGridJumpDrivesDict[block.Position] = jumpDrive;
+                }
+
+
+                IMyCubeBlock fatBlock = block.FatBlock;
+                int clusterSize = 1;
+                if (fatBlock != null)
+                {
+                    MyCubeBlockDefinition blockDefinition = MyDefinitionManager.Static.GetCubeBlockDefinition(block.FatBlock.BlockDefinition);
+                    Vector3I blockDimensions = blockDefinition.Size; // (X,Y,Z) block dimensions in grid cells
+                    clusterSize = (int)Math.Truncate((blockDimensions.X + blockDimensions.Y + blockDimensions.Z) / 3.0d); // Actually lets use average and round down (really truncate).
+                    //Math.Min(Math.Min(blockDimensions.X, blockDimensions.Y), blockDimensions.Z); // Use the smallest, so a 2x5x1 block becomes a cluster size of 1.
+                }
+
+
+                BlockClusterType clusterType = GetClusterType(block);
+                switch (clusterType)
+                {
+                    case BlockClusterType.Structure:
+                        gridBlock.ClusterSize = 1;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridStructureBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.PDC:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Railgun:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.MediumBallistic:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.LargeBallistic:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.EnergyWeapon:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Torpedo:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Missile:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Reactor:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Battery:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.SolarPanel:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.PowerProducer:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Antenna:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.IonThruster:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.HydrogenThruster:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.AtmosphericThruster:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.HydrogenTank:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.OxygenTank:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.JumpDrive:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    case BlockClusterType.Shield:
+                        gridBlock.ClusterSize = clusterSize;
+                        gridBlock.ClusterType = clusterType;
+                        targetGridSpecialBlocksDict[block.Position] = gridBlock;
+                        break;
+                    default:
+                        // Structure
+                        gridBlock.ClusterSize = 1;
+                        gridBlock.ClusterType = BlockClusterType.Structure;
+                        targetGridStructureBlocksDict[block.Position] = gridBlock;
+                        break;
                 }
 
                 targetGridCurrentIntegrity += block.Integrity;

@@ -753,7 +753,8 @@ namespace EliDangHUD
 		private readonly MyStringId MaterialCircleSeeThroughAdd = MyStringId.GetOrCompute("ED_CircleSeeThroughAdd");
 		private readonly MyStringId MaterialTarget = MyStringId.GetOrCompute("ED_TargetArrows");
 		private readonly MyStringId MaterialSquare = MyStringId.GetOrCompute("ED_Square");
-		private readonly MyStringId MaterialTriangle =MyStringId.GetOrCompute("ED_Triangle");
+        private readonly MyStringId MaterialTinyCircle = MyStringId.GetOrCompute("ED_TINYCIRCLE");
+        private readonly MyStringId MaterialTriangle =MyStringId.GetOrCompute("ED_Triangle");
 		private readonly MyStringId MaterialDiamond = MyStringId.GetOrCompute("ED_Diamond");
 		private readonly MyStringId MaterialCube = MyStringId.GetOrCompute("ED_Cube");
 		private readonly MyStringId MaterialShipFlare = MyStringId.GetOrCompute("ED_SHIPFLARE");
@@ -6083,13 +6084,16 @@ namespace EliDangHUD
                     Vector3D holoCenterOffset = radarMatrix.Left * -gHandler.localGridControlledEntityCustomData.radarRadius * flipperAxis + radarMatrix.Left * _hologramRightOffset_HardCode.X * flipperAxis + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
                     Vector3D holoCenterPosition = worldRadarPos + holoCenterOffset;
                     Vector4 initialColor = gHandler.localGridControlledEntityCustomData.lineColor * 0.5f;
+                    Vector4 compColor = gHandler.localGridControlledEntityCustomData.lineColorComp * 0.5f;
                     initialColor.W = 1;
+                    compColor.W = 1;
                     MatrixD finalScalingAndRotationMatrix = gHandler.localHologramFinalRotation * gHandler.localHologramScalingMatrix;
 
                     double thicc = gHandler.hologramScaleFactor / (gHandler.localGrid.WorldVolume.Radius / gHandler.localGrid.GridSize);
                     float size = (float)gHandler.hologramScale * 0.65f * (float)thicc;
 
-                    DrawHologramFromClusters(gHandler.localGridBlockClusters, false, hologramDrawPosition, holoCenterPosition, initialColor, finalScalingAndRotationMatrix, size, (float)gHandler.hologramScale * 0.5f);
+                    DrawHologramFromClusters(gHandler.localGridBlockClusters, gHandler.localGridSpecialBlockClusters, false, hologramDrawPosition, holoCenterPosition, 
+                        initialColor, compColor, finalScalingAndRotationMatrix, size, (float)gHandler.hologramScale * 0.5f);
 
                     Vector3D hgPos_Right = worldRadarPos + radarMatrix.Right * gHandler.localGridControlledEntityCustomData.radarRadius + radarMatrix.Left * _hologramRightOffset_HardCode.X + radarMatrix.Down * 0.0075 + (radarMatrix.Forward * fontSize * 2);
                     Vector3D textPos_Offset = (radarMatrix.Left * 0.065);
@@ -6106,13 +6110,17 @@ namespace EliDangHUD
                     Vector3D holoCenterOffset = radarMatrix.Left * -gHandler.localGridControlledEntityCustomData.radarRadius * flipperAxis + radarMatrix.Left * _hologramRightOffset_HardCode.X * flipperAxis + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
                     Vector3D holoCenterPosition = worldRadarPos + holoCenterOffset;
                     Vector4 initialColor = gHandler.localGridControlledEntityCustomData.lineColorComp * 0.5f;
+                    Vector4 compColor = gHandler.localGridControlledEntityCustomData.lineColor * 0.5f;
                     initialColor.W = 1;
+                    compColor.W = 1;
+
                     MatrixD finalScalingAndRotationMatrix = gHandler.targetHologramScalingMatrix * gHandler.targetHologramFinalRotation;
 
                     double thicc = gHandler.hologramScaleFactor / (gHandler.targetGrid.WorldVolume.Radius / gHandler.targetGrid.GridSize);
                     float size = (float)gHandler.hologramScale * 0.65f * (float)thicc;
 
-                    DrawHologramFromClusters(gHandler.targetGridBlockClusters, true, hologramDrawPosition, holoCenterPosition, initialColor, finalScalingAndRotationMatrix, size, (float)gHandler.hologramScale * 0.5f);
+                    DrawHologramFromClusters(gHandler.targetGridBlockClusters, gHandler.targetGridSpecialBlockClusters, true, hologramDrawPosition, holoCenterPosition, 
+                        initialColor, compColor, finalScalingAndRotationMatrix, size, (float)gHandler.hologramScale * 0.5f);
                    
                     Vector3D hgPos_Left = worldRadarPos + radarMatrix.Left * gHandler.localGridControlledEntityCustomData.radarRadius + radarMatrix.Right * _hologramRightOffset_HardCode.X + radarMatrix.Down * 0.0075 + (radarMatrix.Forward * fontSize * 2);
                     Vector3D textPos_Offset = (radarMatrix.Right * 0.065);
@@ -6155,18 +6163,19 @@ namespace EliDangHUD
                         Vector3D holoTablePos = holoTableMatrix.Translation + Vector3D.TransformNormal(holoTableOffset, holoTableMatrix);
                         Vector3D holoCenterPosition = holoTableMatrix.Translation + Vector3D.TransformNormal(holoTableBaseOffset, holoTableMatrix);
                         Vector4 initialColor = theData.lineColor * 0.5f;
+                        Vector4 compColor = theData.lineColorComp * 0.5f;
                         initialColor.W = 1;
+                        compColor.W = 1;
 
-                        
                         Vector4[] colorPalletHoloTable;
                         if(!gHandler.localGridHologramTerminalPallets.TryGetValue(holoTableKeyValuePair.Key, out colorPalletHoloTable))
                         { 
                             colorPalletHoloTable = gHandler.BuildIntegrityColors(theData.lineColor * 0.5f);
                         }
 
-                        DrawHologramFromClusters(gHandler.localGridBlockClusters, false, holoTablePos, holoCenterPosition, initialColor, finalScalingAndRotationMatrix, size, (float)theData.holoScale * 0.5f);
-                        initialColor =  new Vector4(0.0f, 1.0f, 0.0f, 1f);
-                        DrawHologramFromClusters(gHandler.localGridSpecialBlockClusters, false, holoTablePos, holoCenterPosition, initialColor, finalScalingAndRotationMatrix, size, (float)theData.holoScale * 0.5f);
+                        DrawHologramFromClusters(gHandler.localGridBlockClusters, gHandler.localGridSpecialBlockClusters, false, holoTablePos, holoCenterPosition, 
+                            initialColor, compColor, finalScalingAndRotationMatrix, size, (float)theData.holoScale * 0.5f);
+                        
                     }
                 }
             }
@@ -6330,16 +6339,14 @@ namespace EliDangHUD
 
         // TODO adjust the size a bit, it seems when we mix small clusters with big clusters there is a bit of a gap between them, but clusters of the same size fit perfectly with each other? 
         // TODO decide if the facing axis logic is worth the oddness of trying to keep it square? Odd angles cause weird fluctuations?
-        private void DrawHologramFromClusters(Dictionary<Vector3I, BlockCluster> blockClusters, bool isTarget, Vector3D hologramDrawPosition, Vector3D holoCenterPosition, Vector4 initialColor, 
-            MatrixD finalScalingAndRotationMatrix, float size, float scale) 
+        private void DrawHologramFromClusters(Dictionary<Vector3I, BlockCluster> blockClustersStructure, Dictionary<Vector3I, BlockCluster> blockClustersSpecial, bool isTarget, Vector3D hologramDrawPosition, 
+            Vector3D holoCenterPosition, Vector4 initialColor, Vector4 compColor, MatrixD finalScalingAndRotationMatrix, float size, float scale) 
         {
             IMyCamera camera = MyAPIGateway.Session.Camera;
             Vector3D AxisLeft = camera.WorldMatrix.Left;
             Vector3D AxisUp = camera.WorldMatrix.Up;
             Vector3D AxisForward = camera.WorldMatrix.Forward;
 
-
-            initialColor.W = 1;
 
             double bootUpAlpha = 1;
             if (isTarget)
@@ -6356,10 +6363,10 @@ namespace EliDangHUD
 
             MyStringId drawMaterial = MaterialSquare;
 
-            float projectorRatio = Math.Min(0.5f, 100f / blockClusters.Count); // Clamp at max of 50% of the time, but base it around trying to draw around 100 projector lines.
+            float projectorRatio = Math.Min(0.5f, 100f / blockClustersStructure.Count); // Clamp at max of 50% of the time, but base it around trying to draw around 100 projector lines.
                                                                                // For larger grids it will limit it at 100 lines. But for smaller grids it will draw only 50% of the time so the lines still look good.
 
-            foreach (KeyValuePair<Vector3I, BlockCluster> blockClusterKeyPair in blockClusters) 
+            foreach (KeyValuePair<Vector3I, BlockCluster> blockClusterKeyPair in blockClustersStructure) 
             {
                 BlockCluster blockCluster = blockClusterKeyPair.Value;
                 //Vector3I blockClusterPosition = blockClusterKeyPair.Key;
@@ -6385,7 +6392,7 @@ namespace EliDangHUD
                 bool fullySurrounded = true;
                 foreach (Vector3I offset in neighborOffsets)
                 {
-                    if (!blockClusters.ContainsKey(blockClusterKeyPair.Key + offset))
+                    if (!blockClustersStructure.ContainsKey(blockClusterKeyPair.Key + offset))
                     {
                         fullySurrounded = false;
                         break;
@@ -6452,6 +6459,117 @@ namespace EliDangHUD
                     DrawLineBillboard(MaterialSquare, initialColor * 0.15f * (float)bootUpAlpha, holoCenterPosition, holoDir, (float)holoLength, scale, BlendTypeEnum.AdditiveBottom);
                 }
             }
+
+            // Do the special non-structure blocks
+            foreach (KeyValuePair<Vector3I, BlockCluster> blockClusterKeyPair in blockClustersSpecial)
+            {
+                BlockCluster blockCluster = blockClusterKeyPair.Value;
+                Vector3D blockClusterPosition = blockClusterKeyPair.Value.DrawPosition;
+                float blockClusterIntegrityRatio = (blockCluster.MaxIntegrity != 0) ? blockCluster.Integrity / blockCluster.MaxIntegrity : 0;
+                Vector3D clusterDrawPosition = Vector3D.Zero;
+
+                if (blockClusterIntegrityRatio < 0.01)
+                {
+                    continue; // Skip clusters too low integrity to draw. 
+                }
+
+                float drawSize = size * blockCluster.ClusterSize;
+
+                bool randomize = false;
+                if (gHandler.localGridGlitchAmount > 0.5 || GetRandomFloat() > 0.95f || GetRandomDouble() > bootUpAlpha)
+                {
+                    // Randomize 5% of the time, or if glitch amount > 0.5. 
+                    randomize = true;
+                }
+
+                // key colors
+                Vector4 hologramColor = compColor; // starting color
+                Vector4 yellow = new Vector4(1f, 1f, 0f, 1f);
+                Vector4 red = new Vector4(1f, 0f, 0f, 1f);
+                if (randomize)
+                {
+                    // Randomize the color a bit if glitch or boot up. 
+                    hologramColor *= Clamped(GetRandomFloat(), 0.25f, 1);
+                }
+
+                Vector4 finalColor;
+
+                if (blockClusterIntegrityRatio >= 0.5f)
+                {
+                    // Map [0.5–1.0] -> [0–1], then blend hologramColor -> yellow
+                    float interpolationFactor = (blockClusterIntegrityRatio - 0.5f) / 0.5f;
+                    finalColor = Vector4.Lerp(yellow, hologramColor, interpolationFactor);
+                }
+                else
+                {
+                    // Map [0–0.5] -> [0–1], then blend red -> yellow
+                    float interpolationFactor = blockClusterIntegrityRatio / 0.5f;
+                    finalColor = Vector4.Lerp(red, yellow, interpolationFactor);
+                }
+
+                // finalScalingAndRotationMatrix takes the local or target final rotation matrix. The final matrix is re-calculated each draw tick by taking the view rotation matrix (calculated each physics tick) * the localGrid worldMatrix to offset
+                // current grid rotation AND apply the user selected "view" override (ie. yaw 90 degrees, pitch 90 degrees etc.)
+                MatrixD hologramTransform = finalScalingAndRotationMatrix * MatrixD.CreateTranslation(hologramDrawPosition);
+                clusterDrawPosition = Vector3D.Transform(blockClusterPosition, hologramTransform);
+
+                BlockClusterType clusterType = blockCluster.ClusterType;
+                switch (clusterType)
+                {
+                    case BlockClusterType.Structure:
+                        break;
+                    case BlockClusterType.PDC:
+                        drawMaterial = MaterialTinyCircle;
+                        break;
+                    case BlockClusterType.Railgun:
+                        break;
+                    case BlockClusterType.MediumBallistic:
+                        break;
+                    case BlockClusterType.LargeBallistic:
+                        break;
+                    case BlockClusterType.EnergyWeapon:
+                        break;
+                    case BlockClusterType.Torpedo:
+                        break;
+                    case BlockClusterType.Missile:
+                        break;
+                    case BlockClusterType.Reactor:
+                        break;
+                    case BlockClusterType.Battery:
+                        break;
+                    case BlockClusterType.SolarPanel:
+                        break;
+                    case BlockClusterType.PowerProducer:
+                        break;
+                    case BlockClusterType.Antenna:
+                        break;
+                    case BlockClusterType.IonThruster:
+                        break;
+                    case BlockClusterType.HydrogenThruster:
+                        break;
+                    case BlockClusterType.AtmosphericThruster:
+                        break;
+                    case BlockClusterType.HydrogenTank:
+                        break;
+                    case BlockClusterType.OxygenTank:
+                        break;
+                    case BlockClusterType.JumpDrive:
+                        break;
+                    case BlockClusterType.Shield:
+                        break;
+                    default:
+                        break;
+                }
+
+                MyTransparentGeometry.AddBillboardOriented(
+                            drawMaterial,
+                            finalColor * (float)bootUpAlpha,
+                            clusterDrawPosition,
+                            AxisLeft, // Billboard orientation
+                            AxisUp, // Billboard orientation
+                            drawSize,
+                            MyBillboard.BlendTypeEnum.AdditiveBottom);
+            }
+
         }
 
 
