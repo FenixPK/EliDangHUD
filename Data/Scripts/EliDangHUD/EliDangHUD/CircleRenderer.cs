@@ -4022,7 +4022,7 @@ namespace EliDangHUD
                     {
                         fadeDimmer = 1 - Clamped(1 - (float)((_fadeDistanceSqr - radarPings[entity].RadarPingDistanceSqr) / (_fadeDistanceSqr - _radarShownRangeSqr)), 0, 1);
                     }
-                    Vector3D scaledPos = ApplyLogarithmicScalingHolo(radarPings[entity].RadarPingPosition, playerGridPos); // Apply radar scaling
+                    Vector3D scaledPos = ApplyLogarithmicScalingHolo2(radarPings[entity].RadarPingPosition, playerGridPos); // Apply radar scaling
 
                     // Position on the radar
                     Vector3D radarEntityPos = holoTablePos + scaledPos;
@@ -4374,6 +4374,26 @@ namespace EliDangHUD
             Vector3D scaledOffset = direction * distance * inverseScale * holoRadarScale;
 
             return scaledOffset;
+        }
+
+        public Vector3D ApplyLogarithmicScalingHolo2(Vector3D entityPos, Vector3D referencePos)
+        {
+            Vector3D offset = entityPos - referencePos;
+            double d = offset.Length();
+            if (d < 1e-6) return Vector3D.Zero;
+
+            // normalize 0..1 by current range
+            double u = Math.Min(d / Math.Max(1e-6, radarScaleRange), 1.0);
+
+            // concave (log-like) curve: f(0)=0, f(1)=1, smooth and monotonic
+            // tweak BETA: bigger => more compression near center
+            const double BETA = 8.0;
+            double f = Math.Log(1.0 + BETA * u) / Math.Log(1.0 + BETA);
+
+            // project to screen radius
+            double radius = holoRadarRadius; // keep this constant in screen space
+            Vector3D dir = offset / d;
+            return dir * (radius * f);
         }
 
 
@@ -4925,7 +4945,7 @@ namespace EliDangHUD
 					//entityPos -= (upSquish*squishValue); //------Squishing the vertical axis on the radar to make it easier to read... but less vertically accurate.
 
 					// Apply radar scaling
-					Vector3D scaledPos = ApplyLogarithmicScaling(entityPos, shipPos); 
+					Vector3D scaledPos = ApplyLogarithmicScaling2(entityPos, shipPos); 
 
 					// Position on the radar
 					Vector3D radarEntityPos = worldRadarPos + scaledPos + offset;
@@ -4981,7 +5001,7 @@ namespace EliDangHUD
                     //entityPos -= (upSquish*squishValue); //------Squishing the vertical axis on the radar to make it easier to read... but less vertically accurate.
 
                     // Apply radar scaling
-                    Vector3D scaledPos = ApplyLogarithmicScalingHolo(entityPos, shipPos);
+                    Vector3D scaledPos = ApplyLogarithmicScalingHolo2(entityPos, shipPos);
 
                     // Position on the radar
                     Vector3D radarEntityPos = holoPos + scaledPos + offset;
