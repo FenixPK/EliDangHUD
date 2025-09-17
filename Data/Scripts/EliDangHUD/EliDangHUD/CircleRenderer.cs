@@ -6463,6 +6463,7 @@ namespace EliDangHUD
             // Do the special non-structure blocks
             foreach (KeyValuePair<Vector3I, BlockCluster> blockClusterKeyPair in blockClustersSpecial)
             {
+                drawMaterial = MaterialTinyCircle;
                 BlockCluster blockCluster = blockClusterKeyPair.Value;
                 Vector3D blockClusterPosition = blockClusterKeyPair.Value.DrawPosition;
                 float blockClusterIntegrityRatio = (blockCluster.MaxIntegrity != 0) ? blockCluster.Integrity / blockCluster.MaxIntegrity : 0;
@@ -6518,7 +6519,6 @@ namespace EliDangHUD
                     case BlockClusterType.Structure:
                         break;
                     case BlockClusterType.PDC:
-                        drawMaterial = MaterialTinyCircle;
                         break;
                     case BlockClusterType.Railgun:
                         break;
