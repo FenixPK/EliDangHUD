@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-16"?>
+<ModSettings xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <useMainCockpitInsteadOfTag>false</useMainCockpitInsteadOfTag>
+  <useMainCockpitInsteadOfTag_DESCRIPTION>If true the mod is enabled by setting seat as Main Cockpit instead of using a tag [ELI_HUD], for users who prefer the original method. 
+ Note that with this setting enabled you can only have one HUD seat per grid. If you leave this disabled you can use the [ELI_HUD] tag on as many seats as you want.</useMainCockpitInsteadOfTag_DESCRIPTION>
+  <maxRadarRangeGlobal>-1</maxRadarRangeGlobal>
+  <maxRadarRange_DESCRIPTION>Max global radar range in meters, setting -1 will use the draw distance. Otherwise you can set a global maximum limit for the radar range. 
+ I think you could technically exceed the games 50km limit in radar scale, but there is a hard limit at the 50km antenna broadcast range for detecting.</maxRadarRange_DESCRIPTION>
+  <rangeBracketDistance>200</rangeBracketDistance>
+  <rangeBracketDistance_DESCRIPTION>Represents the distance in meters used for range bracketing in radar targeting calculations. 
+This value is used to determine the "bracket" a target fits into for zooming the radar. Or when changing broadcast distance of antennas (radar range). 
+Adjusting this value can affect the precision of radar zoom levels.</rangeBracketDistance_DESCRIPTION>
+  <maxPings>500</maxPings>
+  <maxPings_DESCRIPTION>Maximum number of entities/voxels that can be displayed as radar pings on the radar at once.</maxPings_DESCRIPTION>
+  <useSigIntLite>true</useSigIntLite>
+  <useSigIntLite_DESCRIPTION>When true uses SigInt lite logic regarding Active and Passive radar, using Antenna blocks on your and other grids. When enabled: A powered and broadcasting antenna 
+ on your grid will be considered active mode, powered but not broadcasting is considered passive mode. 
+ Active can pick up all entities (voxels and grids) within the broadcast range. This is your radar waves painting everything within that radius and pinging them. 
+ Passive can only pick up actively broadcasting grids within your broadcast radius, and their broadcast radius. This is your radar picking up signals that are pinging off you. 
+ When disabled uses the simple logic of largest radius from all powered antennae on the grid as your radar range.</useSigIntLite_DESCRIPTION>
+  <holoTableRenderDistance>20</holoTableRenderDistance>
+  <holoTableRenderDistance_DESCRIPTION>How far away can a holo table be before it no longer renders the radar.</holoTableRenderDistance_DESCRIPTION>
+  <fadeThreshold>0.01</fadeThreshold>
+  <fadeThreshold_DESCRIPTION>Percentage threshold at which radar pings start to fade out at the edge of the radar range Eg. 0.01 = 0.01*100 = 1%. 
+ Also used for notifying the player of new pings. 
+ When pings cross the threshold distance they will be announced audibly and visually on the radar.</fadeThreshold_DESCRIPTION>
+  <lineThickness>1.5</lineThickness>
+  <lineThickness_DESCRIPTION>The thickness of the lines used for rendering circles and other shapes in the HUD.</lineThickness_DESCRIPTION>
+  <lineDetail>90</lineDetail>
+  <lineDetail_DESCRIPTION>The number of segments used to render circles and other circular shapes in the HUD. 
+ Lowering this number can make it more blocky. Eg. setting this to 6 would make it a hexagon instead of a circle.</lineDetail_DESCRIPTION>
+  <lineColorDefault>
+    <X>1</X>
+    <Y>0.5</Y>
+    <Z>0</Z>
+    <W>1</W>
+  </lineColorDefault>
+  <lineColorDefault_DESCRIPTION>Default color of the HUD lines, used for rendering circles and other shapes.</lineColorDefault_DESCRIPTION>
+  <starPos>
+    <X>0</X>
+    <Y>0</Y>
+    <Z>0</Z>
+  </starPos>
+  <starPos_DESCRIPTION>Position of the star. No idea if we need to change this for "RealStars" mod or not.</starPos_DESCRIPTION>
+  <starFollowSky>true</starFollowSky>
+  <starFollowSky_DESCRIPTION>Does the star position follow the skybox?</starFollowSky_DESCRIPTION>
+  <enableGridFlares>true</enableGridFlares>
+  <enableGridFlares_DESCRIPTION>Enable or disable the white "flares" that glint behind grids in the distance. 
+This is what makes a distant ship "glint" in the void of space. Some users like this, as you can see where ships are better. 
+Others prefer a more realistic environment with this off so you can hide in the void.</enableGridFlares_DESCRIPTION>
+  <enableCockpitDust>true</enableCockpitDust>
+  <enableCockpitDust_DESCRIPTION>Enable cockpit dust effects.</enableCockpitDust_DESCRIPTION>
+  <enableVisor>true</enableVisor>
+  <enableVisor_DESCRIPTION>Show visor effects or not.</enableVisor_DESCRIPTION>
+  <enableVelocityLines>true</enableVelocityLines>
+  <enableVelocityLines_DESCRIPTION>Show the velocity lines or not.</enableVelocityLines_DESCRIPTION>
+  <enablePlanetOrbits>true</enablePlanetOrbits>
+  <enablePlanetOrbits_DESCRIPTION>Show the planet orbit lines or not.</enablePlanetOrbits_DESCRIPTION>
+  <enableHologramsGlobal>true</enableHologramsGlobal>
+  <enableHolograms_DESCRIPTION>Whether any kind of Hologram can be shown or not. 
+ Each cockpit can override this setting, and turn on/off holograms for the local grid or the target grid separately in the block's custom data.</enableHolograms_DESCRIPTION>
+  <useHollowReticle>true</useHollowReticle>
+  <useHollowReticle_DESCRIPTION>Should the targeting reticle be hollow or have a "dot" in the middle that can sometimes block the view of the target especially if it's a small grid.</useHollowReticle_DESCRIPTION>
+  <minTargetBlocksCount>5</minTargetBlocksCount>
+  <minTargetBlocksCount_DESCRIPTION>The minimum number of blocks required for a grid to be selected as a target. Helps reduce pieces of debris being selected</minTargetBlocksCount_DESCRIPTION>
+  <useMouseTargetSelect>true</useMouseTargetSelect>
+  <useMouseTargetSelect_DESCRIPTION>Whether to use a mouse button, or a keybind, for selecting new targets in Eli Dang hud</useMouseTargetSelect_DESCRIPTION>
+  <selectTargetMouseButton>1</selectTargetMouseButton>
+  <selectTargetMouseButton_DESCRIPTION>Mouse button to use: 0 = Left, 1 = Right, 2 = Middle. (Default is Right)</selectTargetMouseButton_DESCRIPTION>
+  <selectTargetKey>84</selectTargetKey>
+  <selectTargetKey_DESCRIPTION>Key to select target, if mouse button is disabled (Default is T)</selectTargetKey_DESCRIPTION>
+  <rotateLeftKey>100</rotateLeftKey>
+  <rotateLeftKey_DESCRIPTION>Key to rotate the static hologram view in the +X axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad4)</rotateLeftKey_DESCRIPTION>
+  <rotateRightKey>102</rotateRightKey>
+  <rotateRightKey_DESCRIPTION>Key to rotate the static hologram view in the -X axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad6)</rotateRightKey_DESCRIPTION>
+  <rotateUpKey>104</rotateUpKey>
+  <rotateUpKey_DESCRIPTION>Key to rotate the static hologram view in the +Y axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad8)</rotateUpKey_DESCRIPTION>
+  <rotateDownKey>98</rotateDownKey>
+  <rotateDownKey_DESCRIPTION>Key to rotate the static hologram view in the -Y axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad2)</rotateDownKey_DESCRIPTION>
+  <rotatePosZKey>103</rotatePosZKey>
+  <rotatePosZKey_DESCRIPTION>Key to rotate the static hologram view in the +Z axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad7)</rotatePosZKey_DESCRIPTION>
+  <rotateNegZKey>105</rotateNegZKey>
+  <rotateNegZKey_DESCRIPTION>Key to rotate the static hologram view in the -Z axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad9)</rotateNegZKey_DESCRIPTION>
+  <resetKey>101</resetKey>
+  <resetKey_DESCRIPTION>Key to reset hologram view (Ctrl modifier cycles local hologram, no Ctrl cycles target, Default is NumPad5)</resetKey_DESCRIPTION>
+  <orbitViewKey>97</orbitViewKey>
+  <orbitViewKey_DESCRIPTION>Key to set hologram view to Orbit cam (Only for target, Default is NumPad1)</orbitViewKey_DESCRIPTION>
+  <perspectiveViewKey>99</perspectiveViewKey>
+  <perspectiveViewKey_DESCRIPTION>Key to set hologram view to Perspective cam (Only for target, Default is NumPad3)</perspectiveViewKey_DESCRIPTION>
+  <largeGridSizeOneMaxBlocks>1500</largeGridSizeOneMaxBlocks>
+  <largeGridSizeTwoMaxBlocks>2500</largeGridSizeTwoMaxBlocks>
+  <largeGridSizeThreeMaxBlocks>5000</largeGridSizeThreeMaxBlocks>
+  <largeGridSizeFourMaxBlocks>7500</largeGridSizeFourMaxBlocks>
+  <largeGridSizeFiveMaxBlocks>15000</largeGridSizeFiveMaxBlocks>
+  <largeGridSizeTiers_DESCRIPTION>Set the various size in blocks for the tiers that determine blip icons used. There are six (6) large grid icons.</largeGridSizeTiers_DESCRIPTION>
+  <smallGridSizeOneMaxBlocks>600</smallGridSizeOneMaxBlocks>
+  <smallGridSizeTwoMaxBlocks>1200</smallGridSizeTwoMaxBlocks>
+  <smallGridSizeThreeMaxBlocks>1800</smallGridSizeThreeMaxBlocks>
+  <smallGridSizeTiers_DESCRIPTION>Set the various size in blocks for the tiers that determine blip icons used. There are four (4) small grid icons.</smallGridSizeTiers_DESCRIPTION>
+  <renderHoloRadarsInSeat>false</renderHoloRadarsInSeat>
+  <renderHoloRadarsInSeat_DESCRIPTION>Whether holo table radars should still render if you are in a cockpit that has active hud.</renderHoloRadarsInSeat_DESCRIPTION>
+  <renderHoloHologramInSeat>false</renderHoloHologramInSeat>
+  <renderHoloHologramsInSeat_DESCRIPTION>Whether holo table holograms should still render if you are in a cockpit that has active hud.</renderHoloHologramsInSeat_DESCRIPTION>
+  <blockCountClusterStep>10000</blockCountClusterStep>
+  <blockCountClusterStep_DESCRIPTION>Used for setting max and min cluster sizes when building the grid hologram (There is a complex relationship with this and clusterSplitRatio for fidelity). 
+ Basically we don't want to draw more than this number of squares on screen for performance so we step up the size of clusters when over this number. 
+ A grid with this number of blocks or lower will be set to cluster size 1 (ie 1x1x1). A grid over this number of blocks will be set to size 2 (2x2x2). 
+ Because this is cubic after this point it isn't about block count, but about how many clusters would be drawn on screen which is blockCount / (#x#x#) where # = clusterSize. 
+ Max cluster size is set to clusterSize +1, Min is set to clusterSize -1 (but with a min of 1). Which allows for more fidelity where blocks are not concentrated but still clusters them larger where possible to reduce draw calls. 
+ This provides the biggest performance increase of all the changes I've made. Lowering this value reduces fidelity as it will increase clusterSize sooner. 
+ Eg. At blockClusterStep = 10000: a grid of 9999 blocks will range between 1x1x1 and 2x2x2 clusters and a grid of 10001 - 80000 blocks will range between 1x1x1 and 3x3x3 clusters. 
+ A grid of 80001 blocks will range between 2x2x2 and 4x4x4 (because the next step is at blockCount / (2x2x2) and we do clusterSize-1 to clusterSize+1). 
+ This clustering logic is the largest performance increase we can make, the number of squares drawn is the largest bottleneck. 
+ We can adjust this to cluster sooner/later and adjust the splitThreshold to allow more/less fidelity around sparse blocks.</blockCountClusterStep_DESCRIPTION>
+  <blockClusterAddlMax>1</blockClusterAddlMax>
+  <blockCLusterAddlMax_DESCRIPTION>The value to add to get the max cluster range. eg. for a grid identified as clusterSize = 2, the max would be 3 if this value is 1, meaning it would start at 3x3x3 clusters and size down where sparse.</blockCLusterAddlMax_DESCRIPTION>
+  <blockClusterAddlMin>1</blockClusterAddlMin>
+  <blockCLusterAddlMin_DESCRIPTION>The value to subtract to get the min cluster range. eg. for a grid identified as clusterSize = 3, the min would be 2 if this value is 1, meaning it wouldn't go smaller than 2x2x2 clusters for sparse regions.</blockCLusterAddlMin_DESCRIPTION>
+  <clusterSplitThreshold>0.33</clusterSplitThreshold>
+  <clusterSplitThreshold_DESCRIPTION>The fill ratio threshold at which a larger block cluster will be split into smaller clusters. Eg at 0.33 (33%) a larger cluster will only break down to smaller clusters if less than 33% full. 
+ So for a 3x3x3 cluster at 8/27 blocks it will break to smaller 2x2x2 and 1x1x1 clusters. At 9/27 blocks it will show as one 3x3x3 cluster. Combined with the blockCountClusterStep this allows drawing larger grids at larger cluster sizes with 
+ less fidelity but more performance by reducing the number of block squares drawn on screen. By tweaking the splitThreshold we can add fidelity for sparse clusters, while allowing larger clusters for the rest of the grid.</clusterSplitThreshold_DESCRIPTION>
+  <clusterRebuildClustersPerTick>200</clusterRebuildClustersPerTick>
+  <clusterRebuildClustersPerTick_DESCRIPTION>The number of block clusters built per game tick on a rebuild of the hologram clusters triggered due to blocks being removed or added. This spreads load over time to reduce stutter. 
+ Lowering this value will increase the speed at which add/removal of blocks reprocesses the hologram but increases load. </clusterRebuildClustersPerTick_DESCRIPTION>
+  <ticksUntilClusterRebuildAfterChange>100</ticksUntilClusterRebuildAfterChange>
+  <ticksUntilClusterRebuildAfterChange_DESCRIPTION>The number of game ticks that must pass after add or remove of a block before re-processing the hologram. Prevents rebuilds until after a period of inactivity to reduce stutter. 
+ Note: On taking damage clusters will update integrity/maxIntegrity immediately and thus update hologram color. 
+ Loss of blocks in a cluster will also update integrity (or remove if no blocks left), but the hologram won't reprocess fully until after this many ticks have passed. 
+Then it will start a rebuild and process clusterRebuildClustersPerTick clusters each tick. 
+ If another add/removal occurs that process stops, and only restarts after this number of ticks have passed. 
+ Lowering this values will increase the speed at which the hologram reprocess starts. </ticksUntilClusterRebuildAfterChange_DESCRIPTION>
+</ModSettings>
