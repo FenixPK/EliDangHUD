@@ -91,112 +91,10 @@ versus rewriting the approach from the ground up.
 -Draw holo tables if in range of any tagged holo tables. NOTE applying rotations at this point is more taxing than necessary and I COULD technically store a list of blocks/slices with rotations already applied per holo table. So when a change happens (or on init)
 and it re-processes the slices it does one reprocess of the slices then per holo table it loops through the slices rotating them and then storing in the holo table dictionary. So the main dict of slices isn't ever used for drawing directly. 
 
-----------------
---CHANGES--
-DONE: Fix grid flare setting.
-DONE: Fix visor setting.
-DONE: Round space credits when at large values - should show K, M, B.
-DONE: Make max radar range be the max range of the antenna of the current ship. - Covered by active/passive.
-DONE: Fix H2 Display % remaining or time based on current draw like power does, gives me INVALID_NUMBER currently? - Added support for modded tanks by checking if block has capacity and has Hydrogen anywhere in details/subtype etc. 
-DONE: Make it keyword tag based [ELI_HUD] instead of main cockpit...
-DONE: Make it so if antenna missing or broadcasting turned off only the Holograms and Radar cease to function, but the rest of the hud works as expected. - Covered by active/passive.
-DONE: Overhaul entire antenna logic so we get active+passive radar and hud still functions regardless of antenna state for things like H2/Energy/Altitude etc. Uses simple SigInt logic for now.
-1) Antenna off/damaged = no radar.
-2) Antenna on/functional but NOT broadcasting = passive mode, receptive to grids with broadcasting antennas only, up to local grid antenna's configured broadcast range or global radar maximum (which could be draw distance if left at -1).
-and only if broadcasting grid antenna range would reach local grid. Ie. if they can see you actively, you can see them passively. 
-  TODO: Advanced SigInt logic where active signals from any ship can bounce around and be picked up in passive mode? So one active ship can feed passive fleet?
-3) Antenna on/functional AND broadcasting = active mode, local grid can pick up grids or entities/voxels within the broadcast range. By virtue of being in active mode, you can also passively pickup signals.
-ie. there is Passive, or Active+Passive, or Off. Broadcast on/off controls Passive vs Active mode, power controls On/Off.
-Text on radar display shows RDR[OFF], RDR[ACT], or RDR[PAS] based on mode. Then receptive distance in KM. Then [SCL] for the radar distance scale in KM.
-4) [SCL] (variable called radarScaleRange) controls how zoomed in or out the radar screen is, basically how many KM it displays and can be different than your detection range.
-It uses a configurable bracket distance users can change where it will only increase every X amount with a configurable percentage based buffer to prefer zooming out. 
-eg. at my default settings of 2000 meters bracket with 0.01 buffer if my range is 2000m + 20m buffer it would fall into the 4000m bracket because 2020 > 2000. If I had the bracket set to 1000 meters it would fall in the 3000m bracket. So on.
-This means raising or lowering the antenna broadcast range, even in broadcast = off mode, changes the zoom of the radar in addition to how far you can pickup targets.
-It also will shrink the radar display to zoom in on a selected target indicated by (T) at the end of the scale distance. It does the same range bracketing, but based on the target's distance from the local grid instead of the radar range.
-This makes it easier to see your position in relation to the target on the radar screen.
-  TODO: Make broadcast range only affect active signal sent out, and make scale be something else configurable that gets stored in the cockpit's block data that can have up/down toggles added to toolbar. No idea how to do this
-        so using the broadcast range for now.
-  WIP - I'm looking into adding toolbar actions for things like this or enabling/disabling hud now. 
-This allows for fun things like having a passive antenna up to 50km to pick up grids with active radar on up to that distance (if their active signals are pinging you anyway). 
-And have a separate active radar set to 2km to pick up anything near you. This way your leaked signals don't give you away as far, but passive grids (or asteroids!) can't totally sneak up on you. 
-DONE: Move random number generation to LoadData so it occurs once, and populates a large list of random floats between 0 and 1. These are then used by GetRandomFloat, GetRandomDouble, or GetRandomBoolean. 
-These array lookups are far more efficient than generating random numbers. And in the original mod we were generating 33 random numbers per tick. 
-DONE: Rework where calculations are done. UpdateBeforeSimulation() should be for calculations/changes that might affect physics (thruster input for eg), UpdateAfterSimulation() should be for calculations taht depend on updated
-physics states (like calculating the position of a grid, which could have changed after a physics impact), and Draw() should be reserved for the actual rendering. 
-There's a lot of complex math going on in Draw() that doesn't need to be there.
-DONE: (PARTIAL) Make target condition hologram better, there's still some bugs. But we can choose between viewing various sides using hotkeys, or an Orbit cam view, or a perspective based view. But the perspective based view has minor bugs.
-DONE: Make entities with active radar stand out visually. 
-DONE: Look into color/scale sliders re-setting or not changing per ship as you leave one and enter another. Might already be fixed? I believe this would have been fixed
-by my changes to where CheckCustomData gets called anyway. 
-DONE: Make target selection code use a minBlockCount setting to prevent debris being picked up instead of actual grids. Also uses GetTopMostParent so it returns main grids instead of subgrids like wheels etc.
-DONE: Make target selection and hologram view changing keys be bindable in the config. 
-DONE: Add setting to only show radar pings for grids with power. Setting is independent of voxels, so if show voxels is true they will still appear despite not having power. 
-DONE: Add block actions for toggling the hud on/off, the holograms on/off, show voxels on/off, and powered only on/off. These can be bound from the G menu to the toolbar. 
-DONE: Local Grid and Target Grid holograms can have their views cycled. Ctrl modifier applies to local grid hologram, no Ctrl key pressed will change target grid hologram.
-DONE: Fix HasPowerProduction to check if batteries have stored power too. 
-DONE: Moved some functions back into Draw(), while calculating UI positions in UpdateAfterSimulation seemed like a good optimization, when grids are moving quickly it lags too far behind and causes UI to draw oddly. 
-I suspect this would be even worse with speed mods allowing over 300m/s. I have left updating the radar detections themselves in UpdateAfterSimulation, and this should be fine. 
-DONE: Removed arbitrary DisplayName == "Stone" || DisplayName == null filter from radar entities return. In my testing this prevented asteroids of any type I spawned in from showing. 
-I'd like to do further settings to allow users to more specifically choose to filter our floating items of name 'Stone' for eg, or only voxels (asteroids and deposits) of certain types or sizes even. 
-DONE: Make Main Cockpit or Tag be an option. Make custom cockpit sliders/checkboxes etc. load based on only this setting, no longer requires a broadcasting antenna. (Was a leftover of original). 
-DONE: Make SigInt lite logic be toggleable. You can have some of the old logic instead. It still checks all powered antennas on the grid and uses the max broadcast range as the radar range for detecting and scaling the radar.
-But doesn't do all the active vs passive radar stuff. 
-DONE: More minor optimizations: only checks if entity has power if you can already detect it based on range and the setting to only show powered grids is true. 
-DONE: Top priority: Optimize the holograms! Will use a Dictionary of blocks on the grid, then have event handlers for add or remove of block, or damage of block instead of
-scanning all blocks each tick. So we initialize it using getBlocks once, then only update it when something changes. When it comes to drawing their positions we will
-have the grid relative positions, so for local grid this is easy. For target grid we will need to offset based on the current grid positions at Draw() time.
-DONE: Dynamic block clustering that uses a range. It will still pick a cluster size based on grid block count, but then can go up and down from there. Sparse regions can be broken down to smaller
-clusters, and denser regions will be represented by one larger square. Eg. at cluster size 2 we get 1x1x1, 2x2x2, or 3x3x3 clusters. Based on various settings this can be tweaked. 
-Goal is to preserve fidelity for sparse regions, but cluster dense regions for performance. 
-DONE: Added occlusion culling for the interior of holograms, so those clusters aren't drawn if they are completely enclosed by other clusters.
-DONE: Wrap orbit lines in a customdata setting, and also toggle off completely at global level.
-DONE: Fix Target integrity arc direction. Also fix integrity calculations on IntegrityChange and on BlockRemoved. 
-DONE: Make unpowered grids have a darker icon on radar
-DONE: Make target selection ignore the current target, so it more reliably switches between more than one grid very near to the center of your vision.
-DONE: Make ModSettings use custom serializable types instead of VRage types like Vector3D, Vector4, and MyKeys to hopefully help with XMLSerialization errors for some users when saving the game. 
-DONE: Make small grid radar sprites slightly smaller.
+TODO and CHANGES moved to README.md
 
---TODO--
-TODO: Fix the maxSpeed variable, it should load the max speed for the localGrid's gridsize from the world. 
-
-TODO: Make holograms show more data, weapons, effective range, DPS?
-TODO: Make radar sprites show more data for selected target. Eg. when you pick a target the radar screen has an "effective range" bubble for the target. 
-TODO: Add chat commands to edit/update settings that otherwise must be written to the xml in world storage. Remember to refresh GridHelpers settings as well as CircleRenderer when changed.
-TODO: Polishing pass - add summaries to methods etc. It's becoming less documented as I go haha. 
-TODO: Waypoint system with GPS. Would show on screen and on radar. Could we do something global that syncs between players? So a CIC could set waypoints or even pin radar pings?
-TODO: Maybe a lightweight player hud that matches this, we could keep default toolbar but hide other elements. 
-
-
-TODO: I'd like to do further settings to allow users to more specifically choose to filter our floating items of name 'Stone' for eg, or only voxels (asteroids and deposits) of certain types or sizes even. 
-TODO: Figure out all this DamageAmount/AttachGrid/DetachGrid event handler stuff. It looks... incomplete? Eg GetDamageAmount if called would re-set the amount to zero. It is used to get a damage amount to add to glitch amount overload.
-but the way it is configured all that happens prior to this is attaching event handlers for on function changed. So amount would always be 0?
-Is this a remnant from presumably older code that used the queue of blocks to check each one for current damage, so it would do something like upon sitting in the control seat of a grid that was already damaged
-store that value? 
-TODO: Look into use of IMyCockpit vs IMyShipController, didn't we see reports of players wishing it worked for remote controlled ships?
-TODO: (PARTIAL) Make player condition hologram better - would love to make it flip to show side taking damage most recently?
-TODO: Can we color code power, weapon, antenna, control blocks in the target/player hologram? Then apply a yellow/red color gradient overtop for damage. Or even shade them? For eg. instead of MaterialSquare
-we have other squares that have /// or ### or something. Who knows. There's definitely something to do here just not sure exact approach. 
-TODO (PARTIAL): Make altitude readout - I have the value, but haven't decided where to draw it on screen yet.
-TODO: Make broadcast range only affect active signal sent out, and make scale be something else configurable that gets stored in the cockpit's block data that can have up/down toggles added to toolbar. 
-No idea how to do this so using the broadcast range for now. MIGHT NOT DO THIS AFTER ALL. I kinda like broadcast range directly controlling scale it gives visual feedback for how far out your antenna is set too.
-TODO: Compatibility with frame shift drive? Likely around the jumpdrive mechanic? Will look into this.
-TODO: Show modded ammo types in the gauges. Attempted but might have failed? needs testing...
-TODO: WeaponCore compatibility - partiall attempted, but I really have no idea what I'm doing. I may need to load up the WeaponCore source code to figure out how to hook into it. 
-TODO: Advanced SigInt logic where active signals from any ship can bounce around and be picked up in passive mode? So one active ship can feed passive fleet?
-TODO: Check shield mod integrations, how can we make that universal across shield mods?
-TODO: Apparently asteroids can cause phantom pings on planets, should try and look into that for Cherub.
-
-
-NO ACTION: Maybe enable squish value again? If users want that verticality squish we could toggle it in settings and allow specific value. Ie. 0.0 is off, 0.0-1.0 range. 
--Update 2025-07-29, this was already disabled by the original author. It would "squish" the vertical axis for a radar contact making it "easier to read but less vertically accurate."
-I prefer accuracy personally and have had no issue with pings that are very far above or below not showing on the screen?
-
-NO ACTION: Rework the glitch code regarding the radar, I removed it when trying to hunt down the performance issues when I first started and had no idea what anything in this code even did. 
--Update 2025-07-29, that glitch code I removed did a few things: for hostile entities only, if greater distance away than 90% of max radar range, add a "glitch" effect that consisted of
-a red, blue, and green blip at random offsets instead of an exact blip for the entity. 
-Since it only affected hostile contacts one could realize this doesn't happen to friendly/neutral and the color flipping becomes meaningless as you know it's hostile if it glitches at all. 
-Then with my changes to radar range being based on antenna broadcast range, and having active vs passive modes, I would probably want to do this entirely differently. 
-Perhaps glitch effects only for non passive detections (ie. if the entity isn't broadcasting, then it's location is less accurate), or some kind of EWAR jamming etc.
+Wise words from baby:
+hjmiiiiiiiiooooooooooooooooooooooo88888888888888888888888888888888...;////////////////////////////////////////////////
 
 */
 
@@ -4194,6 +4092,10 @@ namespace EliDangHUD
             foreach (KeyValuePair<Vector3I, Sandbox.ModAPI.IMyTerminalBlock> holoTableKeyValuePair in gHandler.localGridRadarTerminals)
             {
                 Sandbox.ModAPI.IMyTerminalBlock holoTable = holoTableKeyValuePair.Value;
+                if (!holoTable.IsFunctional || !holoTable.IsWorking) 
+                {
+                    continue;
+                }
                 HoloRadarCustomData theData = gHandler.localGridRadarTerminalsData[holoTableKeyValuePair.Key].HoloRadarCustomData;
 
                 MatrixD holoTableMatrix = holoTable.WorldMatrix;
@@ -6374,6 +6276,10 @@ namespace EliDangHUD
                 foreach (KeyValuePair<Vector3I, Sandbox.ModAPI.IMyTerminalBlock> holoTableKeyValuePair in gHandler.localGridHologramTerminals)
                 {
                     Sandbox.ModAPI.IMyTerminalBlock holoTable = holoTableKeyValuePair.Value;
+                    if (!holoTable.IsFunctional || !holoTable.IsWorking)
+                    {
+                        continue;
+                    }
                     HologramCustomData theData;
                     HologramCustomDataTerminalPair thePair;
                     if (gHandler.localGridHologramTerminalsData.TryGetValue(holoTableKeyValuePair.Key, out thePair)) 

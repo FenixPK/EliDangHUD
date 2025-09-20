@@ -1,15 +1,28 @@
-Can choose between a tag based HUD activation with [ELI_HUD] in the CustomName being eligible, or in the XML settings you can turn the MainCockpit requirement back on where it only works for control seats that are set to MainCockpit. 
-Per-ship settings get stored to CustomData of the control seat. 
 
-Can also run holographic radar from any terminal block (like a holo table, LCD, control panel, even a sound block lol) using [ELI_HOLO] custom name.
-Can also run holographic local grid display from any terminal block using [ELI_LOCAL].
-CustomData of these blocks has options for tweaking how and where the radar or hologram draw. You can re-set this to default by clearing the EliDang section entirely. 
+You can rebind keys in EDHH_settings.xml inside the save folder (eg H:\YourSaveFolderLocation\WorldName\Storage\3540066597_EliDangHUD), the enum of available MyKeys are below (Note that mouse clicks are treated special, and have their own settings documented in EDHH_settings.xml).
 
-Global settings are stored in the World Save folder, eg SaveGameName\Storage\########_EliDangHud\EDHH_settings.xml
-Each setting has a description that explains what it does.
-This file will only generate after saving your game with the mod enabled. I recommend you add the mod and load the game, save it and exit, then make any changes to the mod config. 
+For eg:
+  <selectTargetKey>84</selectTargetKey>
+  <selectTargetKey_DESCRIPTION>Key to select target, if mouse button is disabled (Default is T)</selectTargetKey_DESCRIPTION>
+  <rotateLeftKey>100</rotateLeftKey>
+  <rotateLeftKey_DESCRIPTION>Key to rotate the static hologram view in the +X axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad4)</rotateLeftKey_DESCRIPTION>
+  <rotateRightKey>102</rotateRightKey>
+  <rotateRightKey_DESCRIPTION>Key to rotate the static hologram view in the -X axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad6)</rotateRightKey_DESCRIPTION>
+  <rotateUpKey>104</rotateUpKey>
+  <rotateUpKey_DESCRIPTION>Key to rotate the static hologram view in the +Y axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad8)</rotateUpKey_DESCRIPTION>
+  <rotateDownKey>98</rotateDownKey>
+  <rotateDownKey_DESCRIPTION>Key to rotate the static hologram view in the -Y axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad2)</rotateDownKey_DESCRIPTION>
+  <rotatePosZKey>103</rotatePosZKey>
+  <rotatePosZKey_DESCRIPTION>Key to rotate the static hologram view in the +Z axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad7)</rotatePosZKey_DESCRIPTION>
+  <rotateNegZKey>105</rotateNegZKey>
+  <rotateNegZKey_DESCRIPTION>Key to rotate the static hologram view in the -Z axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad9)</rotateNegZKey_DESCRIPTION>
+  <resetKey>101</resetKey>
+  <resetKey_DESCRIPTION>Key to reset hologram view (Ctrl modifier cycles local hologram, no Ctrl cycles target, Default is NumPad5)</resetKey_DESCRIPTION>
+  <orbitViewKey>97</orbitViewKey>
+  <orbitViewKey_DESCRIPTION>Key to set hologram view to Orbit cam (Only for target, Default is NumPad1)</orbitViewKey_DESCRIPTION>
+  <perspectiveViewKey>99</perspectiveViewKey>
+  <perspectiveViewKey_DESCRIPTION>Key to set hologram view to Perspective cam (Only for target, Default is NumPad3)</perspectiveViewKey_DESCRIPTION>
 
-You can rebind keys, the enum of available MyKeys are below (Note that mouse clicks are treated special, and have their own settings documented in EDHH_settings.xml).
 
 public enum MyKeys : byte
 {
@@ -215,6 +228,3 @@ public enum MyKeys : byte
     PA1 = 253,
     OEMClear = 254
 }
-
-Credits
-Ship radar icons from Grandsome https://www.nexusmods.com/x4foundations/mods/895 used with attribution as per requirements. 

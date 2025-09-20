@@ -173,7 +173,7 @@
     <Content Include="Audio\ED\zoom.wav" />
     <Content Include="Audio\ED\zoomAlt.wav" />
     <Content Include="metadata.mod" />
-    <Content Include="Readme.txt" />
+    <Content Include="KeybindValues.txt" />
     <Content Include="Textures\ED\Circle.dds" />
     <Content Include="Textures\ED\Circle_Hollow.dds" />
     <Content Include="Textures\ED\Circle_SeeThrough.dds" />
