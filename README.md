@@ -14,6 +14,10 @@ Enabled on any control seat with either the tag [ELI_HUD] (default) or by settin
 
 - Some actions like toggling display of unpowered grids, voxels, holograms, or entire HUD can be toggled via toolbar actions if you assign the cockpit to your toolbar. More actions to be added in the future. 
 
+- Holographic radar projection can be displayed above any terminal block (like a holo table, LCD, control panel etc.) using [ELI_HOLO] tag in the block custom name, then use CustomData to tweak position, scale, rotation, and what it detects.
+
+- Holographic local grid projection can be displayed above any terminal block using [ELI_LOCAL] tag in the block custom name, then use CustomData to tweak position, scale, rotation, and color.
+
 - Holographic projections for the local grid and the selected target grid showing hull integrity and shield status (technically jump drives right now, to be overhauled for modern shield mods).
 These projections use "block clustering" which defaults to a range of 1x1x1 to 2x2x2 for grids below a certain block count (and increases to 1x1x1 to 3x3x3 after) to reduce the squares drawn on screen for performance. 
 Damage is reflected immediately by color changes to the cluster, and block removal/addition triggers a complete recluster after a wait period of no further changes to reduce stutter. It does this over multiple ticks to further reduce stutter.
@@ -34,10 +38,6 @@ Blip icons are from an X4 Mod with permission, link in the credits section below
 - Keybinds to rotate the holograms (local and target) around all three axes, reset the view, and for target only you can cycle between orbit cam, perspective, or static view you can rotate manually. Configurable.
 
 - Mouse button or keybind to target the entity in the center of your view. Configurable. 
-
-- Holographic radar projection can be displayed above any terminal block (like a holo table, LCD, control panel etc.) using [ELI_HOLO] tag in the block custom name, then use CustomData to tweak position, scale, rotation, and what it detects.
-
-- Holographic local grid projection can be displayed above any terminal block using [ELI_LOCAL] tag in the block custom name, then use CustomData to tweak position, scale, rotation, and color.
 
 - Huge optimizations for Radar and Holograms versus the original mod. 
 
