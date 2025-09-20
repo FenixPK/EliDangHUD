@@ -155,18 +155,14 @@ namespace EliDangHUD
         /// </summary>
         public double deltaTimeSinceLastTick = 0;
 
-        // New idea is to consolidate everything into gHandler, we will loop through all blocks once and store them into dictionaries by type.
-        // Then OnBlockAdded or OnBlockRemoved event handlers at the grid level we can add or remove from dictionaries as needed.
-        // We can also add OnDamage handlers for each block to track damage changes. Especially required if we use Slices instead of individual blocks so we can separate out damaged blocks from undamaged slices.
-        // And we can add event handlers for custom name changes and custom data changes if they are holo tables or cockpits/seats. 
-
-        // IMPORTANT: must handle IMyCubeGrid.OnGridSplit = triggered when grids separate.
+        // IMPORTANT: Might need to handle IMyCubeGrid.OnGridSplit = triggered when grids separate.
         // IMyCubeGrid.OnGridMerge = triggered when grids merge(e.g., merge blocks, welding).
         // For rotors/pistons/connectors = you usually check Block.OnClose(for detached heads) or use IMyMechanicalConnectionBlock’s TopGridChanged event.
         // Connectors: IMyShipConnector has IsConnectedChanged event. 
         // I need to give this some thought... on the one hand the idea of connecting a battery pack, or external tank, or external jump ring, exeternal reactor etc. is appealing.
         // On the other hand docking to a station/grid that has a huge number of tanks/batteries/reactors/jump drives would mean a lot more overhead. 
         // Yeah on second thought I think we should only handle the merges, not connectors/rotors/pistons. 
+        // I need to review this as I suspect the OnBlockAdded already handles this, which means docking with a large station might cause a stutter? Will check.
 
         public bool localGridInitialized = false;
         public bool localGridControlledEntityInitialized = false; 
@@ -296,6 +292,9 @@ namespace EliDangHUD
         }
 
         // Cleans up the singleton instance when data is unloaded.
+        /// <summary>
+        /// Unload all data
+        /// </summary>
         protected override void UnloadData()
         {
             ResetLocalGrid();
@@ -354,32 +353,11 @@ namespace EliDangHUD
         
 
 
-        public int GetIntegrityIndex(float integrityRatio)
-        {
-            int sliceIndex = 0;
-            if (integrityRatio < 0.2f)
-            {
-                sliceIndex = 0;
-            }
-            if (integrityRatio < 0.4f)
-            {
-                sliceIndex = 1;
-            }
-            if (integrityRatio < 0.6f)
-            {
-                sliceIndex = 2;
-            }
-            if (integrityRatio < 0.8f)
-            {
-                sliceIndex = 3;
-            }
-            else
-            {
-                sliceIndex = 4;
-            }
-            return sliceIndex;
-        }
-
+        /// <summary>
+        /// Get's a rotation only matrix by neutralizing the translation from a MatrixD. 
+        /// </summary>
+        /// <param name="matrix"></param>
+        /// <returns></returns>
         private MatrixD GetRotationMatrix(MatrixD matrix)
         {
             // Extract the rotation components
@@ -399,7 +377,11 @@ namespace EliDangHUD
             return rotationMatrix;
         }
 
-        private MatrixD CreateNormalizedLocalGridRotationMatrix()
+        /// <summary>
+        /// Gets the angular velocity and builds a rotation matrix that can be used to "rotate" the hologram based on the angular velocity of the grid. Provides a "wiggle" effect that provides feedback to which direction the grid is turning. 
+        /// </summary>
+        /// <returns></returns>
+        private MatrixD CreateNormalizedLocalGridRotationMatrixFromAngularVelocity()
         {
             Vector3D angularVelocity = localGrid?.Physics?.AngularVelocity ?? Vector3D.Zero;
 
@@ -441,6 +423,14 @@ namespace EliDangHUD
                 return MatrixD.Identity;
             }
         }
+
+        /// <summary>
+        /// Clamps the angular velocity to a maximum value and scales it to a desired angle range.
+        /// </summary>
+        /// <param name="angularVelocity"></param>
+        /// <param name="maxVelocity"></param>
+        /// <param name="maxAngle"></param>
+        /// <returns></returns>
         private double ClampAndScale(double angularVelocity, double maxVelocity, double maxAngle)
         {
             // Normalize the angular velocity to (-1, 1) range
@@ -454,6 +444,11 @@ namespace EliDangHUD
         }
 
 
+        /// <summary>
+        /// Determines the BlockClusterType of a given IMySlimBlock by checking its FatBlock type and definition details. For eg. Railgun, PDC, Medium Ballistic, Energy, Reactor, Thruster etc. 
+        /// </summary>
+        /// <param name="block"></param>
+        /// <returns></returns>
         private BlockClusterType GetClusterType(IMySlimBlock block)
         {
             IMyCubeBlock fatBlock = block.FatBlock;
@@ -647,7 +642,10 @@ namespace EliDangHUD
 
 
 
-
+        /// <summary>
+        /// Even handler for when a block gets added to the localGrid, will add to relevant dictionaries and add eventHandlers for integrity changes.
+        /// </summary>
+        /// <param name="block"></param>
         private void OnLocalBlockAdded(VRage.Game.ModAPI.IMySlimBlock block)
         {
             if (localGridBlocksInitialized && localGrid != null) // Safety check
@@ -750,8 +748,6 @@ namespace EliDangHUD
                     localGridJumpDrivesDict[block.Position] = jumpDrive;
                 }
 
-                //localGridCurrentIntegrity += block.Integrity;
-                //localGridMaxIntegrity += block.MaxIntegrity;
                 localGridIntegrityNeedsRefresh = true;
 
                 localHologramScaleNeedsRefresh = true;
@@ -762,6 +758,10 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// Event handler for when a block on the local grid is removed, updates the relevant dictionaries and removes the block from any cluster it belongs to, updating the integrity of that cluster to adjust for the now missing block.
+        /// </summary>
+        /// <param name="block"></param>
         private void OnLocalBlockRemoved(VRage.Game.ModAPI.IMySlimBlock block)
         {
             if (localGridBlocksInitialized && localGrid != null) // Safety check
@@ -849,6 +849,12 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// Event handler for when a block on the local grid has its integrity changed (damaged or repaired), updates the cluster the block belongs to so the hologram provides visual feedback as clusters are damaged or repaired.
+        /// </summary>
+        /// <param name="stack"></param>
+        /// <param name="oldIntegrity"></param>
+        /// <param name="newIntegrity"></param>
         private void OnLocalBlockIntegrityChanged(IMyComponentStack stack, float oldIntegrity, float newIntegrity)
         {
             if (localGridBlocksInitialized && localGrid != null) // Safety Check
@@ -883,6 +889,10 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// Event handler for when the CustomName of any terminal changes, this is what allows us to track when the tag changes and switch the function of the terminal from holo radar to hologram or remove it entirely. 
+        /// </summary>
+        /// <param name="terminal"></param>
         private void OnTerminalCustomNameChanged(IMyTerminalBlock terminal)
         {
             if (localGridBlocksInitialized && localGrid != null) // Safety check
@@ -921,7 +931,12 @@ namespace EliDangHUD
             }
         }
 
-        // TODO this doesn't seem to be firing on changing CustomData of a holo table?
+
+        /// <summary>
+        /// Event handler for when the CustomData of the holo radar or hologram terminal changes, reads in the new values and updates the terminal block. NOTE: THIS IS UNRELIABLE!!! Apparently this doesn't trigger for most blocks?
+        /// Fell back to a check each tick if the data is different than the last time we checked and update if so. 
+        /// </summary>
+        /// <param name="terminal"></param>
         private void OnTerminalCustomDataChanged(IMyTerminalBlock terminal)
         {
             if (localGridBlocksInitialized && localGrid != null) // Safety check
@@ -969,7 +984,11 @@ namespace EliDangHUD
                 }
             }
         }
-
+        /// <summary>
+        /// Event handler for when the CustomData of the controlled entity terminal changes, reads in the new values and updates the localGridControlledEntityCustomData object. NOTE: THIS IS UNRELIABLE!!! Apparently this doesn't trigger for most blocks?
+        /// Fell back to a check each tick if the data is different than the last time we checked and update if so. 
+        /// </summary>
+        /// <param name="terminal"></param>
         private void OnControlledEntityCustomDataChanged(IMyTerminalBlock terminal)
         {
             if (localGridBlocksInitialized && localGrid != null && localGridControlledEntity != null) // Safety check
@@ -993,6 +1012,11 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// Pre-compute the integrity color pallet to use for hologram terminals since they can have their colors changed independently. 
+        /// </summary>
+        /// <param name="hologramColor"></param>
+        /// <returns></returns>
         public Vector4[] BuildIntegrityColors(Vector4 hologramColor)
         {
             Vector4 yellow = new Vector4(1f, 1f, 0f, 1f);
@@ -1010,6 +1034,10 @@ namespace EliDangHUD
 
         //--Target Grid
 
+        /// <summary>
+        /// Even handler for when a block gets added to the targetGrid, will add to relevant dictionaries and add eventHandlers for integrity changes.
+        /// </summary>
+        /// <param name="block"></param>
         private void OnTargetBlockAdded(VRage.Game.ModAPI.IMySlimBlock block)
         {
             if (targetGridBlocksInitialized && targetGrid != null) // Safety check
@@ -1067,6 +1095,10 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// Event handler for when a block on the target grid is removed, updates the relevant dictionaries and removes the block from any cluster it belongs to, updating the integrity of that cluster to adjust for the now missing block.
+        /// </summary>
+        /// <param name="block"></param>
         private void OnTargetBlockRemoved(VRage.Game.ModAPI.IMySlimBlock block)
         {
             if (targetGridBlocksInitialized && targetGrid != null) // Safety check
@@ -1116,6 +1148,12 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// Event handler for when a block on the target grid has its integrity changed (damaged or repaired), updates the cluster the block belongs to so the hologram provides visual feedback as clusters are damaged or repaired.
+        /// </summary>
+        /// <param name="stack"></param>
+        /// <param name="oldIntegrity"></param>
+        /// <param name="newIntegrity"></param>
         private void OnTargetBlockIntegrityChanged(IMyComponentStack stack, float oldIntegrity, float newIntegrity)
         {
             if (targetGridBlocksInitialized && targetGrid != null) // Safety Check
@@ -1151,6 +1189,9 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// Initialize the targetGrid (IMyCubeGrid), this includes processing all blocks on the grid, setting up event handlers, initializing the block clusters for hologram drawing
+        /// </summary>
         public void InitializeTargetGrid()
         {
             if (targetGrid != null) // Safety check
@@ -1159,7 +1200,7 @@ namespace EliDangHUD
                 InitializeTargetGridBlocks();
 
                 // Trigger Update
-                targetGridClusterSize = GetClusterSize(targetGridAllBlocksDict.Count, theSettings.blockCountClusterStep);
+                targetGridClusterSize = GetBaseClusterSize(targetGridAllBlocksDict.Count, theSettings.blockCountClusterStep);
                 int minClusterSizeTarget = (targetGridClusterSize - theSettings.blockClusterAddlMin) > 0 ? (targetGridClusterSize - theSettings.blockClusterAddlMin) : 1; // Min of 1.
                 int maxClusterSizeTarget = targetGridClusterSize + theSettings.blockClusterAddlMax;
 
@@ -1209,6 +1250,10 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// Set the IMyCubeGrid passed in as the targetGrid that this GridHelper (gHandler usually) uses. If the targetGrid already exists we re-set it. 
+        /// </summary>
+        /// <param name="newGrid"></param>
         public void SetTargetGrid(IMyCubeGrid newGrid)
         {
             if (targetGrid != null) 
@@ -1219,6 +1264,9 @@ namespace EliDangHUD
             InitializeTargetGrid();
         }
 
+        /// <summary>
+        /// Resets all target grid data and event handlers, including target data.
+        /// </summary>
         public void ResetTargetGrid() 
         {
             if (targetGrid != null) // Safety check
@@ -1291,6 +1339,9 @@ namespace EliDangHUD
         }
 
 
+        /// <summary>
+        /// Initialize the target grid's blocks by parsing all blocks on it and stuffing them into the appropriate dictionaries for easier ordered consumption later, along with adding relevant event handlers. 
+        /// </summary>
         private void InitializeTargetGridBlocks()
         {
             if (targetGrid == null)
@@ -1350,6 +1401,22 @@ namespace EliDangHUD
             targetGridBlocksInitialized = true;
         }
 
+        /// <summary>
+        /// This function evaluates the targetGrid's stored antenna blocks. Pseudo SIGINT logic where we can receive passive or output active.
+        /// Logic: 
+        /// <br></br>
+        /// Any antenna that is powered on can passively receive active signals from grids with broadcasting antennas.
+        /// <br></br>
+        /// Any antenna that is powered on and broadcasting sends active signals out to that broadcast radius and can "ping" voxels or grids within that radius.
+        /// <br></br>
+        /// Any antenna that is broadcasting will also be able to passively receive signals. 
+        /// <br></br>
+        /// Any antenna that is broadcasting will have equal maxPassiveRange and maxActiveRange, both = broadcast radius
+        /// <br></br>
+        /// Any antenna this is not broadcasting will have maxPassiveRange = broadcast radius, and maxActiveRange = 0
+        /// <br></br>
+        /// Any antenna that is powered off, disabled, or otherwise non-functional will have maxPassiveRange = 0 and maxActiveRange = 0.
+        /// </summary>
         public void UpdateTargetGridAntennaStatus()
         {
             targetGridHasPassiveRadar = false;
@@ -1380,6 +1447,9 @@ namespace EliDangHUD
             targetGridMaxActiveRadarRange = Math.Min(targetGridMaxActiveRadarRange, maxRadarRange);
         }
 
+        /// <summary>
+        /// Updates the targetGrid's jump drive status, including current charge, maximum charge, and estimated time to readiness.
+        /// </summary>
         private void UpdateTargetGridJumpDrives()
         {
             float jumpDriveChargeCurrent = 0;
@@ -1422,10 +1492,12 @@ namespace EliDangHUD
             targetGridJumpDriveTimeToReady = minTime != double.MaxValue ? minTime : 0;
         }
 
-        //------------
 
-
-
+        /// <summary>
+        /// Initialize the custom data for a hologram terminal.
+        /// </summary>
+        /// <param name="terminal"></param>
+        /// <returns></returns>
         public HologramCustomData InitializeCustomDataHologram(IMyTerminalBlock terminal) 
         {
             HologramCustomData theData = new HologramCustomData();
@@ -1438,6 +1510,12 @@ namespace EliDangHUD
             return theData;
         }
 
+
+        /// <summary>
+        /// Initialize the custom data for a holo radar terminal.
+        /// </summary>
+        /// <param name="terminal"></param>
+        /// <returns></returns>
         public HoloRadarCustomData InitializeCustomDataHoloRadar(IMyTerminalBlock terminal)
         {
             HoloRadarCustomData theData = new HoloRadarCustomData();
@@ -1450,7 +1528,9 @@ namespace EliDangHUD
             return theData;
         }
 
-        
+        /// <summary>
+        /// Initialize the localGrid (IMyCubeGrid), this includes processing all blocks on the grid, setting up event handlers, initializing the block clusters for hologram drawing, and loading the settings.
+        /// </summary>
         public void InitializeLocalGrid()
         {
             if (localGrid != null) // Safety check
@@ -1460,7 +1540,7 @@ namespace EliDangHUD
 
                 
                 // On initialization we start a build, but set the number of clusters to process to an amount sufficient to build the whole hologram in one go. 
-                localGridClusterSize = GetClusterSize(localGridAllBlocksDict.Count, theSettings.blockCountClusterStep);
+                localGridClusterSize = GetBaseClusterSize(localGridAllBlocksDict.Count, theSettings.blockCountClusterStep);
                 int minClusterSize = (localGridClusterSize - theSettings.blockClusterAddlMin) > 0 ? (localGridClusterSize - theSettings.blockClusterAddlMin) : 1;
                 int maxClusterSize = localGridClusterSize + theSettings.blockClusterAddlMax;
 
@@ -1497,6 +1577,13 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// Clamps a double value between a min and max value. 
+        /// </summary>
+        /// <param name="value"></param>
+        /// <param name="min"></param>
+        /// <param name="max"></param>
+        /// <returns></returns>
         double ClampedD(double value, double min, double max)
         {
             if (value < min)
@@ -1507,6 +1594,9 @@ namespace EliDangHUD
                 return value;
         }
 
+        /// <summary>
+        /// Initialize the global settings set from the XML in the world save folder (or synced by the server if on multiplayer)
+        /// </summary>
         public void InitializeTheSettings() 
         {
             // Handle variables set based on the settings XML file inside the world folder. If they can't be used directly or need more initialization logic first.
@@ -1536,6 +1626,9 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// Initializes the controlled entity (cockpit or control seat) and processes/stores the customData from it.
+        /// </summary>
         public void InitializeLocalGridControlledEntity() 
         {
             if (localGridControlledEntity != null) 
@@ -1572,6 +1665,9 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// Resets all local grid data and event handlers, including target data.
+        /// </summary>
         public void ResetLocalGrid()
         {
             if (localGrid != null) // Safety check
@@ -1689,6 +1785,11 @@ namespace EliDangHUD
             ResetTargetGrid(); // If re-setting the local grid, we also re-set the target grid. 
         }
 
+
+        /// <summary>
+        /// Check if the player is either controlling a grid directly, or is on a grid or inside it's world axis aligned bounding box (AABB), or if inside multiple grid's AABBs then we calculate the nearest one 
+        /// (eg. inside a small ship, inside a hanger of a bigger ship). Handles resetting the localGrid when the grid you are "on" or "controlling" changes. 
+        /// </summary>
         public void CheckForLocalGrid()
         {
             // Check if the player is currently controlling a grid entity, if so it becomes the local grid.
@@ -1767,6 +1868,9 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// Initialize the local grid's blocks by parsing all blocks on it and stuffing them into the appropriate dictionaries for easier ordered consumption later, along with adding relevant event handlers. 
+        /// </summary>
         private void InitializeLocalGridBlocks()
         {
             if (localGrid == null)
@@ -1881,6 +1985,9 @@ namespace EliDangHUD
         }
 
         
+        /// <summary>
+        /// To be called every tick and process all updates on the localGrid, including the targetGrid's block status if one is selected (defined and not null). 
+        /// </summary>
         public void UpdateLocalGrid()
         {
             if (localGrid != null) // Safety check
@@ -1939,7 +2046,7 @@ namespace EliDangHUD
                     if (localGridClusterBlocksUpdateTicksCounter > theSettings.ticksUntilClusterRebuildAfterChange)
                     {
                         // Trigger Update
-                        localGridClusterSize = GetClusterSize(localGridAllBlocksDict.Count, theSettings.blockCountClusterStep);
+                        localGridClusterSize = GetBaseClusterSize(localGridAllBlocksDict.Count, theSettings.blockCountClusterStep);
                         int minClusterSize = (localGridClusterSize - theSettings.blockClusterAddlMin) > 0 ? (localGridClusterSize - theSettings.blockClusterAddlMin) : 1;
                         int maxClusterSize = localGridClusterSize + theSettings.blockClusterAddlMax;
 
@@ -2006,7 +2113,7 @@ namespace EliDangHUD
                         if (targetGridClusterBlocksUpdateTicksCounter > theSettings.ticksUntilClusterRebuildAfterChange)
                         {
                             // Trigger Update
-                            targetGridClusterSize = GetClusterSize(targetGridAllBlocksDict.Count, theSettings.blockCountClusterStep);
+                            targetGridClusterSize = GetBaseClusterSize(targetGridAllBlocksDict.Count, theSettings.blockCountClusterStep);
                             int minClusterSizeTarget = (targetGridClusterSize - theSettings.blockClusterAddlMin) > 0 ? (targetGridClusterSize - theSettings.blockClusterAddlMin) : 1;
                             int maxClusterSizeTarget = targetGridClusterSize + theSettings.blockClusterAddlMax;
 
@@ -2033,20 +2140,15 @@ namespace EliDangHUD
                             }
                         }
                         targetGridClusterBlocksUpdateTicksCounter++;
-
-
-                        //targetGridClusterSize = GetClusterSize(targetGridAllBlocksDict.Count, theSettings.blockCountClusterStep);
-                        ////ClusterBlocks(targetGridAllBlocksDict, ref targetGridBlockClusters, ref targetGridBlockToClusterMap, targetGridClusterSize);
-                        ////ClusterBlocksGreedyTiled(targetGridAllBlocksDict, ref targetGridBlockClusters, ref targetGridBlockToClusterMap, 3);
-                        //int minClusterSize = targetGridClusterSize - 1 > 0 ? targetGridClusterSize - 1 : 1;
-                        //int maxClusterSize = targetGridClusterSize + minClusterSize;
-                        //ClusterBlocksIterativeThreshold(targetGridAllBlocksDict, ref targetGridBlockClusters, ref targetGridBlockToClusterMap, maxClusterSize, minClusterSize, 0.33);
-                        //targetGridClustersNeedRefresh = false;
                     }
                 }
             }
         }
 
+
+        /// <summary>
+        /// This function checks the local grid currently controlled seat (controlledEntity) for changes to the CustomData, and updates the localGridControlledEntityCustomData object accordingly.
+        /// </summary>
         public void UpdateLocalGridControlledEntityCustomData() 
         {
             if (localGrid != null && localGridInitialized && localGridControlledEntity != null && localGridControlledEntityInitialized) 
@@ -2073,6 +2175,9 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// This function checks all hologram terminals on the local grid for changes to their CustomData, and updates the localGridHologramTerminalsData dictionary accordingly. Also sets the colorPallet to use for that terminal.
+        /// </summary>
         public void UpdateLocalGridHologramCustomData() 
         {
             if (localGrid != null && localGridInitialized && localGridBlocksInitialized) 
@@ -2108,6 +2213,9 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// This function checks all holo radar terminals on the local grid for changes to their CustomData, and updates the localGridRadarTerminalsData dictionary accordingly.
+        /// </summary>
         public void UpdateLocalGridRadarCustomData()
         {
             if (localGrid != null && localGridInitialized && localGridBlocksInitialized)
@@ -2140,6 +2248,9 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// This function updates the localGridHologramFinalRotation matrix based on the selected HologramViewType in the localGridControlledEntityCustomData.
+        /// </summary>
         public void UpdateLocalGridRotationMatrix() 
         {
             if (localGrid != null && localGridInitialized && localGridControlledEntity != null && localGridControlledEntityInitialized && localGridControlledEntityCustomData != null) 
@@ -2187,7 +2298,7 @@ namespace EliDangHUD
                 // Final hologram rotation
                 if (localGridControlledEntityCustomData.localGridHologramAngularWiggle)
                 {
-                    angularRotationWiggle = CreateNormalizedLocalGridRotationMatrix();  // Used to apply a "wiggle" effect to the hologram based on the angular velocity of the grid.
+                    angularRotationWiggle = CreateNormalizedLocalGridRotationMatrixFromAngularVelocity();  // Used to apply a "wiggle" effect to the hologram based on the angular velocity of the grid.
                     localHologramFinalRotation = angularRotationWiggle * localHologramViewRotationCurrent * rotationOnlyLocalGridMatrix;
                 }
                 else
@@ -2197,26 +2308,10 @@ namespace EliDangHUD
             }
         }
 
-        public void UpdateFinalLocalGridHologramRotation()
-        {
-            if (localGrid != null && localGridInitialized)
-            {
-                //MatrixD rotationOnlyLocalGridMatrix = localGrid.WorldMatrix;
-                //rotationOnlyLocalGridMatrix.Translation = Vector3D.Zero;
-                //MatrixD angularRotationWiggle = MatrixD.Identity;
-                //if (localGridControlledEntityCustomData.localGridHologramAngularWiggle)
-                //{
-                //    angularRotationWiggle = CreateNormalizedLocalGridRotationMatrix();  // Used to apply a "wiggle" effect to the hologram based on the angular velocity of the grid.
-                //    localHologramFinalRotation = angularRotationWiggle * localHologramViewRotationCurrent * rotationOnlyLocalGridMatrix;
-                //}
-                //else 
-                //{
-                //    localHologramFinalRotation = localHologramViewRotationCurrent * rotationOnlyLocalGridMatrix;
-                //}  
-            }
-        }
 
-
+        /// <summary>
+        /// This function updates the targetGridHologramFinalRotation matrix based on the selected HologramViewType in the localGridControlledEntityCustomData.
+        /// </summary>
         public void UpdateTargetGridRotationMatrix()
         {
             if (targetGrid != null && targetGridInitialized && localGridControlledEntity != null && localGridControlledEntityInitialized && localGridControlledEntityCustomData != null) 
@@ -2374,20 +2469,10 @@ namespace EliDangHUD
             localGridMaxActiveRadarRange = Math.Min(localGridMaxActiveRadarRange, maxRadarRange);
         }
 
-       //---------------------------------------------------------------------------------
 
-        public void UpdateFinalTargetHologramRotation() 
-        {
-            if (targetGrid != null && targetGridInitialized) 
-            {
-                // We do this at the view level now. 
-                //MatrixD rotationOnlyLocalGridMatrix = localGrid.WorldMatrix;
-                //rotationOnlyLocalGridMatrix.Translation = Vector3D.Zero;
-
-                //targetHologramFinalRotation = targetHologramViewRotationCurrent * rotationOnlyLocalGridMatrix;
-            } 
-        }
-
+        /// <summary>
+        /// Update the localGrid's power status by evaluating all power producers and batteries, calculating total production, consumption, stored power, usage percentage, and estimated time remaining.
+        /// </summary>
         public void UpdateLocalGridPower()
         {
             if (localGrid != null) // Safety check
@@ -2453,7 +2538,9 @@ namespace EliDangHUD
             }
         }
 
-
+        /// <summary>
+        /// Update the localGrid's hydrogen status by evaluating all hydrogen tanks, calculating total capacity, current fill level, consumption rate, and estimated time remaining.
+        /// </summary>
         private void UpdateLocalGridHydrogen()
         {
             double totalHydrogenCapacity = 0;
@@ -2485,6 +2572,9 @@ namespace EliDangHUD
             localGridHydrogenFillRatio = (float)(localGridRemainingHydrogen / totalHydrogenCapacity);
         }
 
+        /// <summary>
+        /// Update the localGrid's oxygen status by evaluating all oxygen tanks, calculating total capacity, current fill level, consumption rate, and estimated time remaining.
+        /// </summary>
         private void UpdateLocalGridOxygen()
         {
             double totalOxygenCapacity = 0;
@@ -2515,6 +2605,9 @@ namespace EliDangHUD
             localGridOxygenFillRatio = (float)(localGridRemainingOxygen / totalOxygenCapacity);
         }
 
+        /// <summary>
+        /// Updates the localGrid's jump drive status, including current charge, maximum charge, and estimated time to readiness.
+        /// </summary>
         private void UpdateLocalGridJumpDrives()
         {
             float jumpDriveChargeCurrent = 0;
@@ -2556,6 +2649,9 @@ namespace EliDangHUD
             localGridJumpDriveTimeToReady = minTime != double.MaxValue ? minTime : 0;
         }
 
+        /// <summary>
+        /// Updates the local grid scaling matrix based on its current size and the desired hologram scale factor.
+        /// </summary>
         public void UpdateLocalGridScalingMatrix()
         {
             if (localGrid != null) 
@@ -2565,6 +2661,10 @@ namespace EliDangHUD
                 localHologramScaleNeedsRefresh = false;
             }  
         }
+
+        /// <summary>
+        /// Updates the target grid scaling matrix based on its current size and the desired hologram scale factor.
+        /// </summary>
         public void UpdateTargetGridScalingMatrix()
         {
             if (targetGrid != null)
@@ -2633,6 +2733,11 @@ namespace EliDangHUD
             return true; // Physically sitting in this grid
         }
 
+        /// <summary>
+        /// Check values that indicate a grid is a projection
+        /// </summary>
+        /// <param name="grid"></param>
+        /// <returns></returns>
         private bool IsProjectedGrid(IMyCubeGrid grid)
         {
             // Projected grids should have no physics and also have a projector reference
@@ -2775,8 +2880,14 @@ namespace EliDangHUD
             }
         }
 
-
-        int GetClusterSize(int blockCount, int targetClusters = 10000)
+        /// <summary>
+        /// Returns a ClusterSize based on the number of blocks in a grid, the targetClusters is used to say "max amount of clusters we want to draw on screen at one time". 
+        /// Given that clusters are cubic we start at size 1 and step up until blockCount / (size^3) <= targetClusters.
+        /// </summary>
+        /// <param name="blockCount"></param>
+        /// <param name="targetClusters"></param>
+        /// <returns></returns>
+        int GetBaseClusterSize(int blockCount, int targetClusters = 10000)
         {
             if (blockCount <= targetClusters) 
             {
@@ -2794,6 +2905,14 @@ namespace EliDangHUD
             return size;
         }
 
+        /// <summary>
+        /// Lazy approach to cluster entire grid into groups of clusterSize. Each cluster is a cube of clusterSize^3 blocks. Sparse blocks like a pillar of 1x3x1 would still be clustered into a single 3x3x3 cluster.
+        /// And would draw as one size 3 square. We lose fidelity this way, but gain performance on large grids. 
+        /// </summary>
+        /// <param name="allBlocksDict">GridBlock dictionary for the entire grid to be clustered</param>
+        /// <param name="blockClusters">Output ref of clusters</param>
+        /// <param name="blockToClusterMap">Output dictionary of Vector3I block position to cluster it belongs to</param>
+        /// <param name="clusterSize">Cube size to use</param>
         public void ClusterBlocks(Dictionary<Vector3I, GridBlock> allBlocksDict, ref Dictionary<Vector3I, BlockCluster> blockClusters,  ref Dictionary<Vector3I, Vector3I> blockToClusterMap, int clusterSize)
         {
             if (allBlocksDict == null || allBlocksDict.Count == 0)
@@ -2823,6 +2942,7 @@ namespace EliDangHUD
                     (blockPos.Z / clusterSize) * clusterSize
                 );
 
+                // Update blockCluster if it already exists
                 if (blockClusters.ContainsKey(clusterKey))
                 {
                     blockClusters[clusterKey].Integrity += block.Integrity;
@@ -2830,7 +2950,7 @@ namespace EliDangHUD
                     blockClusters[clusterKey].DrawPosition = clusterPos;
                     blockToClusterMap[blockKey] = clusterKey; // Map this block to its cluster position
                 }
-                else
+                else // Add a new one if not exists
                 {
                     blockClusters[clusterKey] = new BlockCluster
                     {
@@ -2843,7 +2963,13 @@ namespace EliDangHUD
             }
         }
 
-
+        /// <summary>
+        /// Lazy approach to cluster special blocks into clusters of only 1 block, where the size is determined by the truncated average of the block dimensions. So a turret of size 2x3x2 would be size 2. An oxygen tank of 1x3x1 would be size 1.
+        /// They draw at that clusterSize
+        /// </summary>
+        /// <param name="specialBlocksDict">GridBlock dictionary for just the special blocks to be clustered</param>
+        /// <param name="blockClusters">Output ref of clusters</param>
+        /// <param name="blockToClusterMap">Output dictionary of Vector3I block position to cluster it belongs to</param>
         public void ClusterSpecialBlocks(Dictionary<Vector3I, GridBlock> specialBlocksDict, ref Dictionary<Vector3I, BlockCluster> blockClusters, ref Dictionary<Vector3I, Vector3I> blockToClusterMap)
         {
             if (specialBlocksDict == null || specialBlocksDict.Count == 0)
@@ -2884,7 +3010,7 @@ namespace EliDangHUD
                 {
                     continue; // There should only be one block per cluster in this one
                 }
-                else
+                else // Add a new one
                 {
                     blockClusters[clusterKey] = new BlockCluster
                     {
@@ -2901,6 +3027,18 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// Iterative approach to cluster blocks into adaptive cluster sizes (initially I tried recursive as proof of concept but that was brutally slow). 
+        /// It pre-computes cluster keys for each cluster size from min to max, then iteratively processes clusters starting at max size and working down to min size.
+        /// Then it creates the block clusters, only stepping down from the largest size if the density of the cube is below the splitThreshold. 
+        /// So a 3x3x3 cluster with only 5 blocks would be 5/27 = 0.185 fill ratio, which is below the default 0.9 threshold, so it would be split into 2x2x2 clusters. 
+        /// </summary>
+        /// <param name="allBlocksDict"></param>
+        /// <param name="blockClusters"></param>
+        /// <param name="blockToClusterMap"></param>
+        /// <param name="maxClusterSize"></param>
+        /// <param name="minClusterSize"></param>
+        /// <param name="splitThreshold"></param>
         public void ClusterBlocksIterativeThreshold(Dictionary<Vector3I, GridBlock> allBlocksDict, ref Dictionary<Vector3I, BlockCluster> blockClusters, ref Dictionary<Vector3I, Vector3I> blockToClusterMap,
             int maxClusterSize, int minClusterSize = 1, double splitThreshold = 0.9)
         {
@@ -2948,7 +3086,7 @@ namespace EliDangHUD
                     continue;
                 }
 
-                // Order positions by distance to center
+                // Order positions by distance to center so we can work from the middle of the grid outward for a uniform appearance.
                 IEnumerable<Vector3I> positionsByCenter = positions.OrderBy(p => Vector3D.DistanceSquared(p, center));
 
                 Dictionary<Vector3I, List<Vector3I>> clusters = new Dictionary<Vector3I, List<Vector3I>>();
@@ -2992,7 +3130,7 @@ namespace EliDangHUD
                             ClusterType = BlockClusterType.Structure // Always structure
                         };
 
-                        double sumX = 0, sumY = 0, sumZ = 0;
+                        double sumX = 0, sumY = 0, sumZ = 0; // For averaging the xyz position of the blocks in this cluster for use as the cluster position
 
                         foreach (Vector3I position in clusterBlockPositions)
                         {
@@ -3018,7 +3156,9 @@ namespace EliDangHUD
             }
         }
 
-        // Keeps the state of an incremental build
+        /// <summary>
+        /// Keeps the state of an incremental cluster build so it can be paused and resumed over multiple ticks
+        /// </summary>
         public class ClusterBuildState
         {
             public Stack<ClusterWorkItem> ClusterStack;
@@ -3028,7 +3168,9 @@ namespace EliDangHUD
             public bool IsComplete;
         }
 
-        // Updated ClusterWorkItem with persistent cluster list & indexes
+        /// <summary>
+        /// A work item for clustering blocks, used in an iterative stack-based approach to allow pausing/resuming.
+        /// </summary>
         public class ClusterWorkItem
         {
             public int ClusterSize;
@@ -3045,6 +3187,14 @@ namespace EliDangHUD
             public int ClusterListIndex = 0;
         }
 
+
+        /// <summary>
+        /// Initializes a ClusterBuildState for iterative clustering of blocks with adaptive cluster sizes. Seeds it with a single top-level work item.
+        /// </summary>
+        /// <param name="buildState"></param>
+        /// <param name="allBlocksDict"></param>
+        /// <param name="maxClusterSize"></param>
+        /// <param name="minClusterSize"></param>
         public void StartClusterBlocksIterativeThreshold(ref ClusterBuildState buildState, Dictionary<Vector3I, GridBlock> allBlocksDict, int maxClusterSize, int minClusterSize = 1)
         {
             if (allBlocksDict == null || allBlocksDict.Count == 0)
@@ -3053,6 +3203,7 @@ namespace EliDangHUD
                 return;
             }
 
+            // Create our initial buold state
             buildState = new ClusterBuildState
             {
                 ClusterStack = new Stack<ClusterWorkItem>(),
@@ -3090,7 +3241,18 @@ namespace EliDangHUD
             );
         }
 
-        
+        /// <summary>
+        /// Continues an iterative clustering operation from a ClusterBuildState, processing up to clustersPerTick clusters per call until complete. Pattern is to use temporary blockCluster dictionary and temporary blockToClusterMap until complete.
+        /// When done, overwrite the working dictionaries with the temp ones and then null them/clear them along with the build state. Returns true if complete, false if still in progress.
+        /// </summary>
+        /// <param name="buildState"></param>
+        /// <param name="allBlocksDict"></param>
+        /// <param name="blockClusters"></param>
+        /// <param name="blockToClusterMap"></param>
+        /// <param name="clustersPerTick"></param>
+        /// <param name="minClusterSize"></param>
+        /// <param name="splitThreshold"></param>
+        /// <returns></returns>
         public bool ContinueClusterBlocksIterativeThreshold(ref ClusterBuildState buildState, Dictionary<Vector3I, GridBlock> allBlocksDict, ref Dictionary<Vector3I, BlockCluster> blockClusters, ref Dictionary<Vector3I, Vector3I> blockToClusterMap,
             int clustersPerTick, int minClusterSize = 1, double splitThreshold = 0.9)
         {
@@ -3099,6 +3261,7 @@ namespace EliDangHUD
                 return true;  // already done
             }
 
+            // Only if null create new ones, as these will be worked upon incrementally across game ticks.
             if (blockClusters == null) 
             { 
                 blockClusters = new Dictionary<Vector3I, BlockCluster>(); 
@@ -3110,71 +3273,71 @@ namespace EliDangHUD
 
             Vector3D clusterCenter = buildState.Center;
 
-            int processedThisTick = 0;
+            int processedThisTick = 0; // How many clusters we have processed this tick
 
             // Process work items until budget exhausted or stack empty
             while (buildState.ClusterStack.Count > 0 && processedThisTick < clustersPerTick)
             {
-                ClusterWorkItem work = buildState.ClusterStack.Pop();
-                int clusterSize = work.ClusterSize;
+                ClusterWorkItem workItem = buildState.ClusterStack.Pop(); // Pop a ClusterWorkItem off the stack to work on
+                int clusterSize = workItem.ClusterSize; // Set cluster size to the work items cluster size
 
-                if (clusterSize < minClusterSize || work.Positions == null || work.Positions.Count == 0)
+                if (clusterSize < minClusterSize || workItem.Positions == null || workItem.Positions.Count == 0)
                 { 
-                    continue; 
+                    continue; // Don't process if below our minClusterSize, this is our limiter.
                 }
 
                 // If we haven't grouped positions into cluster buckets yet, do it once now and store it.
-                if (work.ClusterList == null)
+                if (workItem.ClusterList == null)
                 {
-                    // Order positions by distance to center to preserve deterministic ordering
-                    work.Positions = work.Positions
+                    // Order positions by distance to center to preserver deterministic ordering and start from the middle of the grid outward for a uniform appearance. 
+                    workItem.Positions = workItem.Positions
                         .OrderBy(p => Vector3D.DistanceSquared(p, clusterCenter))
                         .ToList();
 
                     Dictionary<Vector3I, Vector3I> clusterKeys = buildState.ClusterKeysPerBlockSize[clusterSize];
                     Dictionary<Vector3I, List<Vector3I>> clustersDict = new Dictionary<Vector3I, List<Vector3I>>();
 
-                    // Group positions into clusterKey -> list
-                    foreach (Vector3I pos in work.Positions)
+                    // Group positions into clusterKey list
+                    foreach (Vector3I position in workItem.Positions)
                     {
-                        if (buildState.Used.Contains(pos))
+                        if (buildState.Used.Contains(position))
                         { 
-                            continue;
+                            continue; // If we already used the block skip it.
                         }
 
-                        Vector3I clusterKey = clusterKeys[pos];
+                        Vector3I clusterKey = clusterKeys[position];
                         List<Vector3I> list;
                         if (!clustersDict.TryGetValue(clusterKey, out list))
                         {
                             list = new List<Vector3I>();
                             clustersDict[clusterKey] = list;
                         }
-                        list.Add(pos);
+                        list.Add(position);
                     }
 
-                    // Create a stable list of clusters for resumeable consumption
-                    work.ClusterList = new List<KeyValuePair<Vector3I, List<Vector3I>>>(clustersDict.Count);
+                    // Create a stable list of clusters for resumeable consumption next tick
+                    workItem.ClusterList = new List<KeyValuePair<Vector3I, List<Vector3I>>>(clustersDict.Count);
                     foreach (KeyValuePair<Vector3I, List<Vector3I>> kv in clustersDict)
                     { 
-                        work.ClusterList.Add(new KeyValuePair<Vector3I, List<Vector3I>>(kv.Key, kv.Value)); 
+                        workItem.ClusterList.Add(new KeyValuePair<Vector3I, List<Vector3I>>(kv.Key, kv.Value)); 
                     }
 
-                    work.ClusterListIndex = 0;
+                    workItem.ClusterListIndex = 0;
                     // Positions grouping complete for this work item
                 }
 
                 // Consume clusters from the stored ClusterList, resuming at ClusterListIndex
-                List<KeyValuePair<Vector3I, List<Vector3I>>> clusterList = work.ClusterList;
-                for (int clusterIndex = work.ClusterListIndex; clusterIndex < clusterList.Count; clusterIndex++)
+                List<KeyValuePair<Vector3I, List<Vector3I>>> clusterList = workItem.ClusterList;
+                for (int clusterIndex = workItem.ClusterListIndex; clusterIndex < clusterList.Count; clusterIndex++)
                 {
                     KeyValuePair<Vector3I, List<Vector3I>> kvp = clusterList[clusterIndex];
                     Vector3I clusterKey = kvp.Key;
                     List<Vector3I> clusterBlockPositions = kvp.Value;
 
-                    int maxBlocks = clusterSize * clusterSize * clusterSize;
-                    double fillRatio = clusterBlockPositions.Count / (double)maxBlocks;
+                    int maxBlocks = clusterSize * clusterSize * clusterSize; // Max is clusterSize cubed
+                    double fillRatio = clusterBlockPositions.Count / (double)maxBlocks; // How dense or sparse is this cluster
 
-                    if (clusterSize > minClusterSize && fillRatio < splitThreshold)
+                    if (clusterSize > minClusterSize && fillRatio < splitThreshold) // Is the density below our split threshold, if so it should continue to a smaller cluster size, otherwise save as is. 
                     {
                         // Push a smaller work item to split this cluster further
                         buildState.ClusterStack.Push(new ClusterWorkItem
@@ -3198,7 +3361,7 @@ namespace EliDangHUD
                             ClusterType = BlockClusterType.Structure // Always structure
                         };
 
-                        double sumX = 0, sumY = 0, sumZ = 0;
+                        double sumX = 0, sumY = 0, sumZ = 0; // For averaging the xyz position of the blocks in this cluster for use as the cluster position
 
                         foreach (Vector3I pos in clusterBlockPositions)
                         {
@@ -3223,33 +3386,37 @@ namespace EliDangHUD
                         blockClusters[clusterKey] = cluster;
                     }
 
-                    processedThisTick++;
+                    processedThisTick++; 
 
                     // Hit cluster per tick budget? Save progress and return
                     if (processedThisTick >= clustersPerTick)
                     {
-                        // Save index to resume next tick
-                        work.ClusterListIndex = clusterIndex + 1; // next cluster to process
-                        buildState.ClusterStack.Push(work);
+                        // Save index to resume work next tick
+                        workItem.ClusterListIndex = clusterIndex + 1; // next cluster to process
+                        buildState.ClusterStack.Push(workItem);
                         return false;
                     }
                 }
 
-                // Finished consuming this work's clusters, continue to next work item
+                // Finished consuming this workItem's clusters, continue to next workItem
             }
 
             // Stack drained means we are done
             if (buildState.ClusterStack.Count == 0)
             {
                 buildState.IsComplete = true;
-                return true;
+                return true; // We are complete
             }
 
-            return false;
+            return false; // We aren't yet complete, will continue next tick
         }
 
 
-
+        /// <summary>
+        /// Get the center of the grid for use with the iterative clustering algorithm
+        /// </summary>
+        /// <param name="positions"></param>
+        /// <returns></returns>
         private Vector3D GetGridCenter(IEnumerable<Vector3I> positions)
         {
             int minX = positions.Min(p => p.X);
@@ -3268,6 +3435,12 @@ namespace EliDangHUD
         }
 
 
+        /// <summary>
+        /// Removes a block from its cluster, updating the cluster integrity and position. If the cluster becomes empty it is removed entirely. For immediate updates/feedback without re-clustering the whole grid.
+        /// </summary>
+        /// <param name="position"></param>
+        /// <param name="blockClusters"></param>
+        /// <param name="blockToClusterMap"></param>
         public void RemoveBlockFromCluster(Vector3I position, ref Dictionary<Vector3I, BlockCluster> blockClusters, ref Dictionary<Vector3I, Vector3I> blockToClusterMap)
         {
             Vector3I clusterKey;
@@ -3317,8 +3490,12 @@ namespace EliDangHUD
 
 
 
-        
 
+        /// <summary>
+        /// Parses a color from a comma-separated string of "R,G,B" where R,G,B are bytes (0-255). If the string is null, empty, or invalid, returns a default color (orange).
+        /// </summary>
+        /// <param name="colorString"></param>
+        /// <returns></returns>
         private Color ParseColor(string colorString)
         {
             if (string.IsNullOrEmpty(colorString))
@@ -3341,110 +3518,144 @@ namespace EliDangHUD
             return new Vector3(1f, 0.5f, 0.0) * 1f;  // Default color on parse failure
         }
 
-        public void RGBtoHSV(float r, float g, float b, out float h, out float s, out float v)
+        /// <summary>
+        /// Converts RGB color to Hue Saturation Vibrance HSV color
+        /// </summary>
+        /// <param name="red"></param>
+        /// <param name="green"></param>
+        /// <param name="blue"></param>
+        /// <param name="hue"></param>
+        /// <param name="saturation"></param>
+        /// <param name="vibrance"></param>
+        public void RGBtoHSV(float red, float green, float blue, out float hue, out float saturation, out float vibrance)
         {
-            float max = Math.Max(r, Math.Max(g, b));
-            float min = Math.Min(r, Math.Min(g, b));
-            v = max; // value is maximum of r, g, b
+            float max = Math.Max(red, Math.Max(green, blue));
+            float min = Math.Min(red, Math.Min(green, blue));
+            vibrance = max; // value is maximum of r, g, b
 
             float delta = max - min;
             if (delta < 0.00001f)
             {
-                s = 0;
-                h = 0; // undefined, maybe nan?
+                saturation = 0;
+                hue = 0; // undefined, maybe nan?
                 return;
             }
 
             if (max > 0.0f)
             {
-                s = delta / max; // saturation
+                saturation = delta / max; // saturation
             }
             else
             {
                 // r = g = b = 0		// s = 0, v is undefined
-                s = 0;
-                h = float.NaN; // its now undefined
+                saturation = 0;
+                hue = float.NaN; // its now undefined
                 return;
             }
 
-            if (r >= max)
-                h = (g - b) / delta; // between yellow & magenta
-            else if (g >= max)
-                h = 2.0f + (b - r) / delta; // between cyan & yellow
+            if (red >= max)
+                hue = (green - blue) / delta; // between yellow & magenta
+            else if (green >= max)
+                hue = 2.0f + (blue - red) / delta; // between cyan & yellow
             else
-                h = 4.0f + (r - g) / delta; // between magenta & cyan
+                hue = 4.0f + (red - green) / delta; // between magenta & cyan
 
-            h *= 60.0f; // convert to degrees
-            if (h < 0.0f)
-                h += 360.0f;
+            hue *= 60.0f; // convert to degrees
+            if (hue < 0.0f)
+                hue += 360.0f;
         }
 
+        /// <summary>
+        /// Get the complimentary hue for the hue passed in. This is would be 180 degrees opposite on the color wheel.
+        /// </summary>
+        /// <param name="hue"></param>
+        /// <returns></returns>
         public float GetComplementaryHue(float hue)
         {
             return (hue + 180.0f) % 360.0f;
         }
 
-        public void HSVtoRGB(float h, float s, float v, out float r, out float g, out float b)
+        /// <summary>
+        /// Convert Hue Saturation Vibrance HSV color to RGB color
+        /// </summary>
+        /// <param name="hue"></param>
+        /// <param name="saturation"></param>
+        /// <param name="vibrance"></param>
+        /// <param name="red"></param>
+        /// <param name="green"></param>
+        /// <param name="blue"></param>
+        public void HSVtoRGB(float hue, float saturation, float vibrance, out float red, out float green, out float blue)
         {
-            if (s == 0)
+            if (saturation == 0)
             {
                 // Achromatic (grey)
-                r = g = b = v;
+                red = green = blue = vibrance;
                 return;
             }
 
-            int i = (int)(h / 60.0f) % 6;
-            float f = (h / 60.0f) - i;
-            float p = v * (1 - s);
-            float q = v * (1 - f * s);
-            float t = v * (1 - (1 - f) * s);
+            int i = (int)(hue / 60.0f) % 6;
+            float f = (hue / 60.0f) - i;
+            float p = vibrance * (1 - saturation);
+            float q = vibrance * (1 - f * saturation);
+            float t = vibrance * (1 - (1 - f) * saturation);
 
             switch (i)
             {
                 case 0:
-                    r = v;
-                    g = t;
-                    b = p;
+                    red = vibrance;
+                    green = t;
+                    blue = p;
                     break;
                 case 1:
-                    r = q;
-                    g = v;
-                    b = p;
+                    red = q;
+                    green = vibrance;
+                    blue = p;
                     break;
                 case 2:
-                    r = p;
-                    g = v;
-                    b = t;
+                    red = p;
+                    green = vibrance;
+                    blue = t;
                     break;
                 case 3:
-                    r = p;
-                    g = q;
-                    b = v;
+                    red = p;
+                    green = q;
+                    blue = vibrance;
                     break;
                 case 4:
-                    r = t;
-                    g = p;
-                    b = v;
+                    red = t;
+                    green = p;
+                    blue = vibrance;
                     break;
                 default:
-                    r = v;
-                    g = p;
-                    b = q;
+                    red = vibrance;
+                    green = p;
+                    blue = q;
                     break;
             }
         }
+        /// <summary>
+        /// Gets the complimentary color (180 degrees oposite on the color wheel) by converting to HSV and then using GetComplementaryHue and then converting back to RGB
+        /// </summary>
+        /// <param name="color"></param>
+        /// <returns></returns>
         public Vector3 secondaryColor(Vector3 color)
         {
-            float h, s, v;
-            float r = color.X, g = color.Y, b = color.Z; // Red color example
-            RGBtoHSV(r, g, b, out h, out s, out v); // Convert from RGB to HSV
-            float complementaryHue = GetComplementaryHue(h); // Get complementary hue
-            HSVtoRGB(complementaryHue, s, v, out r, out g, out b); // Convert back to RGB
+            float hue, saturation, vibrance;
+            float red = color.X, green = color.Y, blue = color.Z; // Red color example
+            RGBtoHSV(red, green, blue, out hue, out saturation, out vibrance); // Convert from RGB to HSV
+            float complementaryHue = GetComplementaryHue(hue); // Get complementary hue
+            HSVtoRGB(complementaryHue, saturation, vibrance, out red, out green, out blue); // Convert back to RGB
 
-            Vector3 retColor = new Vector3(r, g, b);
+            Vector3 retColor = new Vector3(red, green, blue);
             return retColor;
         }
 
+        /// <summary>
+        /// Sets the hologram rotation for either the local grid or the target grid, in the specified direction (0=X,1=Y,2=Z) by the specified degrees (can be negative).
+        /// </summary>
+        /// <param name="isTarget"></param>
+        /// <param name="direction"></param>
+        /// <param name="degrees"></param>
         public void SetHologramRotation(bool isTarget, int direction, float degrees)
         {
             if (localGridControlledEntity != null && localGrid != null)
@@ -3512,6 +3723,11 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// Sets the hologram view type for either the local grid or the target grid.
+        /// </summary>
+        /// <param name="isTarget"></param>
+        /// <param name="viewType"></param>
         public void SetHologramViewType(bool isTarget, HologramViewType viewType) 
         {
             if (!isTarget)
@@ -3526,7 +3742,12 @@ namespace EliDangHUD
             }
         }
 
-
+        /// <summary>
+        /// Set a parameter inside custom data of a block
+        /// </summary>
+        /// <param name="block"></param>
+        /// <param name="key"></param>
+        /// <param name="value"></param>
         public void SetParameter(IMyTerminalBlock block, string key, string value)
         {
             MyIni ini = new MyIni();
@@ -3544,6 +3765,12 @@ namespace EliDangHUD
         }
 
 
+        /// <summary>
+        /// Read custom data from the ControlledEntity block and update a ControlledEntityCustomData object with the values
+        /// </summary>
+        /// <param name="ini"></param>
+        /// <param name="theData"></param>
+        /// <param name="block"></param>
         private void ReadCustomDataControlledEntity(MyIni ini, ControlledEntityCustomData theData, IMyTerminalBlock block)
         {
             string mySection = "EliDang";
@@ -3639,7 +3866,7 @@ namespace EliDangHUD
             ini.Set(mySection, "ScannerB", theData.radarBrightness.ToString());
 
             // Radar/HUD color
-            theData.scannerColor = ParseColor(ini.Get(mySection, "ScannerColor").ToString(Convert.ToString(theSettings.lineColorDefault))); //new Vector3(1f, 0.5f, 0.0)
+            theData.scannerColor = ParseColor(ini.Get(mySection, "ScannerColor").ToString(Convert.ToString(theSettings.lineColorDefault.ToVector4()))); //new Vector3(1f, 0.5f, 0.0)
             ini.Set(mySection, "ScannerColor", $"{theData.scannerColor.R},{theData.scannerColor.G},{theData.scannerColor.B}");
             Vector4 tempColor = (theData.scannerColor).ToVector4() * theData.radarBrightness;
             theData.lineColorRGB = new Vector3(tempColor.X, tempColor.Y, tempColor.Z);
@@ -3675,8 +3902,13 @@ namespace EliDangHUD
             block.CustomData = ini.ToString();
         }
 
-        
 
+        /// <summary>
+        /// Read custom data from the HoloRadar block and update a HoloRadarCustomData object with the values
+        /// </summary>
+        /// <param name="ini"></param>
+        /// <param name="theData"></param>
+        /// <param name="block"></param>
         private void ReadCustomDataHoloRadar(MyIni ini, HoloRadarCustomData theData, IMyTerminalBlock block)
         {
             string mySection = "EliDang";
@@ -3712,7 +3944,12 @@ namespace EliDangHUD
         }
 
 
-
+        /// <summary>
+        /// Read custom data from the Hologram block and update a HologramCustomData object with the values
+        /// </summary>
+        /// <param name="ini"></param>
+        /// <param name="theData"></param>
+        /// <param name="block"></param>
         private void ReadCustomDataHologram(MyIni ini, HologramCustomData theData, IMyTerminalBlock block)
         {
             string mySection = "EliDang";
@@ -3775,8 +4012,6 @@ namespace EliDangHUD
             // Save custom data back to block (preserves EndContent too, so text and other config sections don't get eliminated)
             block.CustomData = ini.ToString();
         }
-
-
     }
 }
 

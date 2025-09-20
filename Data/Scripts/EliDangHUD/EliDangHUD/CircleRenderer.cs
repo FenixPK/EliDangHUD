@@ -9,8 +9,10 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.Remoting.Messaging;
 using System.Text.RegularExpressions;
 using System.Xml.Serialization;
 using VRage;
@@ -150,15 +152,13 @@ DONE: Added occlusion culling for the interior of holograms, so those clusters a
 DONE: Wrap orbit lines in a customdata setting, and also toggle off completely at global level.
 DONE: Fix Target integrity arc direction. Also fix integrity calculations on IntegrityChange and on BlockRemoved. 
 DONE: Make unpowered grids have a darker icon on radar
+DONE: Make target selection ignore the current target, so it more reliably switches between more than one grid very near to the center of your vision.
+DONE: Make ModSettings use custom serializable types instead of VRage types like Vector3D, Vector4, and MyKeys to hopefully help with XMLSerialization errors for some users when saving the game. 
+DONE: Make small grid radar sprites slightly smaller.
 
 --TODO--
 TODO: Fix the maxSpeed variable, it should load the max speed for the localGrid's gridsize from the world. 
-TODO: Add sprite billboards for different block types. Would love if Turrets, fixed weapons, torpedos/missiles etc. have custom material drawn. Same for reactors, batteries, hydrogen tanks, engines/thrusters.
-TODO: Could I make clusterblocks even better? Smaller squares for more fidelity for blocks that can't be clustered (Currently included separately already but drawn at larger size). 
-I could even try to do "only the outside" layer for armor blocks, then only the other blocks mentioned above (turrets, batteries etc). 
-Perhaps I can bake in subsquares into different dds sprites for this. Eg. a size 2 clusterblock would be 2x2x2 volume, so we have a square that is divided into 4 squares to give an illusion of detail. 
 
-TODO: Make small grid radar sprites slightly smaller.
 TODO: Make holograms show more data, weapons, effective range, DPS?
 TODO: Make radar sprites show more data for selected target. Eg. when you pick a target the radar screen has an "effective range" bubble for the target. 
 TODO: Add chat commands to edit/update settings that otherwise must be written to the xml in world storage. Remember to refresh GridHelpers settings as well as CircleRenderer when changed.
@@ -298,6 +298,9 @@ namespace EliDangHUD
         Perspective = 2
     }
 
+    /// <summary>
+    /// GridBlock class to hold the IMySlimBlock, draw position, and other info for use with hologram and grid tracking. 
+    /// </summary>
     public class GridBlock
     {
         public VRage.Game.ModAPI.IMySlimBlock Block;
@@ -306,6 +309,10 @@ namespace EliDangHUD
         public BlockClusterType ClusterType = BlockClusterType.Structure;
         public int ClusterSize = 1;
     }
+
+    /// <summary>
+    /// Enum for different block cluster types for hologram rendering or grid tracking.
+    /// </summary>
     public enum BlockClusterType
     {
         Structure = 0,
@@ -329,6 +336,11 @@ namespace EliDangHUD
         SolarPanel = 18,
         PowerProducer = 19
     }
+
+    /// <summary>
+    /// BlockCluster is a cube of blocks of a certain size, used for hologram rendering. Size of square drawn is = clusterSize, and the cube will be up to clusterSize^3 blocks. 
+    /// Different tolerances for when to break clusters down to smaller ones means the density of the cluster is not concrete so it can be 1 block, or a full cube of blocks. 
+    /// </summary>
     public class BlockCluster
     {
         public float Integrity = 0f;
@@ -338,6 +350,10 @@ namespace EliDangHUD
         public BlockClusterType ClusterType = BlockClusterType.Structure;
         public Dictionary<Vector3I, GridBlock> Blocks = new Dictionary<Vector3I, GridBlock>();
     }
+
+    /// <summary>
+    /// Not using this, but keeping the class because a function that used to use it has a "contribution" from my baby and that legacy is absolutely adorable. C:
+    /// </summary>
     public class ClusterBox
     {
         public Vector3I Min;
@@ -345,6 +361,48 @@ namespace EliDangHUD
         public List<VRage.Game.ModAPI.IMySlimBlock> Blocks = new List<VRage.Game.ModAPI.IMySlimBlock>();
         public int IntegrityBucket; // which bucket this cluster belongs to
     }
+
+    [Serializable]
+    public class SerializableVector3D
+    {
+        public double X { get; set; }
+        public double Y { get; set; }
+        public double Z { get; set; }
+
+        // Parameterless ctor for XmlSerializer
+        public SerializableVector3D() { }
+
+        public SerializableVector3D(Vector3D v)
+        {
+            X = v.X;
+            Y = v.Y;
+            Z = v.Z;
+        }
+
+        public Vector3D ToVector3D() => new Vector3D(X, Y, Z);
+    }
+
+    [Serializable]
+    public class SerializableVector4
+    {
+        public float X { get; set; }
+        public float Y { get; set; }
+        public float Z { get; set; }
+        public float W { get; set; }
+
+        public SerializableVector4() { }
+
+        public SerializableVector4(Vector4 v)
+        {
+            X = v.X;
+            Y = v.Y;
+            Z = v.Z;
+            W = v.W;
+        }
+
+        public Vector4 ToVector4() => new Vector4(X, Y, Z, W);
+    }
+
 
     /// <summary>
     /// This holds the global settings that will get loaded from and saved to the XML file in the save/world folder. Clients that are NOT also servers request these settings from the server. And upon request servers send them.
@@ -424,13 +482,16 @@ namespace EliDangHUD
         /// <summary>
         /// Default color of the HUD lines, used for rendering circles and other shapes.
         /// </summary>
-        public Vector4 lineColorDefault = new Vector4(1f, 0.5f, 0.0f, 1f);
+        /// 
+        //public Vector4 lineColorDefault = new Vector4(1f, 0.5f, 0.0f, 1f);
+        public SerializableVector4 lineColorDefault = new SerializableVector4(new Vector4(1f, 0.5f, 0.0f, 1f));
         public string lineColorDefault_DESCRIPTION = "Default color of the HUD lines, used for rendering circles and other shapes.";
 
         /// <summary>
         /// Position of the star. No idea if we need to change this for "RealStars" mod or not.
         /// </summary>
-        public Vector3D starPos = new Vector3D(0, 0, 0);
+        //public Vector3D starPos = new Vector3D(0, 0, 0);
+        public SerializableVector3D starPos = new SerializableVector3D(new Vector3D(0, 0, 0));
         public string starPos_DESCRIPTION = "Position of the star. No idea if we need to change this for \"RealStars\" mod or not.";
 
         /// <summary>
@@ -502,61 +563,61 @@ namespace EliDangHUD
         /// <summary>
         /// Key to select target, if mouse button is disabled
         /// </summary>
-        public int selectTargetKey = (int)MyKeys.T;
+        public int selectTargetKey = 84; // (int)MyKeys.T;
 		public string selectTargetKey_DESCRIPTION = "Key to select target, if mouse button is disabled (Default is T)";
 
         /// <summary>
         /// Key to rotate the static hologram view in the +X axis
         /// </summary>
-        public int rotateLeftKey = (int)MyKeys.NumPad4;
+        public int rotateLeftKey = 100; // (int)MyKeys.NumPad4;
 		public string rotateLeftKey_DESCRIPTION = "Key to rotate the static hologram view in the +X axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad4)";
 
         /// <summary>
         /// Key to rotate the static hologram view in the -X axis
         /// </summary>
-        public int rotateRightKey = (int)MyKeys.NumPad6;
+        public int rotateRightKey = 102; // (int)MyKeys.NumPad6;
         public string rotateRightKey_DESCRIPTION = "Key to rotate the static hologram view in the -X axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad6)";
 
         /// <summary>
         /// Key to rotate the static hologram view in the +Y axis
         /// </summary>
-        public int rotateUpKey = (int)MyKeys.NumPad8;
+        public int rotateUpKey = 104; // (int)MyKeys.NumPad8;
         public string rotateUpKey_DESCRIPTION = "Key to rotate the static hologram view in the +Y axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad8)";
 
         /// <summary>
         /// Key to rotate the static hologram view in the -Y axis
         /// </summary>
-        public int rotateDownKey = (int)MyKeys.NumPad2;
+        public int rotateDownKey = 98; // (int)MyKeys.NumPad2;
         public string rotateDownKey_DESCRIPTION = "Key to rotate the static hologram view in the -Y axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad2)";
 
         /// <summary>
         /// Key to rotate the static hologram view in the +Z axis
         /// </summary>
-        public int rotatePosZKey = (int)MyKeys.NumPad7;
+        public int rotatePosZKey = 103; // (int)MyKeys.NumPad7;
         public string rotatePosZKey_DESCRIPTION = "Key to rotate the static hologram view in the +Z axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad7)";
 
         /// <summary>
         /// Key to rotate the static hologram view in the -Z axis
         /// </summary>
-        public int rotateNegZKey = (int)MyKeys.NumPad9;
+        public int rotateNegZKey = 105; // (int)MyKeys.NumPad9;
         public string rotateNegZKey_DESCRIPTION = "Key to rotate the static hologram view in the -Z axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad9)";
 
         /// <summary>
         /// Key to reset static hologram view (Ctrl modifier cycles local hologram, no Ctrl cycles target)
         /// </summary>
-        public int resetKey = (int)MyKeys.NumPad5;
+        public int resetKey = 101; // (int)MyKeys.NumPad5;
 		public string resetKey_DESCRIPTION = "Key to reset hologram view (Ctrl modifier cycles local hologram, no Ctrl cycles target, Default is NumPad5)";
 
         /// <summary>
         /// Key to set hologram view to Orbit cam (Only for target)
         /// </summary>
-        public int orbitViewKey = (int)MyKeys.NumPad1;
+        public int orbitViewKey = 97; // (int)MyKeys.NumPad1;
 		public string orbitViewKey_DESCRIPTION = "Key to set hologram view to Orbit cam (Only for target, Default is NumPad1)";
 
         /// <summary>
         /// Key to set hologram view to Perspective cam (Only for target)
         /// </summary>
-        public int perspectiveViewKey = (int)MyKeys.NumPad3;
+        public int perspectiveViewKey = 99; // (int)MyKeys.NumPad3;
 		public string perspectiveViewKey_DESCRIPTION = "Key to set hologram view to Perspective cam (Only for target, Default is NumPad3)";
 
         public int largeGridSizeOneMaxBlocks = 1500;
@@ -578,15 +639,16 @@ namespace EliDangHUD
         public string renderHoloHologramsInSeat_DESCRIPTION = "Whether holo table holograms should still render if you are in a cockpit that has active hud.";
 
         public int blockCountClusterStep = 10000;
-        public string blockCountClusterStep_DESCRIPTION = "Used for setting max and min cluster sizes when building the grid hologram (There is a complex relationship with this and clusterSplitRatio for fidelity). " +
-            "Basically we don't want to draw more than this number of squares on screen for performance so we step up the size of clusters when over this number. " +
-            "A grid with this number of blocks or lower will be set to cluster size 1 (ie 1x1x1). A grid over this number of blocks will be set to size 2 (2x2x2). " +
-            "Because this is cubic after this point it isn't about block count, but about how many clusters would be drawn on screen which is blockCount / (#x#x#) where # = clusterSize. " +
-            "Max cluster size is set to clusterSize +1, Min is set to clusterSize -1 (but with a min of 1). Which allows for more fidelity where blocks are not concentrated but still clusters them larger where possible to reduce draw calls." +
-            "This provides the biggest performance increase of all the changes I've made. Lowering this value reduces fidelity as it will increase clusterSize sooner." +
-            "Eg. At blockClusterStep = 10000: a grid of 9999 blocks will range between 1x1x1 and 2x2x2 clusters and a grid of 10001 - 80000 blocks will range between 1x1x1 and 3x3x3 clusters. " +
-            "A grid of 80001 blocks will range between 2x2x2 and 4x4x4 (because the next step is at blockCount / (2x2x2) and we do clusterSize-1 to clusterSize+1). " +
-            "This clustering logic is the largest performance increase we can make, the number of squares drawn is the largest bottleneck. We can adjust this to cluster sooner/later. And adjust the splitThreshold to allow more/less fidelity around sparse blocks.";
+        public string blockCountClusterStep_DESCRIPTION = "Used for setting max and min cluster sizes when building the grid hologram (There is a complex relationship with this and clusterSplitRatio for fidelity). \r\n " +
+            "Basically we don't want to draw more than this number of squares on screen for performance so we step up the size of clusters when over this number. \r\n " +
+            "A grid with this number of blocks or lower will be set to cluster size 1 (ie 1x1x1). A grid over this number of blocks will be set to size 2 (2x2x2). \r\n " +
+            "Because this is cubic after this point it isn't about block count, but about how many clusters would be drawn on screen which is blockCount / (#x#x#) where # = clusterSize. \r\n " +
+            "Max cluster size is set to clusterSize +1, Min is set to clusterSize -1 (but with a min of 1). Which allows for more fidelity where blocks are not concentrated but still clusters them larger where possible to reduce draw calls. \r\n " +
+            "This provides the biggest performance increase of all the changes I've made. Lowering this value reduces fidelity as it will increase clusterSize sooner. \r\n " +
+            "Eg. At blockClusterStep = 10000: a grid of 9999 blocks will range between 1x1x1 and 2x2x2 clusters and a grid of 10001 - 80000 blocks will range between 1x1x1 and 3x3x3 clusters. \r\n " +
+            "A grid of 80001 blocks will range between 2x2x2 and 4x4x4 (because the next step is at blockCount / (2x2x2) and we do clusterSize-1 to clusterSize+1). \r\n " +
+            "This clustering logic is the largest performance increase we can make, the number of squares drawn is the largest bottleneck. \r\n " +
+            "We can adjust this to cluster sooner/later and adjust the splitThreshold to allow more/less fidelity around sparse blocks.";
 
         public int blockClusterAddlMax = 1;
         public string blockCLusterAddlMax_DESCRIPTION = "The value to add to get the max cluster range. eg. for a grid identified as clusterSize = 2, the max would be 3 if this value is 1, meaning it would start at 3x3x3 clusters and size down where sparse.";
@@ -595,21 +657,26 @@ namespace EliDangHUD
         public string blockCLusterAddlMin_DESCRIPTION = "The value to subtract to get the min cluster range. eg. for a grid identified as clusterSize = 3, the min would be 2 if this value is 1, meaning it wouldn't go smaller than 2x2x2 clusters for sparse regions.";
 
         public float clusterSplitThreshold = 0.33f;
-        public string clusterSplitThreshold_DESCRIPTION = "The fill ratio threshold at which a larger block cluster will be split into smaller clusters. Eg at 0.33 (33%) a larger cluster will only break down to smaller clusters if less than 33% full. " +
-            "So for a 3x3x3 cluster at 8/27 blocks it will break to smaller 2x2x2 and 1x1x1 clusters. At 9/27 blocks it will show as one 3x3x3 cluster. Combined with the blockCountClusterStep this allows drawing larger grids at larger cluster sizes with " +
+        public string clusterSplitThreshold_DESCRIPTION = "The fill ratio threshold at which a larger block cluster will be split into smaller clusters. Eg at 0.33 (33%) a larger cluster will only break down to smaller clusters if less than 33% full. \r\n " +
+            "So for a 3x3x3 cluster at 8/27 blocks it will break to smaller 2x2x2 and 1x1x1 clusters. At 9/27 blocks it will show as one 3x3x3 cluster. Combined with the blockCountClusterStep this allows drawing larger grids at larger cluster sizes with \r\n " +
             "less fidelity but more performance by reducing the number of block squares drawn on screen. By tweaking the splitThreshold we can add fidelity for sparse clusters, while allowing larger clusters for the rest of the grid.";
         
         public int clusterRebuildClustersPerTick = 200;
-        public string clusterRebuildClustersPerTick_DESCRIPTION = "The number of block clusters built per game tick on a rebuild of the hologram clusters triggered due to blocks being removed or added. This spreads load over time to reduce stutter. " +
+        public string clusterRebuildClustersPerTick_DESCRIPTION = "The number of block clusters built per game tick on a rebuild of the hologram clusters triggered due to blocks being removed or added. This spreads load over time to reduce stutter. \r\n " +
             "Lowering this value will increase the speed at which add/removal of blocks reprocesses the hologram but increases load. ";
 
         public int ticksUntilClusterRebuildAfterChange = 100;
-        public string ticksUntilClusterRebuildAfterChange_DESCRIPTION = "The number of game ticks that must pass after add or remove of a block before re-processing the hologram. Prevents rebuilds until after a period of inactivity to reduce stutter. " +
-            "Note: On taking damage clusters will update integrity/maxIntegrity immediately and thus update hologram color. Loss of blocks in a cluster will also update integrity (or remove if no blocks left), but the hologram won't reprocess fully until after this many ticks have passed. " +
-            "Then it will start a rebuild and process clusterRebuildClustersPerTick clusters each tick. If another add/removal occurs that process stops, and only restarts after this number of ticks have passed. " +
+        public string ticksUntilClusterRebuildAfterChange_DESCRIPTION = "The number of game ticks that must pass after add or remove of a block before re-processing the hologram. Prevents rebuilds until after a period of inactivity to reduce stutter. \r\n " +
+            "Note: On taking damage clusters will update integrity/maxIntegrity immediately and thus update hologram color. \r\n " +
+            "Loss of blocks in a cluster will also update integrity (or remove if no blocks left), but the hologram won't reprocess fully until after this many ticks have passed. \r\n" +
+            "Then it will start a rebuild and process clusterRebuildClustersPerTick clusters each tick. \r\n " +
+            "If another add/removal occurs that process stops, and only restarts after this number of ticks have passed. \r\n " +
             "Lowering this values will increase the speed at which the hologram reprocess starts. ";
     }
 
+    /// <summary>
+    /// CustomData object for the controlled entity (cockpit or seat for eg.) Holds settings specific to that seat.
+    /// </summary>
     public class ControlledEntityCustomData
     {
         public bool masterEnabled = true;
@@ -656,6 +723,9 @@ namespace EliDangHUD
         public bool scannerOnlyPoweredGrids = true;
     }
 
+    /// <summary>
+    /// CustomData object for the holo radar settings that can be stored for each holo radar terminal
+    /// </summary>
     public class HoloRadarCustomData
     {
         public bool scannerEnable = true;
@@ -667,7 +737,9 @@ namespace EliDangHUD
         public bool scannerOnlyPoweredGrids = true;
     }
 
-
+    /// <summary>
+    /// CustomData object for the hologram settings that can be stored for each hologram terminal
+    /// </summary>
     public class HologramCustomData
     {
         public bool holoEnable = true;
@@ -690,12 +762,18 @@ namespace EliDangHUD
         public Vector4 lineColorComp = new Vector4((new Vector3(0f, 0.5f, 1f) * 2f) + new Vector3(0.01f, 0.01f, 0.01f), 1f);
     }
 
+    /// <summary>
+    /// Used to store the customdata class along with the pure string so we can check if it changed
+    /// </summary>
     public class HologramCustomDataTerminalPair
     {
         public HologramCustomData HologramCustomData;
         public string HologramCustomDataString;
     }
 
+    /// <summary>
+    /// Used to store the customdata class along with the pure string so we can check if it changed
+    /// </summary>
     public class HoloRadarCustomDataTerminalPair
     {
         public HoloRadarCustomData HoloRadarCustomData;
@@ -1000,7 +1078,7 @@ namespace EliDangHUD
 		public void SaveSettings(ModSettings settings)
 		{
 			string data = SerializeSettingsToXML(settings);
-			using (var writer = MyAPIGateway.Utilities.WriteFileInWorldStorage(settingsFile, typeof(ModSettings)))
+			using (TextWriter writer = MyAPIGateway.Utilities.WriteFileInWorldStorage(settingsFile, typeof(ModSettings)))
 			{
 				writer.Write(data);
 			}
@@ -1014,7 +1092,7 @@ namespace EliDangHUD
 		{
 			if (MyAPIGateway.Utilities.FileExistsInWorldStorage(settingsFile, typeof(ModSettings)))
 			{
-				using (var reader = MyAPIGateway.Utilities.ReadFileInWorldStorage(settingsFile, typeof(ModSettings)))
+				using (TextReader reader = MyAPIGateway.Utilities.ReadFileInWorldStorage(settingsFile, typeof(ModSettings)))
 				{
 					string data = reader.ReadToEnd();
 					return DeserializeSettingsFromXML(data);
@@ -1383,7 +1461,7 @@ namespace EliDangHUD
 				
 			if (dustList.Count > 0) {
 				//update Dust
-				for(var i = 0; i < dustList.Count; i++) {
+				for(int i = 0; i < dustList.Count; i++) {
 					dustList[i].life += deltaTimeSinceLastTick;
 
 					if (dustList[i].life >= dustList[i].lifeTime *0.985) {
@@ -1422,7 +1500,7 @@ namespace EliDangHUD
 			if (dustList.Count > 0)
 			{
 				//update Dust
-				for (var i = 0; i < dustList.Count; i++)
+				for (int i = 0; i < dustList.Count; i++)
 				{
 					float alpha = (float)(dustList[i].life / dustList[i].lifeTime);
 					alpha = (alpha - 0.5f) * 2;
@@ -1652,6 +1730,7 @@ namespace EliDangHUD
             _headPosition = Vector3D.Zero;
             IMyCharacter character = MyAPIGateway.Session.Player.Character;
 
+            // TODO check for third person and draw in front of camera instead of head if so.
             if (character != null)
             {
                 // Extract the head matrix
@@ -1754,7 +1833,7 @@ namespace EliDangHUD
             //EvaluateGridAntennaStatus(gHandler.localGrid, out _playerHasPassiveRadar, out _playerHasActiveRadar, out _playerMaxPassiveRange, out _playerMaxActiveRange);
 
             // Radar distance/scale should be based on our highest functional, powered antenna (regardless of mode).
-            radarScaleRange = gHandler.localGridMaxPassiveRadarRange; // Already limited to global max. Uses passive only because in active mode active and passive will be equal. 
+            localGridRadarScaleRange = gHandler.localGridMaxPassiveRadarRange; // Already limited to global max. Uses passive only because in active mode active and passive will be equal. 
 
             _currentTargetPositionReturned = new Vector3D(); // Will reuse this.
             if (gHandler.targetGrid != null && !gHandler.targetGrid.Closed)
@@ -1788,13 +1867,13 @@ namespace EliDangHUD
                 else
                 {
                     ReleaseTarget();
-                    radarScaleRange_Goal = GetRadarScaleBracket(radarScaleRange);
+                    radarScaleRange_Goal = GetRadarScaleBracket(localGridRadarScaleRange);
                     squishValue_Goal = 0.75;
                 }
             }
             else
             {
-                radarScaleRange_Goal = GetRadarScaleBracket(radarScaleRange);
+                radarScaleRange_Goal = GetRadarScaleBracket(localGridRadarScaleRange);
                 squishValue_Goal = 0.75;
             }
             squishValue = LerpD(squishValue, squishValue_Goal, 0.1);
@@ -1802,24 +1881,25 @@ namespace EliDangHUD
             // Handle smooth animation when first starting up or sitting in seat, along with smooth animation for switching range bracket due to targetting. 
             radarScaleRange_CurrentLogin = LerpD(radarScaleRange_CurrentLogin, radarScaleRange_GoalLogin, 0.01);
             radarScaleRange_Current = LerpD(radarScaleRange_Current, radarScaleRange_Goal, 0.1);
-            radarScaleRange = radarScaleRange_Current * radarScaleRange_CurrentLogin;
+            localGridRadarScaleRange = radarScaleRange_Current * radarScaleRange_CurrentLogin;
 
-            radarScale = (gHandler.localGridControlledEntityCustomData.radarRadius / radarScaleRange);
+            //radarScale = (gHandler.localGridControlledEntityCustomData.radarRadius / localGridRadarScaleRange);
 
-            _fadeDistance = radarScaleRange * (1 - theSettings.fadeThreshold); // Eg at 0.01 would be 0.99%. For a radar distance of 20,000m this means the last 19800-19999 becomes fuzzy/dims the blip.
+            _fadeDistance = localGridRadarScaleRange * (1 - theSettings.fadeThreshold); // Eg at 0.01 would be 0.99%. For a radar distance of 20,000m this means the last 19800-19999 becomes fuzzy/dims the blip.
             _fadeDistanceSqr = _fadeDistance * _fadeDistance; // Sqr for fade distance in comparisons.
-            _radarShownRangeSqr = radarScaleRange * radarScaleRange; // Anything over this range, even if within sensor range, can't be drawn on screen. 
+            _radarShownRangeSqr = localGridRadarScaleRange * localGridRadarScaleRange; // Anything over this range, even if within sensor range, can't be drawn on screen. 
 
             bool onlyPowered = gHandler.localGridControlledEntityCustomData.scannerOnlyPoweredGrids;
-            if (!onlyPowered)
+            if (onlyPowered)
             {
+                // If main cockpit is set to filter out unpowered grids, check all holotables. If at least one is NOT set to filter out unpowered then we process them. 
+                // If all possible radars are set to filter them out, THEN we can skip them to save cycles.
                 foreach (HoloRadarCustomDataTerminalPair thePair in gHandler.localGridRadarTerminalsData.Values)
                 {
                     HoloRadarCustomData theData = thePair.HoloRadarCustomData;
-                    if (theData.scannerOnlyPoweredGrids)
+                    if (!theData.scannerOnlyPoweredGrids)
                     {
-                        onlyPowered = true;
-                        break;
+                        onlyPowered = false;
                     }
                 }
             }
@@ -1935,31 +2015,27 @@ namespace EliDangHUD
             //EvaluateGridAntennaStatus(playerGrid, out _playerHasPassiveRadar, out _playerHasActiveRadar, out _playerMaxPassiveRange, out _playerMaxActiveRange);
 
             // Radar distance/scale should be based on our highest functional, powered antenna (regardless of mode).
-            radarScaleRange = gHandler.localGridMaxPassiveRadarRange; // Already limited to global max. Uses passive only because in active mode active and passive will be equal. 
+            localGridRadarScaleRange = gHandler.localGridMaxPassiveRadarRange; // Already limited to global max. Uses passive only because in active mode active and passive will be equal. 
 
-            radarScaleRange_Goal = GetRadarScaleBracket(radarScaleRange);
+            radarScaleRange_Goal = GetRadarScaleBracket(localGridRadarScaleRange);
             squishValue_Goal = 0.75;
             squishValue = LerpD(squishValue, squishValue_Goal, 0.1);
 
             // Handle smooth animation when first starting up or sitting in seat, along with smooth animation for switching range bracket due to targetting. 
             radarScaleRange_Current = LerpD(radarScaleRange_Current, radarScaleRange_Goal, 0.1);
-            radarScaleRange = radarScaleRange_Current;
+            localGridRadarScaleRange = radarScaleRange_Current;
 
-            _fadeDistance = radarScaleRange * (1 - theSettings.fadeThreshold); // Eg at 0.01 would be 0.99%. For a radar distance of 20,000m this means the last 19800-19999 becomes fuzzy/dims the blip.
+            _fadeDistance = localGridRadarScaleRange * (1 - theSettings.fadeThreshold); // Eg at 0.01 would be 0.99%. For a radar distance of 20,000m this means the last 19800-19999 becomes fuzzy/dims the blip.
             _fadeDistanceSqr = _fadeDistance * _fadeDistance; // Sqr for fade distance in comparisons.
-            _radarShownRangeSqr = radarScaleRange * radarScaleRange; // Anything over this range, even if within sensor range, can't be drawn on screen. 
+            _radarShownRangeSqr = localGridRadarScaleRange * localGridRadarScaleRange; // Anything over this range, even if within sensor range, can't be drawn on screen. 
 
-            bool onlyPowered = false;
-            if (!onlyPowered)
+            bool onlyPowered = true;
+            foreach (HoloRadarCustomDataTerminalPair thePair in gHandler.localGridRadarTerminalsData.Values)
             {
-                foreach (HoloRadarCustomDataTerminalPair thePair in gHandler.localGridRadarTerminalsData.Values)
+                HoloRadarCustomData theData = thePair.HoloRadarCustomData;
+                if (!theData.scannerOnlyPoweredGrids)
                 {
-                    HoloRadarCustomData theData = thePair.HoloRadarCustomData;
-                    if (theData.scannerOnlyPoweredGrids)
-                    {
-                        onlyPowered = true;
-                        break;
-                    }
+                    onlyPowered = false;
                 }
             }
 
@@ -2082,7 +2158,7 @@ namespace EliDangHUD
                     Quaternion sunRotation = sunOrientation.ToQuaternion();
                     Vector3D sunForwardDirection = Vector3D.Transform(Vector3D.Forward, sunRotation);
 
-                    theSettings.starPos = sunForwardDirection * 100000000;
+                    theSettings.starPos = new SerializableVector3D(sunForwardDirection * 100000000);
                 }
             }
         }
@@ -2105,7 +2181,7 @@ namespace EliDangHUD
                 {
                     // Cast the entity to IMyPlanet
                     MyPlanet planet = (MyPlanet)planetInfo.Entity;
-                    Vector3D parentPos = (planetInfo.ParentEntity != null) ? planetInfo.ParentEntity.GetPosition() : theSettings.starPos;
+                    Vector3D parentPos = (planetInfo.ParentEntity != null) ? planetInfo.ParentEntity.GetPosition() : theSettings.starPos.ToVector3D();
 
                     DrawPlanetOutline(planet);
                     DrawPlanetOrbit(planet, parentPos);
@@ -2374,6 +2450,9 @@ namespace EliDangHUD
         private double visorLife = 0;
 		private bool visorDown = false;
 
+        /// <summary>
+        /// Draw the visor effect if the player has a helmet closed/open.
+        /// </summary>
 		private void DrawVisor()
 		{
             if (MyAPIGateway.Session.CameraController.IsInFirstPersonView)
@@ -2412,42 +2491,46 @@ namespace EliDangHUD
             }
 		}
 
+        /// <summary>
+        /// Does the player have their helmet open or closed?
+        /// </summary>
+        /// <returns></returns>
 		private bool IsPlayerHelmetOn()
 		{
-			var playa = MyAPIGateway.Session?.LocalHumanPlayer;
-			if (playa == null)
+			IMyPlayer player = MyAPIGateway.Session?.LocalHumanPlayer;
+			if (player == null)
 			{
 				return false;
 			}
 
-			var controlledEntity = playa.Controller?.ControlledEntity;
+			VRage.Game.ModAPI.Interfaces.IMyControllableEntity controlledEntity = player.Controller?.ControlledEntity;
 			if (controlledEntity == null)
 			{
 				return false;
 			}
 
-			// Check if the controlled entity is a character
-			var character = controlledEntity.Entity as IMyCharacter;
+            // Check if the controlled entity is a character
+            IMyCharacter character = controlledEntity.Entity as IMyCharacter;
 			if (character != null)
 			{
 				return character.EnabledHelmet;
 			}
 
-			// Check if the controlled entity is a cockpit
-			var cockpit = controlledEntity.Entity as Sandbox.ModAPI.IMyCockpit;
+            // Check if the controlled entity is a cockpit
+            Sandbox.ModAPI.IMyCockpit cockpit = controlledEntity.Entity as Sandbox.ModAPI.IMyCockpit;
 			if (cockpit != null && cockpit.Pilot != null)
 			{
 				return cockpit.Pilot.EnabledHelmet;
 			}
 
-			// Check if the controlled entity is a turret or remote control
-			var turret = controlledEntity.Entity as Sandbox.ModAPI.IMyLargeTurretBase;
+            // Check if the controlled entity is a turret or remote control
+            Sandbox.ModAPI.IMyLargeTurretBase turret = controlledEntity.Entity as Sandbox.ModAPI.IMyLargeTurretBase;
 			if (turret != null)
 			{
 				return false;
 			}
 
-			var remoteControl = controlledEntity.Entity as Sandbox.ModAPI.IMyRemoteControl;
+            Sandbox.ModAPI.IMyRemoteControl remoteControl = controlledEntity.Entity as Sandbox.ModAPI.IMyRemoteControl;
 			if (remoteControl != null && remoteControl.Pilot != null)
 			{
 				return remoteControl.Pilot.EnabledHelmet;
@@ -2457,6 +2540,9 @@ namespace EliDangHUD
 			return false;
 		}
 
+        /// <summary>
+        /// Handle the events on entering a control seat
+        /// </summary>
 		private void OnSitDown()
 		{
 			isSeated = true;
@@ -2465,6 +2551,9 @@ namespace EliDangHUD
             PlayCustomSound(SP_BOOTUP, worldRadarPos);
 		}
 
+        /// <summary>
+        /// Handle the events on exiting a control seat
+        /// </summary>
 		private void OnStandUp()
 		{
 			isSeated = false;
@@ -2495,6 +2584,11 @@ namespace EliDangHUD
 
 
 		//PLANET FINDER======================================================================
+
+        /// <summary>
+        /// Gathers planet info from a set of filtered entitites
+        /// </summary>
+        /// <returns></returns>
 		private HashSet<VRage.ModAPI.IMyEntity> GetPlanets()
 		{
 			HashSet<VRage.ModAPI.IMyEntity> planets = new HashSet<VRage.ModAPI.IMyEntity>();
@@ -2511,13 +2605,16 @@ namespace EliDangHUD
 			});
 			
 			// Iterate through the entities and add planets
-			foreach (var entity in entities)
+			foreach (VRage.ModAPI.IMyEntity entity in entities)
 			{
 				planets.Add(entity);
 			}
 			return planets;
 		}
 
+        /// <summary>
+        /// Subscribe to OnEntityAdd/OnEntityRemoved events so new entities added/removed from the game get picked up after initialization.
+        /// </summary>
 		void SubscribeToEvents()
 		{
 			// Subscribe to the OnEntityAdd event
@@ -2525,6 +2622,9 @@ namespace EliDangHUD
 			MyAPIGateway.Entities.OnEntityRemove += OnEntityRemove;
 		}
 
+        /// <summary>
+        /// Unsubscribes from OnEntityAdd/OnEntityRemoved events
+        /// </summary>
 		void UnsubscribeFromEvents()
 		{
 			// Unsubscribe from the OnEntityAdd event
@@ -2532,6 +2632,11 @@ namespace EliDangHUD
 			MyAPIGateway.Entities.OnEntityRemove -= OnEntityRemove;
 		}
 
+
+        /// <summary>
+        /// Subscribe to OnEntityAdd event so new entities added from the game get picked up after initialization.
+        /// </summary>
+        /// <param name="entity"></param>
 		private void OnEntityAdd(VRage.ModAPI.IMyEntity entity)
 		{
 			if (entity is MyPlanet)
@@ -2596,6 +2701,10 @@ namespace EliDangHUD
 			
 		}
 
+        /// <summary>
+        /// Subscribe to OnEntityRemoved event so new entities removed from the game get picked up after initialization.
+        /// </summary>
+        /// <param name="entity"></param>
 		private void OnEntityRemove(VRage.ModAPI.IMyEntity entity)
 		{
 			if (entity is MyPlanet)
@@ -2651,7 +2760,19 @@ namespace EliDangHUD
             } 
 		}
 
-
+        /// <summary>
+        /// Draws a line billboard with some glitch effect if enabled.
+        /// </summary>
+        /// <param name="material"></param>
+        /// <param name="color"></param>
+        /// <param name="origin"></param>
+        /// <param name="directionNormalized"></param>
+        /// <param name="length"></param>
+        /// <param name="thickness"></param>
+        /// <param name="blendType"></param>
+        /// <param name="customViewProjection"></param>
+        /// <param name="intensity"></param>
+        /// <param name="persistentBillboards"></param>
 		void DrawLineBillboard(MyStringId material, Vector4 color, Vector3D origin, Vector3 directionNormalized, float length, float thickness, BlendTypeEnum blendType = 0, int customViewProjection = -1, float intensity = 1, List<VRageRender.MyBillboard> persistentBillboards = null)
 		{
 			if (GetRandomBoolean()) 
@@ -2696,8 +2817,21 @@ namespace EliDangHUD
 			DrawLineBillboard(Material, zColor, position, Vector3D.Forward, lineLength, lineThickness, blendType);
 		}
 
-		// Method to draw a circle in 3D space
-		void DrawCircle(Vector3D center, double radius, Vector3 planeDirection, Vector4 color, float brightness, bool dotted = false, bool isOrbit = false, float dimmerOverride = 0f, 
+        // Method to draw a circle in 3D space
+
+        /// <summary>
+        /// Draws a circle in 3D space given a center, radius, and plane direction.
+        /// </summary>
+        /// <param name="center"></param>
+        /// <param name="radius"></param>
+        /// <param name="planeDirection"></param>
+        /// <param name="color"></param>
+        /// <param name="brightness"></param>
+        /// <param name="dotted"></param>
+        /// <param name="isOrbit"></param>
+        /// <param name="dimmerOverride"></param>
+        /// <param name="thicknessOverride"></param>
+        void DrawCircle(Vector3D center, double radius, Vector3 planeDirection, Vector4 color, float brightness, bool dotted = false, bool isOrbit = false, float dimmerOverride = 0f, 
             float thicknessOverride = 0f)
 		{
             // Define circle parameters
@@ -2796,6 +2930,11 @@ namespace EliDangHUD
 		}
 
 		// Outline a planet with a dotted line
+
+        /// <summary>
+        /// Draws an outline around a planet using a circle, will be dotted.
+        /// </summary>
+        /// <param name="entity"></param>
 		void DrawPlanetOutline(VRage.ModAPI.IMyEntity entity)
 		{
 			// Cast the entity to a MyPlanet object
@@ -2817,7 +2956,11 @@ namespace EliDangHUD
                 gHandler.localGridControlledEntityCustomData.radarBrightness, true, true);
 		}
 
-		// Fake an orbit for a planet
+        /// <summary>
+        /// Fake an orbit line for a planet (since there are no orbits)
+        /// </summary>
+        /// <param name="entity"></param>
+        /// <param name="parentPosition"></param>
 		void DrawPlanetOrbit(VRage.ModAPI.IMyEntity entity, Vector3D parentPosition)
 		{
 			// Cast the entity to a MyPlanet object
@@ -2877,6 +3020,11 @@ namespace EliDangHUD
 			}
 		}
 
+        /// <summary>
+        /// Draw a line segment with thickness and distance-based dimming
+        /// </summary>
+        /// <param name="start"></param>
+        /// <param name="end"></param>
 		void DrawLineSegment(Vector3D start, Vector3D end)
 		{
 			BlendTypeEnum blendType = BlendTypeEnum.Standard;
@@ -2957,15 +3105,20 @@ namespace EliDangHUD
 		private List<float> scrollOffsets = new List<float>();
 		private bool scrollInit = false;
 
+        /// <summary>
+        /// Update and draw the vertical line segments for the grids current velocity vector
+        /// </summary>
+        /// <param name="gridEntity"></param>
+        /// <param name="velocity"></param>
 		private void UpdateAndDrawVerticalSegments(VRage.ModAPI.IMyEntity gridEntity, Vector3D velocity)
 		{
 			float segmentSpeedFactor = 0.01f;	// Factor to adjust responsiveness of segment spacing to speed changes
 			float totalLineLength = 100f;		// Total length along which to place line segments
 			float segmentLength = 1f;			// Length of each line segment
 			float lineThickness = 0.05f;		// Thickness of the lines
-			int totalNumLines = 10;				// Nmber of line segments active at a time.
+			int totalNumLines = 10;             // Nmber of line segments active at a time.
 
-			var cockpit = gridEntity as Sandbox.ModAPI.IMyCockpit;
+            Sandbox.ModAPI.IMyCockpit cockpit = gridEntity as Sandbox.ModAPI.IMyCockpit;
 			if (cockpit == null || cockpit.CubeGrid == null || cockpit.CubeGrid.Physics == null) 
 			{
 				return;
@@ -3033,7 +3186,7 @@ namespace EliDangHUD
 			// Calculate camera distance from whole segment.
 			Vector3D cameraPosition = MyAPIGateway.Session.Camera.Position;
 
-			foreach (var segmentPosition in verticalSegments)
+			foreach (Vector3D segmentPosition in verticalSegments)
 			{
 				// Calculate the segment brightness based on distance from camera.
 				float distanceToSegment = (float)segmentPosition.Length();
@@ -3063,6 +3216,15 @@ namespace EliDangHUD
 			}
 		}
 
+        /// <summary>
+        /// Draw a quad on screen
+        /// </summary>
+        /// <param name="position"></param>
+        /// <param name="normal"></param>
+        /// <param name="radius"></param>
+        /// <param name="materialId"></param>
+        /// <param name="color"></param>
+        /// <param name="mode"></param>
         public void DrawQuad(Vector3D position, Vector3D normal, double radius, MyStringId materialId, Vector4 color, bool mode = false)
 		{
 			// Ensure the normal is normalized
@@ -3112,6 +3274,15 @@ namespace EliDangHUD
 			}
 		}
 
+        /// <summary>
+        /// Draw a quad on screen with rigid up direction
+        /// </summary>
+        /// <param name="position"></param>
+        /// <param name="normal"></param>
+        /// <param name="radius"></param>
+        /// <param name="materialId"></param>
+        /// <param name="color"></param>
+        /// <param name="upward"></param>
 		public void DrawQuadRigid(Vector3D position, Vector3D normal, double radius, MyStringId materialId, Vector4 color, bool upward = false)
 		{
 			Vector3D radarUp = radarMatrix.Up;
@@ -3170,30 +3341,43 @@ namespace EliDangHUD
 
 
 		//PLANET DATA MANAGER================================================================
-		// Method to calculate the gravitational range of a planet
+        /// <summary>
+        /// Calculate the gravitational range of a planet
+        /// </summary>
+        /// <param name="radius"></param>
+        /// <returns></returns>
 		private double CalculateGravitationalRange(double radius)
 		{
 			return radius * GravitationalRangeScaleFactor;
 		}
 
-		public List<PlanetInfo> GatherPlanetInfo(HashSet<VRage.ModAPI.IMyEntity> pList)
+        /// <summary>
+        /// Gather planet info from a planet list
+        /// </summary>
+        /// <param name="planetList"></param>
+        /// <returns></returns>
+		public List<PlanetInfo> GatherPlanetInfo(HashSet<VRage.ModAPI.IMyEntity> planetList)
 		{
-			List<PlanetInfo> dList = new List<PlanetInfo>();
+			List<PlanetInfo> planetInfoList = new List<PlanetInfo>();
 
-			dList = OrderPlanetsBySize(pList);
-			dList = DetermineParentChildRelationships(dList);
+			planetInfoList = OrderPlanetsBySize(planetList);
+			planetInfoList = DetermineParentChildRelationships(planetInfoList);
 
-			return dList;
+			return planetInfoList;
 		}
 
-		// Method to order planets by size (radius) in descending order
-		public List<PlanetInfo> OrderPlanetsBySize(HashSet<VRage.ModAPI.IMyEntity> pList)
+        /// <summary>
+        /// Order planets by size (radius) in descending order
+        /// </summary>
+        /// <param name="planetList"></param>
+        /// <returns></returns>
+		public List<PlanetInfo> OrderPlanetsBySize(HashSet<VRage.ModAPI.IMyEntity> planetList)
 		{
 			// Create a list to hold planet information
 			List<PlanetInfo> planetInfoList = new List<PlanetInfo>();
 
 			// Iterate through each planet in the planet list
-			foreach (var entity in pList)
+			foreach (VRage.ModAPI.IMyEntity entity in planetList)
 			{
 				// Cast the entity to a MyPlanet object
 				MyPlanet planet = (MyPlanet)entity;
@@ -3214,6 +3398,11 @@ namespace EliDangHUD
 			return planetInfoList;
 		}
 
+        /// <summary>
+        /// Determine parent-child relationships between planets based on gravitational ranges and sizes
+        /// </summary>
+        /// <param name="orderedPlanets"></param>
+        /// <returns></returns>
 		public List<PlanetInfo> DetermineParentChildRelationships(List<PlanetInfo> orderedPlanets)
 		{
 			for (int i = 0; i < orderedPlanets.Count - 1; i++)
@@ -3250,6 +3439,13 @@ namespace EliDangHUD
 
 
 		//MATH HELPERS=======================================================================
+        /// <summary>
+        /// Clamp a float between a min and max value
+        /// </summary>
+        /// <param name="value"></param>
+        /// <param name="min"></param>
+        /// <param name="max"></param>
+        /// <returns></returns>
 		float Clamped(float value, float min, float max)
 		{
 			if (value < min)
@@ -3260,6 +3456,13 @@ namespace EliDangHUD
 				return value;
 		}
 
+        /// <summary>
+        /// Clamp a double between a min and max value
+        /// </summary>
+        /// <param name="value"></param>
+        /// <param name="min"></param>
+        /// <param name="max"></param>
+        /// <returns></returns>
 		double ClampedD(double value, double min, double max)
 		{
 			if (value < min)
@@ -3270,16 +3473,39 @@ namespace EliDangHUD
 				return value;
 		}
 
+        /// <summary>
+        /// Remap a float from one range to another. eg. remap 5 from a range of 0-10 to a range of 0-100 would return 50. 
+        /// </summary>
+        /// <param name="value"></param>
+        /// <param name="fromLow"></param>
+        /// <param name="fromHigh"></param>
+        /// <param name="toLow"></param>
+        /// <param name="toHigh"></param>
+        /// <returns></returns>
 		float Remap(float value, float fromLow, float fromHigh, float toLow, float toHigh)
 		{
 			return toLow + (value - fromLow) * (toHigh - toLow) / (fromHigh - fromLow);
 		}
 
+        /// <summary>
+        /// Remap a double from one range to another. eg. remap 5 from a range of 0-10 to a range of 0-100 would return 50. 
+        /// </summary>
+        /// <param name="value"></param>
+        /// <param name="fromLow"></param>
+        /// <param name="fromHigh"></param>
+        /// <param name="toLow"></param>
+        /// <param name="toHigh"></param>
+        /// <returns></returns>
 		double RemapD(double value, double fromLow, double fromHigh, double toLow, double toHigh)
 		{
 			return toLow + (value - fromLow) * (toHigh - toLow) / (fromHigh - fromLow);
 		}
-			
+	    
+        /// <summary>
+        /// Get the direction toward the camera from a given position.
+        /// </summary>
+        /// <param name="point"></param>
+        /// <returns></returns>
 		Vector3D AimAtCam(Vector3D point)
 		{
 			// Used for billboard rendering.
@@ -3319,25 +3545,45 @@ namespace EliDangHUD
 			return new Vector3D(x, y, z);
 		}
 
+        /// <summary>
+        /// Calculate a new direction vector aligned to the upward axis of a direction specified. By taking the direction+stable world down 
+        /// </summary>
+        /// <param name="newDirection"></param>
+        /// <returns></returns>
 		Vector3D AlignAxis(Vector3D newDirection)
 		{
 			// Calculate the rotation matrix to align the upward axis with the new direction
-			MatrixD rotationMatrix = MatrixD.CreateFromDir (newDirection, Vector3D.Down);
+			MatrixD rotationMatrix = MatrixD.CreateFromDir(newDirection, Vector3D.Down);
 			newDirection = Vector3D.Transform(newDirection, rotationMatrix);
 
 			return newDirection;
 		}
 
+        /// <summary>
+        /// Get the screen width
+        /// </summary>
+        /// <returns></returns>
 		int GetScreenWidth()
 		{
 			return MyAPIGateway.Session.Config.ScreenWidth ?? 1920;
 		}
 
+        /// <summary>
+        /// Get the screen height
+        /// </summary>
+        /// <returns></returns>
 		int GetScreenHeight()
 		{
 			return MyAPIGateway.Session.Config.ScreenHeight ?? 1080;
 		}
 
+        /// <summary>
+        /// Calculate the shortest distance from a point to a line segment defined by two endpoints.
+        /// </summary>
+        /// <param name="cameraPosition"></param>
+        /// <param name="segmentStart"></param>
+        /// <param name="segmentEnd"></param>
+        /// <returns></returns>
 		float DistanceToLineSegment(Vector3D cameraPosition, Vector3D segmentStart, Vector3D segmentEnd)
 		{
 			// Calculate the vector from the segment start to the camera position
@@ -3364,14 +3610,28 @@ namespace EliDangHUD
 			return distance;
 		}
 
-		double LerpD(double a, double b, double t)
+        /// <summary>
+        /// Smoothly linearly interpolate between two double values based on a rate of interoplation
+        /// </summary>
+        /// <param name="currentDouble"></param>
+        /// <param name="goalDouble"></param>
+        /// <param name="rate"></param>
+        /// <returns></returns>
+		double LerpD(double currentDouble, double goalDouble, double rate)
 		{
-			return a + (b - a) * t;
+			return currentDouble + (goalDouble - currentDouble) * rate;
 		}
 
-		float LerpF(float a, float b, float t)
+        /// <summary>
+        /// Smoothly linearly interpolate between two float values based on a rate of interoplation
+        /// </summary>
+        /// <param name="currentFloat"></param>
+        /// <param name="goalFloat"></param>
+        /// <param name="rate"></param>
+        /// <returns></returns>
+		float LerpF(float currentFloat, float goalFloat, float rate)
 		{
-			return a + (b - a) * t;
+			return currentFloat + (goalFloat - currentFloat) * rate;
 		}
         //-----------------------------------------------------------------------------------
 
@@ -3383,17 +3643,17 @@ namespace EliDangHUD
         public double maxRadarRange = 50000; // Set by config to draw distance or value specified in config. This is a fallback value. 
 
 		// Radar scale range. Ie. how zoomed in or out is the radar screen. 
-		public double radarScaleRange = 5000;
+		public double localGridRadarScaleRange = 5000;
 		public double radarScaleRange_Goal = 5000;
 		public double radarScaleRange_Current = 5000;
 
 		public double radarScaleRange_GoalLogin = 1;
 		public double radarScaleRange_CurrentLogin = 0.01;
 
-		public static double radarScale = 0.000025;
+		//public static double radarScale = 0.000025;
 		public static float targetHologramRadius = 0.125f;
-        public static double holoRadarScale = 0.0001;
-        public static float holoRadarRadius = 1f;
+        //public static double holoRadarScale = 0.0001;
+        //public static float holoRadarRadius = 1f;
 
         private bool targetingFlipper = false;
 
@@ -3486,6 +3746,11 @@ namespace EliDangHUD
         //Radar==============================================================================
         //===================================================================================
 
+        /// <summary>
+        /// Get the scale range bracket that our current radar range fits into. This is a max value. For eg. if our range is 325 and our bracket is at 500 we return 500.
+        /// </summary>
+        /// <param name="rangeToBracket"></param>
+        /// <returns></returns>
         public int GetRadarScaleBracket(double rangeToBracket) 
 		{
             // Add buffer to encourage zooming out slightly beyond the target
@@ -3590,7 +3855,7 @@ namespace EliDangHUD
             Vector3D textDir = -radarMatrix.Backward; // text faces the player/camera
 			double activeRangeDisp = Math.Round(gHandler.localGridMaxActiveRadarRange/1000, 1);
 			double passiveRangeDisp = Math.Round(gHandler.localGridMaxPassiveRadarRange/1000, 1);
-			double radarScaleDisp = Math.Round(radarScaleRange / 1000, 1);
+			double radarScaleDisp = Math.Round(localGridRadarScaleRange / 1000, 1);
             string rangeText = $"RDR{(gHandler.localGridHasActiveRadar ? $"[ACT]:{activeRangeDisp}" : gHandler.localGridHasPassiveRadar ? $"[PAS]:{passiveRangeDisp}" : "[OFF]:0")}KM [SCL]:{radarScaleDisp}KM {(gHandler.targetGrid != null ? "(T)" : "")}";
             DrawText(rangeText, 0.0045, _radarCurrentRangeTextPosition, textDir, lineColor, radarBrightness, 1f, false);
 
@@ -3695,7 +3960,7 @@ namespace EliDangHUD
                 {
                     fadeDimmer = 1 - Clamped(1 - (float)((_fadeDistanceSqr - radarPings[entity].RadarPingDistanceSqr) / (_fadeDistanceSqr - _radarShownRangeSqr)), 0, 1);
                 }
-                Vector3D scaledPos = ApplyLogarithmicScaling(radarPings[entity].RadarPingPosition, playerGridControlledEntityPosition); // Apply radar scaling
+                Vector3D scaledPos = ApplyLogarithmicScaling(radarPings[entity].RadarPingPosition, playerGridControlledEntityPosition, gHandler.localGridControlledEntityCustomData.radarRadius); // Apply radar scaling
 
                 if (debug)
                 {
@@ -3901,7 +4166,9 @@ namespace EliDangHUD
 			DrawQuad(radarPos+crossOffset, radarMatrix.Backward, crossSize * 0.25, MaterialCircleSeeThrough, new Vector4(0, 0, 0, 0.75f)); //Dim Backing
 		}
 
-
+        /// <summary>
+        /// Draw he radar for a holo table or other terminal block with holo radar functionality.
+        /// </summary>
         private void DrawRadarHoloTable()
         {
             IMyCharacter character = MyAPIGateway.Session.Player?.Character;
@@ -3935,8 +4202,8 @@ namespace EliDangHUD
 
                 bool onlyPoweredGrids = theData.scannerOnlyPoweredGrids;
                 bool showVoxels = theData.scannerShowVoxels;
-                holoRadarRadius = theData.scannerRadius;
-                holoRadarScale = (holoRadarRadius / radarScaleRange);
+                float holoRadarRadius = theData.scannerRadius;
+                //holoRadarScale = (holoRadarRadius / localGridRadarScaleRange);
 
                 // Draw the radar circle
                 Vector3D holoUp = holoTableMatrix.Up;
@@ -3967,14 +4234,14 @@ namespace EliDangHUD
                 Color radiusColor = (Color.Orange) * 0.33f;
                 MatrixD sphereMatrix = MatrixD.CreateTranslation(holoTablePos);
                 MySimpleObjectDraw.DrawTransparentSphere(
-                    ref sphereMatrix, 
-                    (float)holoRadarRadius,                 
+                    ref sphereMatrix,
+                    holoRadarRadius,                 
                     ref radiusColor,                          
                     MySimpleObjectRasterizer.Solid,
                     36
                 );
 
-                UpdateRadarAnimationsHoloTable(playerGridPos, holoTablePos, holoTableMatrix);
+                UpdateRadarAnimationsHoloTable(playerGridPos, holoTablePos, holoTableMatrix, holoRadarRadius);
 
                 // Okay I had to do some research on this. The way this works is Math.Sin() returns a value between -1 and 1, so we add 1 to it to get a value between 0 and 2, then divide by 2 to get a value between 0 and 1.
                 // Basically shifting the wave up so we are into positive value only territory, and then scaling it to a 0-1 range where 0 is completely invisible and 1 is fully visible. Neat.
@@ -4022,7 +4289,7 @@ namespace EliDangHUD
                     {
                         fadeDimmer = 1 - Clamped(1 - (float)((_fadeDistanceSqr - radarPings[entity].RadarPingDistanceSqr) / (_fadeDistanceSqr - _radarShownRangeSqr)), 0, 1);
                     }
-                    Vector3D scaledPos = ApplyLogarithmicScalingHolo2(radarPings[entity].RadarPingPosition, playerGridPos); // Apply radar scaling
+                    Vector3D scaledPos = ApplyLogarithmicScaling(radarPings[entity].RadarPingPosition, playerGridPos, holoRadarRadius); // Apply radar scaling
 
                     // Position on the radar
                     Vector3D radarEntityPos = holoTablePos + scaledPos;
@@ -4146,7 +4413,9 @@ namespace EliDangHUD
 
         
 		
-
+        /// <summary>
+        /// Gets the entities from the game with a filter applied to only pull eligible radar pings.
+        /// </summary>
         private void FindEntities()
         {
             // Updated find entities 2025-07-13 by FenixPK. I found in my testing of an empty world that 82244 entities existed all with width = 0.
@@ -4222,6 +4491,10 @@ namespace EliDangHUD
             }
         }
 		
+        /// <summary>
+        /// Get the local player ID.
+        /// </summary>
+        /// <returns></returns>
 		public long GetLocalPlayerId()
 		{
 			long fail = -1;
@@ -4241,9 +4514,15 @@ namespace EliDangHUD
 			}
 		}
 
+        /// <summary>
+        /// Return the relationship between the grid and the player for determining friend/foe
+        /// </summary>
+        /// <param name="grid"></param>
+        /// <param name="playerId"></param>
+        /// <returns></returns>
 		public RelationshipStatus GetGridRelationship(VRage.Game.ModAPI.IMyCubeGrid grid, long playerId)
 		{
-			var blocks = new List<VRage.Game.ModAPI.IMySlimBlock>();
+            List<VRage.Game.ModAPI.IMySlimBlock> blocks = new List<VRage.Game.ModAPI.IMySlimBlock>();
 			grid.GetBlocks(blocks, b => b.FatBlock != null && b.FatBlock.OwnerId != 0);
 
 			if (!blocks.Any())
@@ -4276,7 +4555,7 @@ namespace EliDangHUD
 			}
 
             // Fallback: use in-game block hostility system
-            var relation = MyIDModule.GetRelationPlayerBlock(owner, playerId, MyOwnershipShareModeEnum.Faction);
+            MyRelationsBetweenPlayerAndBlock relation = MyIDModule.GetRelationPlayerBlock(owner, playerId, MyOwnershipShareModeEnum.Faction);
 
             switch (relation)
             {
@@ -4290,9 +4569,14 @@ namespace EliDangHUD
             }
 		}
 
+        /// <summary>
+        /// Get the FOV of the camera. 
+        /// </summary>
+        /// <returns></returns>
+        /// <exception cref="InvalidOperationException"></exception>
 		public float GetCameraFOV()
 		{
-			var camera = MyAPIGateway.Session.Camera;
+			IMyCamera camera = MyAPIGateway.Session.Camera;
 
 			if (camera != null)
 			{
@@ -4304,97 +4588,40 @@ namespace EliDangHUD
 			}
 		}
 
-		
-        public Vector3D ApplyLogarithmicScaling(Vector3D entityPos, Vector3D referencePos)
-        {
-			// Modified 2025-07-13 by FenixPK - I believe this accomplishes the same end result, but without the Matrices which should in theory be faster/less CPU intensive.
-			// Idea being that radar blips are in logarmithic brackets for where they appear on the radar screen depending on their distance. When far away
-			// and approaching at a constant velocity they will slowly move from the outer brackets, the rate at which they jump to the next "bracket" increasing exponentially as they get closer.
-			// Hence the whole logarithmic part of this... It's a rather cool effect! 
 
+        /// <summary>
+        /// Apply logarithmic like scaling to the radar blip position based on distance to the player and the radar scale range.
+        /// </summary>
+        /// <param name="entityPos"></param>
+        /// <param name="referencePos"></param>
+        /// <param name="radius"></param>
+        /// <returns></returns>
+        public Vector3D ApplyLogarithmicScaling(Vector3D entityPos, Vector3D referencePos, float radius)
+        {
             Vector3D offset = entityPos - referencePos;
             double distance = offset.Length();
-
-            if (distance < 0.01) 
+            if (distance < 1e-6) 
             {
                 return Vector3D.Zero;
             }
 
-            // Logarithmic scaling
-            double scaleFactor = Math.Max(Math.Exp(distance / radarScaleRange) / 2.8, radarScale);
-            double inverseScale = 1.0 / scaleFactor;
+            // Normalize the distance vs radarScaleRange to a 0-1 range. 
+            double distanceToScaleRatio = Math.Min(distance / Math.Max(1e-6, localGridRadarScaleRange), 1.0);
 
-            Vector3D direction = offset / distance;
-            Vector3D scaledOffset = direction * distance * inverseScale * radarScale;
-
-            return scaledOffset;
-        }
-
-        public Vector3D ApplyLogarithmicScaling2(Vector3D entityPos, Vector3D referencePos)
-        {
-            Vector3D offset = entityPos - referencePos;
-            double d = offset.Length();
-            if (d < 1e-6) return Vector3D.Zero;
-
-            // normalize 0..1 by current range
-            double u = Math.Min(d / Math.Max(1e-6, radarScaleRange), 1.0);
-
-            // concave (log-like) curve: f(0)=0, f(1)=1, smooth and monotonic
-            // tweak BETA: bigger => more compression near center
-            const double BETA = 8.0;
-            double f = Math.Log(1.0 + BETA * u) / Math.Log(1.0 + BETA);
+            const double BETA = 8.0; // BETA, the larger this value the farther away blips are from the center of the screen when nearby.
+            // EG if our radar scale is 10km and we have a blip at 10km it the function will not modify it at all and it will be placed at the edge. 
+            // if we have a blip at 500m then BETA will make that appear farther from the center than it would be linearly, to make the nearby stuff more readable. 
+            // How much of an effect it has is based on the value of BETA, larger pushes nearby stuff farther, smaller keeps it near. At 1.0 it is almost linear.
+            // Basically the closer an entity distance is to the max range of our radar the less effect BETA has, the closer it is to 0 distance away the more effect it has.
+            // This can prevent all the nearby stuff from clumping up at the center of the radar screen when max range is set farther out.
+            double distanceToScaleRatioCompressed = Math.Log(1.0 + BETA * distanceToScaleRatio) / Math.Log(1.0 + BETA);
 
             // project to screen radius
-            double radius = gHandler.localGridControlledEntityCustomData.radarRadius; // keep this constant in screen space
-            Vector3D dir = offset / d;
-            return dir * (radius * f);
+            //double radius = gHandler.localGridControlledEntityCustomData.radarRadius; // keep this constant in screen space
+            Vector3D dir = offset / distance;
+            return dir * (radius * distanceToScaleRatioCompressed);
         }
 
-
-        public Vector3D ApplyLogarithmicScalingHolo(Vector3D entityPos, Vector3D referencePos)
-        {
-            // Modified 2025-07-13 by FenixPK - I believe this accomplishes the same end result, but without the Matrices which should in theory be faster/less CPU intensive.
-            // Idea being that radar blips are in logarmithic brackets for where they appear on the radar screen depending on their distance. When far away
-            // and approaching at a constant velocity they will slowly move from the outer brackets, the rate at which they jump to the next "bracket" increasing exponentially as they get closer.
-            // Hence the whole logarithmic part of this... It's a rather cool effect! 
-
-            Vector3D offset = entityPos - referencePos;
-            double distance = offset.Length();
-
-            if (distance < 0.01)
-            {
-                return Vector3D.Zero;
-            }
-
-            // Logarithmic scaling
-            double scaleFactor = Math.Max(Math.Exp(distance / radarScaleRange) / 2.8, holoRadarScale);
-            double inverseScale = 1.0 / scaleFactor;
-
-            Vector3D direction = offset / distance;
-            Vector3D scaledOffset = direction * distance * inverseScale * holoRadarScale;
-
-            return scaledOffset;
-        }
-
-        public Vector3D ApplyLogarithmicScalingHolo2(Vector3D entityPos, Vector3D referencePos)
-        {
-            Vector3D offset = entityPos - referencePos;
-            double d = offset.Length();
-            if (d < 1e-6) return Vector3D.Zero;
-
-            // normalize 0..1 by current range
-            double u = Math.Min(d / Math.Max(1e-6, radarScaleRange), 1.0);
-
-            // concave (log-like) curve: f(0)=0, f(1)=1, smooth and monotonic
-            // tweak BETA: bigger => more compression near center
-            const double BETA = 8.0;
-            double f = Math.Log(1.0 + BETA * u) / Math.Log(1.0 + BETA);
-
-            // project to screen radius
-            double radius = holoRadarRadius; // keep this constant in screen space
-            Vector3D dir = offset / d;
-            return dir * (radius * f);
-        }
 
 
 
@@ -4418,6 +4645,11 @@ namespace EliDangHUD
         //	return false;
         //}
 
+        /// <summary>
+        /// Check if an entity is targeting the player grid
+        /// </summary>
+        /// <param name="entity"></param>
+        /// <returns></returns>
         public bool IsEntityTargetingPlayer(VRage.ModAPI.IMyEntity entity) 
 		{
             VRage.Game.ModAPI.IMyCubeGrid entityGrid = entity as VRage.Game.ModAPI.IMyCubeGrid; // If a cube grid we can get that here.
@@ -4430,7 +4662,11 @@ namespace EliDangHUD
 
         }
 
-        
+        /// <summary>
+        /// Check if a grid is targeting the player grid
+        /// </summary>
+        /// <param name="grid"></param>
+        /// <returns></returns>
         public bool IsGridTargetingPlayer(VRage.Game.ModAPI.IMyCubeGrid grid)
         {
 			if (grid == null || MyAPIGateway.Session?.Player == null)
@@ -4464,6 +4700,7 @@ namespace EliDangHUD
             }
             return false;
         }
+
 
         public bool IsEntityTargetingPlayerHolo(VRage.ModAPI.IMyEntity entityToCheck)
         {
@@ -4523,8 +4760,8 @@ namespace EliDangHUD
         //===============External Mod Access=========================================================
         public bool IsModLoaded(long modId)
 		{
-			var mods = MyAPIGateway.Session.Mods;
-			foreach (var mod in mods)
+			List<MyObjectBuilder_Checkpoint.ModItem> mods = MyAPIGateway.Session.Mods;
+			foreach (MyObjectBuilder_Checkpoint.ModItem mod in mods)
 			{
 				if ((long)mod.PublishedFileId == modId)
 					return true;
@@ -4593,6 +4830,11 @@ namespace EliDangHUD
 
 		private List<queuedSound> queuedSounds = new List<queuedSound>();
 
+        /// <summary>
+        /// Play a custom sound at the specified position.
+        /// </summary>
+        /// <param name="soundId"></param>
+        /// <param name="position"></param>
 		public void PlayCustomSound(MySoundPair soundId, Vector3D position)
 		{
 
@@ -4611,9 +4853,12 @@ namespace EliDangHUD
 			}
 		}
 
+        /// <summary>
+        /// Play queued sounds
+        /// </summary>
 		public void PlayQueuedSounds()
 		{
-			foreach(var qs in queuedSounds)
+			foreach(queuedSound qs in queuedSounds)
 			{
 
 				if (ED_soundEmitter != null && qs.soundId != null && soundEntity != null)
@@ -4626,6 +4871,9 @@ namespace EliDangHUD
 			queuedSounds.Clear ();
 		}
 
+        /// <summary>
+        /// Initialize the audio and set the files to use
+        /// </summary>
 		private void InitializeAudio()
 		{
 			soundEntity = MyAPIGateway.Session.LocalHumanPlayer?.Controller?.ControlledEntity?.Entity;
@@ -4633,18 +4881,24 @@ namespace EliDangHUD
 			ED_soundEmitter = 	new MyEntity3DSoundEmitter (soundEntity as VRage.Game.Entity.MyEntity, false, 0.01f);
 			ED_soundEmitter.Entity = soundEntity as VRage.Game.Entity.MyEntity;
 
-			SP_DAMAGE = 	new MySoundPair (SOUND_DAMAGE);
-			SP_BROKEN = 	new MySoundPair (SOUND_BROKEN);
-			SP_ENEMY = 		new MySoundPair (SOUND_ENEMY);
-			SP_NEUTRAL = 	new MySoundPair (SOUND_NEUTRAL);
-			SP_ZOOMINIT = 	new MySoundPair (SOUND_ZOOMINIT);
-			SP_ZOOMIN = 	new MySoundPair (SOUND_ZOOMIN);
-			SP_ZOOMOUT = 	new MySoundPair (SOUND_ZOOMOUT);
-			SP_BOOTUP = 	new MySoundPair (SOUND_BOOTUP);
-			SP_MONEY = 		new MySoundPair (SOUND_MONEY);
+			SP_DAMAGE = 	new MySoundPair(SOUND_DAMAGE);
+			SP_BROKEN = 	new MySoundPair(SOUND_BROKEN);
+			SP_ENEMY = 		new MySoundPair(SOUND_ENEMY);
+			SP_NEUTRAL = 	new MySoundPair(SOUND_NEUTRAL);
+			SP_ZOOMINIT = 	new MySoundPair(SOUND_ZOOMINIT);
+			SP_ZOOMIN = 	new MySoundPair(SOUND_ZOOMIN);
+			SP_ZOOMOUT = 	new MySoundPair(SOUND_ZOOMOUT);
+			SP_BOOTUP = 	new MySoundPair(SOUND_BOOTUP);
+			SP_MONEY = 		new MySoundPair(SOUND_MONEY);
 		}
         //-------------------------------------------------------------------------------------------
 
+        /// <summary>
+        /// Get the blip icon based on block count and grid size.
+        /// </summary>
+        /// <param name="blockCount"></param>
+        /// <param name="gridCubeSize"></param>
+        /// <returns></returns>
         private MyStringId GetBlipMaterial(int blockCount, MyCubeSize gridCubeSize) 
         {
             if (gridCubeSize == MyCubeSize.Large)
@@ -4694,6 +4948,11 @@ namespace EliDangHUD
                 }
             }
         }
+
+        /// <summary>
+        /// Update the status of the new radarping, this includes the blockcount of the pinged entity, its relationship to the player, and the color and material to use for the blip.
+        /// </summary>
+        /// <param name="ping"></param>
 		private void UpdateNewRadarPingStatus(ref RadarPing ping) 
 		{
 			VRage.ModAPI.IMyEntity entity = ping.Entity;
@@ -4781,6 +5040,10 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// Update the status of an existing radar ping, this includes the blockcount of the pinged entity, its relationship to the player, and the color and material to use for the blip.
+        /// </summary>
+        /// <param name="entityKey"></param>
 		private void UpdateExistingRadarPingStatus(VRage.ModAPI.IMyEntity entityKey) 
 		{
 
@@ -4838,6 +5101,11 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// Create a new radar ping
+        /// </summary>
+        /// <param name="entity"></param>
+        /// <returns></returns>
 		private RadarPing NewRadarPing(VRage.ModAPI.IMyEntity entity){
 			RadarPing ping = new RadarPing();
 
@@ -4863,6 +5131,21 @@ namespace EliDangHUD
 			return ping;
 		}
 
+        /// <summary>
+        /// Add a new radar animation that will play on the radar screen until completion
+        /// </summary>
+        /// <param name="entity"></param>
+        /// <param name="loops"></param>
+        /// <param name="lifeTime"></param>
+        /// <param name="sizeStart"></param>
+        /// <param name="sizeStop"></param>
+        /// <param name="fadeStart"></param>
+        /// <param name="fadeStop"></param>
+        /// <param name="material"></param>
+        /// <param name="colorStart"></param>
+        /// <param name="colorStop"></param>
+        /// <param name="offsetStart"></param>
+        /// <param name="offsetStop"></param>
 		public void NewRadarAnimation(VRage.ModAPI.IMyEntity entity, int loops, double lifeTime, double sizeStart, double sizeStop, float fadeStart, float fadeStop, MyStringId material, Vector4 colorStart, Vector4 colorStop, Vector3D offsetStart, Vector3D offsetStop){
 			RadarAnimation r = new RadarAnimation();
 			r.Entity = entity;
@@ -4884,6 +5167,10 @@ namespace EliDangHUD
 			RadarAnimations.Add(r);
 		}
 			
+        /// <summary>
+        /// Add an alert animation for blips that have just appeared on screen.
+        /// </summary>
+        /// <param name="entity"></param>
 		public void NewAlertAnim(VRage.ModAPI.IMyEntity entity)
 		{
 			if (entity == null) 
@@ -4897,6 +5184,10 @@ namespace EliDangHUD
 			NewRadarAnimation(entity, 4, 0.20, 0.02, 0.002, 5, 1, MaterialTarget, color, color, zero, zero);
 		}
 
+        /// <summary>
+        /// Add a new blip animation
+        /// </summary>
+        /// <param name="entity"></param>
 		public void NewBlipAnim(VRage.ModAPI.IMyEntity entity)
 		{
 			if (entity == null) 
@@ -4910,6 +5201,10 @@ namespace EliDangHUD
 			NewRadarAnimation(entity, 1, 0.25, 0.02, 0.002, 3, 1, MaterialTarget, color, color, zero, zero);
 		}
 
+        /// <summary>
+        /// Update radar animations that are currently active until completion.
+        /// </summary>
+        /// <param name="shipPos"></param>
 		public void UpdateRadarAnimations(Vector3D shipPos)
 		{
 			List<RadarAnimation> deleteList = new List<RadarAnimation>();
@@ -4945,7 +5240,7 @@ namespace EliDangHUD
 					//entityPos -= (upSquish*squishValue); //------Squishing the vertical axis on the radar to make it easier to read... but less vertically accurate.
 
 					// Apply radar scaling
-					Vector3D scaledPos = ApplyLogarithmicScaling2(entityPos, shipPos); 
+					Vector3D scaledPos = ApplyLogarithmicScaling(entityPos, shipPos, gHandler.localGridControlledEntityCustomData.radarRadius); 
 
 					// Position on the radar
 					Vector3D radarEntityPos = worldRadarPos + scaledPos + offset;
@@ -4955,7 +5250,7 @@ namespace EliDangHUD
 			}
 
 			//Delete all animations that were flagged in the prior step.
-			foreach(var d in deleteList)
+			foreach(RadarAnimation d in deleteList)
 			{
 				if (RadarAnimations.Contains(d)) 
 				{
@@ -4966,7 +5261,14 @@ namespace EliDangHUD
 			deleteList.Clear();
 		}
 
-        public void UpdateRadarAnimationsHoloTable(Vector3D shipPos, Vector3D holoPos, MatrixD holoMatrix)
+        /// <summary>
+        /// Update radar animations that are currently active until completion, for the holotable position defined.
+        /// </summary>
+        /// <param name="shipPos"></param>
+        /// <param name="holoPos"></param>
+        /// <param name="holoMatrix"></param>
+        /// <param name="holoRadius"></param>
+        public void UpdateRadarAnimationsHoloTable(Vector3D shipPos, Vector3D holoPos, MatrixD holoMatrix, float holoRadius)
         {
             List<RadarAnimation> deleteList = new List<RadarAnimation>();
 
@@ -5001,7 +5303,7 @@ namespace EliDangHUD
                     //entityPos -= (upSquish*squishValue); //------Squishing the vertical axis on the radar to make it easier to read... but less vertically accurate.
 
                     // Apply radar scaling
-                    Vector3D scaledPos = ApplyLogarithmicScalingHolo2(entityPos, shipPos);
+                    Vector3D scaledPos = ApplyLogarithmicScaling(entityPos, shipPos, holoRadius);
 
                     // Position on the radar
                     Vector3D radarEntityPos = holoPos + scaledPos + offset;
@@ -5011,7 +5313,7 @@ namespace EliDangHUD
             }
 
             //Delete all animations that were flagged in the prior step.
-            foreach (var d in deleteList)
+            foreach (RadarAnimation d in deleteList)
             {
                 if (RadarAnimations.Contains(d))
                 {
@@ -5022,6 +5324,17 @@ namespace EliDangHUD
             deleteList.Clear();
         }
 
+        /// <summary>
+        /// Draw an arc for the HUD
+        /// </summary>
+        /// <param name="center"></param>
+        /// <param name="radius"></param>
+        /// <param name="planeDirection"></param>
+        /// <param name="startAngle"></param>
+        /// <param name="endAngle"></param>
+        /// <param name="color"></param>
+        /// <param name="width"></param>
+        /// <param name="gap"></param>
         void DrawArc(Vector3D center, double radius, Vector3D planeDirection, float startAngle, float endAngle, Vector4 color, float width = 0.005f, float gap = 0)
 		{
 			// Convert start and end angles from degrees to radians
@@ -5106,128 +5419,15 @@ namespace EliDangHUD
 				DrawLineBillboard(MaterialSquare, gHandler.localGridControlledEntityCustomData.lineColor * dimmer, point1, direction, 0.9f, segmentThickness, BlendTypeEnum.Standard);
 		}
 
-
-
-		//==================COLOR===================================================
-		public void RGBtoHSV(float r, float g, float b, out float h, out float s, out float v)
-		{
-			float max = Math.Max(r, Math.Max(g, b));
-			float min = Math.Min(r, Math.Min(g, b));
-			v = max; // value is maximum of r, g, b
-
-			float delta = max - min;
-			if (delta < 0.00001f)
-			{
-				s = 0;
-				h = 0; // undefined, maybe nan?
-				return;
-			}
-
-			if (max > 0.0f) 
-			{
-				s = delta / max; // saturation
-			}
-			else 
-			{
-				// r = g = b = 0		// s = 0, v is undefined
-				s = 0;
-				h = float.NaN; // its now undefined
-				return;
-			}
-
-			if (r >= max)
-				h = (g - b) / delta; // between yellow & magenta
-			else if (g >= max)
-				h = 2.0f + (b - r) / delta; // between cyan & yellow
-			else
-				h = 4.0f + (r - g) / delta; // between magenta & cyan
-
-			h *= 60.0f; // convert to degrees
-			if (h < 0.0f)
-				h += 360.0f;
-		}
-
-
-
-		public float GetComplementaryHue(float hue)
-		{
-			return (hue + 180.0f) % 360.0f;
-		}
-
-
-
-		public void HSVtoRGB(float h, float s, float v, out float r, out float g, out float b)
-		{
-			if (s == 0) 
-			{
-				// Achromatic (grey)
-				r = g = b = v;
-				return;
-			}
-
-			int i = (int)(h / 60.0f) % 6;
-			float f = (h / 60.0f) - i;
-			float p = v * (1 - s);
-			float q = v * (1 - f * s);
-			float t = v * (1 - (1 - f) * s);
-
-			switch (i) 
-			{
-			case 0:
-				r = v;
-				g = t;
-				b = p;
-				break;
-			case 1:
-				r = q;
-				g = v;
-				b = p;
-				break;
-			case 2:
-				r = p;
-				g = v;
-				b = t;
-				break;
-			case 3:
-				r = p;
-				g = q;
-				b = v;
-				break;
-			case 4:
-				r = t;
-				g = p;
-				b = v;
-				break;
-			default:
-				r = v;
-				g = p;
-				b = q;
-				break;
-			}
-		}
-
-
-
-		public Vector3 secondaryColor(Vector3 color){
-			float h, s, v;
-			float r = color.X, g = color.Y, b = color.Z; // Red color example
-			RGBtoHSV(r, g, b, out h, out s, out v); // Convert from RGB to HSV
-			float complementaryHue = GetComplementaryHue(h); // Get complementary hue
-			HSVtoRGB(complementaryHue, s, v, out r, out g, out b); // Convert back to RGB
-
-			Vector3 retColor = new Vector3 (r, g, b);
-			return retColor;
-
-		}
-		//--------------------------------------------------------------------------
-
-
-
 		//==================================SHIP HOLOGRAMS============================================================
 		//private VRage.ModAPI.IMyEntity currentTarget = null;
 		private bool isTargetLocked = false;
 		private bool isTargetAnnounced = false;
 
+        /// <summary>
+        /// Check if the key or mouse button for Select Target is pressed
+        /// </summary>
+        /// <returns></returns>
         public bool IsSelectTargetPressed()
         {
             if (theSettings.useMouseTargetSelect)
@@ -5272,7 +5472,7 @@ namespace EliDangHUD
 				else
 				{
 					// Attempt to lock on a new target, gets the nearest entity in camera sights.
-					var newTarget = FindEntityInSight();
+					VRage.ModAPI.IMyEntity newTarget = FindEntityInSight();
 
 					if (newTarget != null) 
 					{
@@ -5514,11 +5714,10 @@ namespace EliDangHUD
             maxPassiveRange = 0.0;
             maxActiveRange = 0.0;
 
-            //var antennas = grid.GetFatBlocks<Sandbox.ModAPI.IMyRadioAntenna>();
             List<Sandbox.ModAPI.IMyRadioAntenna> antennas = new List<Sandbox.ModAPI.IMyRadioAntenna>();
             MyAPIGateway.TerminalActionsHelper.GetTerminalSystemForGrid(grid).GetBlocksOfType(antennas, a => a.IsWorking && a.Enabled && a.IsFunctional);
 
-            foreach (var antenna in antennas)
+            foreach (Sandbox.ModAPI.IMyRadioAntenna antenna in antennas)
             {
                 // If we are here the antenna must be functional and powered on, even if not broadcasting. So set passive to true.
                 hasPassive = true;
@@ -5661,6 +5860,17 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// This checks if a grid can detect another grid. Requires you know the grid's radar status and pass values in first. Will query the target grid's radar status as required.
+        /// </summary>
+        /// <param name="gridHasPassiveRadar"></param>
+        /// <param name="gridHasActiveRadar"></param>
+        /// <param name="gridMaxPassiveRange"></param>
+        /// <param name="gridMaxActiveRange"></param>
+        /// <param name="gridPos"></param>
+        /// <param name="canDetect"></param>
+        /// <param name="entityPosReturn"></param>
+        /// <param name="relativeDistanceSqrReturn"></param>
         public void CanGridRadarDetectTarget(bool gridHasPassiveRadar, bool gridHasActiveRadar, double gridMaxPassiveRange, double gridMaxActiveRange, Vector3D gridPos,
            out bool canDetect, out Vector3D entityPosReturn, out double relativeDistanceSqrReturn)
         {
@@ -5764,7 +5974,12 @@ namespace EliDangHUD
                 }
             }
         }
-
+        /// <summary>
+        /// Check if a distance is within the radar detection range.
+        /// </summary>
+        /// <param name="relativeDistanceSqr"></param>
+        /// <param name="radarDetectionRangeSqr"></param>
+        /// <returns></returns>
         public bool IsWithinRadarRadius(double relativeDistanceSqr, double radarDetectionRangeSqr) 
 		{
 			if (relativeDistanceSqr <= radarDetectionRangeSqr)
@@ -5815,6 +6030,9 @@ namespace EliDangHUD
         Func<Sandbox.ModAPI.IMyTerminalBlock, bool> hasCoreWeapon;
         private const long WEAPONCORE_MOD_ID = 5649865810; // WC's Mod Communication ID (check your version if this changes)
 
+        /// <summary>
+        /// Initialize weapon core, WIP.
+        /// </summary>
         private void InitWeaponCore()
         {
 			if (weaponCoreApi != null || _weaponCoreInitialized)
@@ -5847,7 +6065,9 @@ namespace EliDangHUD
             MyAPIGateway.Utilities.ShowMessage("WC", "WeaponCore API initialized");  
         }
 
-		
+		/// <summary>
+        /// Initialize weapon core weapons, WIP.
+        /// </summary>
         public void InitializeWeaponCoreWeapons()
         {
 			if (!_weaponCoreWeaponsInitialized && _weaponCoreInitialized) 
@@ -5874,7 +6094,10 @@ namespace EliDangHUD
             }
         }
 
-
+        /// <summary>
+        /// Locks target using WeaponCore API, WIP. Broken, does not work. 
+        /// </summary>
+        /// <param name="newTarget"></param>
         private void LockTargetWeaponCore(VRage.ModAPI.IMyEntity newTarget)
         {
             InitWeaponCore(); // Ensure API is ready
@@ -5907,6 +6130,11 @@ namespace EliDangHUD
 			//setTargetFocus(_localGridWCWeapons.First<Sandbox.ModAPI.IMyTerminalBlock>(), newTarget, true, false);
         }
 
+        /// <summary>
+        /// Is a weaponcore weapon? How can we even tell this?
+        /// </summary>
+        /// <param name="block"></param>
+        /// <returns></returns>
         bool IsWeaponCoreWeapon(Sandbox.ModAPI.IMyTerminalBlock block)
         {
 			if (hasCoreWeapon != null && hasCoreWeapon(block))
@@ -5934,16 +6162,16 @@ namespace EliDangHUD
 
             HashSet<VRage.ModAPI.IMyEntity> entities = new HashSet<VRage.ModAPI.IMyEntity>();
 			MyAPIGateway.Entities.GetEntities(entities, e => {
-                //           if (e is VRage.Game.ModAPI.IMyCubeGrid grid)
-                //           {
-                //return grid.WorldVolume.Radius > 1;
-                //           }
                 VRage.Game.ModAPI.IMyCubeGrid cubeGrid = e as VRage.Game.ModAPI.IMyCubeGrid;
                 if (cubeGrid != null)
                 {
                     if (cubeGrid.EntityId == gHandler.localGrid.EntityId) 
                     {
                         return false;
+                    }
+                    if (gHandler.targetGrid != null && cubeGrid.EntityId == gHandler.targetGrid.EntityId)
+                    {
+                        return false; // Don't select the same target twice. 
                     }
 					if (gHandler.localGridControlledEntityCustomData.scannerOnlyPoweredGrids && !HasPowerProduction(cubeGrid))
 					{
@@ -6005,23 +6233,6 @@ namespace EliDangHUD
 
 			Echo_String_Prev = message;
 		}
-
-		public class BlockTracker
-		{
-			public VRage.Game.ModAPI.IMySlimBlock Block;
-			public Vector3D Position;
-			public Vector3D WorldRelativePosition;
-			public Vector3D HologramDrawPosition;
-			public double HealthMax;
-			public double HealthCurrent;
-			public double HealthLast;
-			public bool IsJumpDrive;
-			public double JumpDriveLastStoredPower;
-			public double JumpDrive_Avg;
-			public Sandbox.ModAPI.Ingame.IMyJumpDrive JumpDrive;
-		}
-
-        
 
 
         /// <summary>
@@ -6089,7 +6300,9 @@ namespace EliDangHUD
         }
 
 
-       
+       /// <summary>
+       /// Draw the holograms on screen for an active seat
+       /// </summary>
         public void DrawHolograms() 
         {
             if (theSettings.enableHologramsGlobal) 
@@ -6148,6 +6361,9 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// Draw the holograms on screen for all holotables.
+        /// </summary>
         public void DrawHologramsHoloTables() 
         {
             if (gHandler.localGridHologramTerminals.Count > 0 && gHandler.localGridBlockClusters != null)
@@ -6196,6 +6412,14 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// Draw the shields for a hologram.
+        /// </summary>
+        /// <param name="pos"></param>
+        /// <param name="sp_cur"></param>
+        /// <param name="sp_max"></param>
+        /// <param name="bootTime"></param>
+        /// <param name="time2ready"></param>
         private void DrawShields(Vector3D pos, double sp_cur, double sp_max, double bootTime, double time2ready)
 		{
 
@@ -6253,6 +6477,11 @@ namespace EliDangHUD
 			DrawText(ShieldValueS, fontSize, textPos, radarMatrix.Forward, ShieldValueC, gHandler.localGridControlledEntityCustomData.radarBrightness, 1, false);
         }
 
+        /// <summary>
+        /// Format seconds to a readable time
+        /// </summary>
+        /// <param name="seconds"></param>
+        /// <returns></returns>
 		public string FormatSecondsToReadableTime(double seconds)
 		{
 			if (double.IsNaN(seconds) || double.IsInfinity(seconds))
@@ -6293,26 +6522,6 @@ namespace EliDangHUD
 		}
 
 
-		private MatrixD GetRotationMatrix(MatrixD matrix)
-		{
-			// Extract the rotation components
-			Vector3D right = matrix.Right;
-			Vector3D up = matrix.Up;
-			Vector3D forward = matrix.Forward;
-
-			// Create a new matrix with the rotation components
-			MatrixD rotationMatrix = MatrixD.Identity;
-			rotationMatrix.Right = right;
-			rotationMatrix.Up = up;
-			rotationMatrix.Forward = forward;
-
-			// Set translation to zero
-			rotationMatrix.Translation = Vector3D.Zero;
-
-			return rotationMatrix;
-		}
-
-
         /// <summary>
         /// Computes a stable left and up vector for oriented billboards.
         /// Always faces the camera, keeps hologram's Up, and avoids degenerate cross products.
@@ -6350,10 +6559,17 @@ namespace EliDangHUD
             }
         }
 
-
-
-        // TODO adjust the size a bit, it seems when we mix small clusters with big clusters there is a bit of a gap between them, but clusters of the same size fit perfectly with each other? 
-        // TODO decide if the facing axis logic is worth the oddness of trying to keep it square? Odd angles cause weird fluctuations?
+        /// <summary>
+        /// Draw a hologram from block clusters instead of drawing every block.
+        /// </summary>
+        /// <param name="blockClusters"></param>
+        /// <param name="isTarget"></param>
+        /// <param name="hologramDrawPosition"></param>
+        /// <param name="holoCenterPosition"></param>
+        /// <param name="initialColor"></param>
+        /// <param name="finalScalingAndRotationMatrix"></param>
+        /// <param name="size"></param>
+        /// <param name="scale"></param>
         private void DrawHologramFromClusters(Dictionary<Vector3I, BlockCluster> blockClusters, bool isTarget, Vector3D hologramDrawPosition, 
             Vector3D holoCenterPosition, Vector4 initialColor, MatrixD finalScalingAndRotationMatrix, float size, float scale) 
         {
@@ -6376,7 +6592,7 @@ namespace EliDangHUD
             //double thicc = gHandler.hologramScaleFactor / (isTarget ? gHandler.targetGrid.WorldVolume.Radius / gHandler.targetGrid.GridSize : gHandler.localGrid.WorldVolume.Radius / gHandler.localGrid.GridSize);
             //float size = (float)gHandler.hologramScale * 0.65f * (float)thicc * (isTarget ? gHandler.targetGridClusterSize : gHandler.localGridClusterSize);
 
-            MyStringId drawMaterial = MaterialTinyCircle;
+            MyStringId drawMaterial = MaterialSquare;
 
             float projectorRatio = Math.Min(0.5f, 100f / blockClusters.Count); // Clamp at max of 50% of the time, but base it around trying to draw around 100 projector lines.
                                                                                // For larger grids it will limit it at 100 lines. But for smaller grids it will draw only 50% of the time so the lines still look good.
@@ -6477,7 +6693,16 @@ namespace EliDangHUD
         }
 
 
-
+        /// <summary>
+        /// Not in use, but keeping for memories. Was going to use transparent boxes to better bucket blocks, but they have many drawbacks without access to full render pipeline as we cant do face occlusion 
+        /// and it draws all adjacent faces between touching boxes...
+        /// </summary>
+        /// <param name="clusterSlicesByFloor"></param>
+        /// <param name="isTarget"></param>
+        /// <param name="hologramDrawPosition"></param>
+        /// <param name="holoCenterPosition"></param>
+        /// <param name="finalScalingAndRotationMatrix"></param>
+        /// <param name="colorPallet"></param>
         private void DrawHologramFromClusterSlices(Dictionary<int, List<ClusterBox>> clusterSlicesByFloor, bool isTarget, Vector3D hologramDrawPosition, Vector3D holoCenterPosition, MatrixD finalScalingAndRotationMatrix, Vector4[] colorPallet)    
         {
             MatrixD worldMatrix = finalScalingAndRotationMatrix * MatrixD.CreateTranslation(hologramDrawPosition);
@@ -6518,31 +6743,13 @@ namespace EliDangHUD
         }
 
 
-        public static MatrixD GetNeutralizedHologramRotation(VRage.Game.ModAPI.IMyCubeGrid gridA, VRage.Game.ModAPI.IMyCubeGrid gridB)
-        {
-            // Neutral orientation = identity rotation (world forward, up, right)
-            Vector3D worldForward = Vector3D.Forward;
-            Vector3D worldUp = Vector3D.Up;
-
-            // Neutral world matrices for gridA and gridB: position actual, orientation neutral
-            MatrixD neutralA = MatrixD.CreateWorld(gridA.WorldMatrix.Translation, worldForward, worldUp);
-            MatrixD neutralB = MatrixD.CreateWorld(gridB.WorldMatrix.Translation, worldForward, worldUp);
-
-            // Direction vector from neutralA to neutralB
-            Vector3D directionToB = Vector3D.Normalize(gridB.WorldMatrix.Translation - gridA.WorldMatrix.Translation);
-
-            // Create look-at matrix for neutralA facing neutralB using world up
-            MatrixD lookAtA = MatrixD.CreateWorld(gridA.WorldMatrix.Translation, directionToB, worldUp);
-
-            // Relative rotation from lookAtA to neutralB
-            MatrixD relativeRotation = MatrixD.Invert(lookAtA) * neutralB;
-
-            // Extract rotation part only
-            return MatrixD.CreateFromQuaternion(Quaternion.CreateFromRotationMatrix(relativeRotation));
-        }
-
-
-        // Helper function to scale and clamp angular velocity to rotation angle
+        /// <summary>
+        /// Helper function to scale and clamp angular velocity to rotation angle
+        /// </summary>
+        /// <param name="angularVelocity"></param>
+        /// <param name="maxVelocity"></param>
+        /// <param name="maxAngle"></param>
+        /// <returns></returns>
         private double ClampAndScale(double angularVelocity, double maxVelocity, double maxAngle)
         {
             // Normalize the angular velocity to (-1, 1) range
@@ -6566,10 +6773,15 @@ namespace EliDangHUD
 		private double creditBalance_dif = 0;
 		private bool credit_counting = false;
 
+        /// <summary>
+        /// Format the credits on screen into a readable and rounded value. Converts to larger Unit of Measure as needed.
+        /// </summary>
+        /// <param name="value"></param>
+        /// <returns></returns>
         public string FormatCredits(double value)
         {
             // Billions, Millions, Thousands, or Exact. 
-            var culture = System.Globalization.CultureInfo.InvariantCulture; // Invariant should use decimal, but no commas. 
+            CultureInfo culture = System.Globalization.CultureInfo.InvariantCulture; // Invariant should use decimal, but no commas. 
             if (value >= 1000000000)
 				return (value / 1000000000.0).ToString("0.##", culture) + " B";
 			else if (value >= 1000000)
@@ -6580,6 +6792,9 @@ namespace EliDangHUD
 				return value.ToString("0", culture); 
         }
 
+        /// <summary>
+        /// Update the crdit balance
+        /// </summary>
         public void UpdateCredits()
         {
             // Example usage: Get credits for the local player
@@ -6597,6 +6812,9 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// Draw the credit balance on screen
+        /// </summary>
         public void DrawCredits()
 		{
 			// Example usage: Get credits for the local player
@@ -6606,7 +6824,11 @@ namespace EliDangHUD
 			}
 		}
 
-
+        /// <summary>
+        /// Get the credits a player has.
+        /// </summary>
+        /// <param name="player"></param>
+        /// <returns></returns>
 		private string GetPlayerCredits(IMyPlayer player)
 		{
 			if (player == null)
@@ -6627,6 +6849,11 @@ namespace EliDangHUD
 			return balance;
 		}
 
+        /// <summary>
+        /// Convert a string to a double
+        /// </summary>
+        /// <param name="cr"></param>
+        /// <returns></returns>
 		private double Convert2Credits(string cr)
 		{
 			double cr_d = Convert.ToDouble(cr);
@@ -6634,6 +6861,11 @@ namespace EliDangHUD
 			return cr_d;
 		}
 
+        /// <summary>
+        /// Update the credit balance difference for smooth counting effect.
+        /// </summary>
+        /// <param name="cr"></param>
+        /// <param name="new_cr"></param>
         private void UpdateCreditBalance(double cr, double new_cr)
         {
             cr = Math.Round(cr);
@@ -6672,6 +6904,11 @@ namespace EliDangHUD
             }
         }
 
+        /// <summary>
+        /// Draw the credit balance on screen
+        /// </summary>
+        /// <param name="cr"></param>
+        /// <param name="new_cr"></param>
         private void DrawCreditBalance(double cr, double new_cr)
 		{
 			cr = Math.Round(cr);
@@ -6739,6 +6976,9 @@ namespace EliDangHUD
 		private double TB_activationTime = 0;
 		private List<AmmoInfo> ammoInfos;
 
+        /// <summary>
+        /// Update the hud toolbars
+        /// </summary>
 		private void UpdateToolbars()
 		{
             if (gHandler.localGridControlledEntity == null)
@@ -6746,8 +6986,8 @@ namespace EliDangHUD
                 return;
             }
 
-            var cockpit = gHandler.localGridControlledEntity as Sandbox.ModAPI.IMyCockpit;
-            var grid = cockpit.CubeGrid;
+            Sandbox.ModAPI.IMyCockpit cockpit = gHandler.localGridControlledEntity as Sandbox.ModAPI.IMyCockpit;
+            VRage.Game.ModAPI.IMyCubeGrid grid = cockpit.CubeGrid;
             if (grid == null)
             {
                 return;
@@ -6760,16 +7000,18 @@ namespace EliDangHUD
         }
 
 
-
+        /// <summary>
+        /// Draw the hud toolbars
+        /// </summary>
 		private void DrawToolbars()
 		{
 			if (gHandler.localGridControlledEntity == null) {
 				return;
 			}
 
-			var cockpit = gHandler.localGridControlledEntity as Sandbox.ModAPI.IMyCockpit;
-			var grid = cockpit.CubeGrid;
-			if (grid != null) 
+            Sandbox.ModAPI.IMyCockpit cockpit = gHandler.localGridControlledEntity as Sandbox.ModAPI.IMyCockpit;
+            VRage.Game.ModAPI.IMyCubeGrid grid = cockpit.CubeGrid;
+            if (grid != null) 
 			{
 			} else {
 				return;
@@ -6784,7 +7026,11 @@ namespace EliDangHUD
 		}
 
 
-
+        /// <summary>
+        /// Draw the toolbar background and action slots
+        /// </summary>
+        /// <param name="position"></param>
+        /// <param name="flippit"></param>
 		public void DrawToolbarBack(Vector3D position, bool flippit = false)
 		{
 			Vector3D radarUp = radarMatrix.Up;
@@ -6883,6 +7129,12 @@ namespace EliDangHUD
 
 		}
 
+        /// <summary>
+        /// Draw an action name at a position
+        /// </summary>
+        /// <param name="name"></param>
+        /// <param name="pos"></param>
+        /// <param name="flippit"></param>
 		private void DrawAction(string name, Vector3D pos, bool flippit = false)
 		{
 			double fontSize = 0.0075;
@@ -6895,6 +7147,10 @@ namespace EliDangHUD
 			DrawText(name, fontSize, pos, radarMatrix.Forward, gHandler.localGridControlledEntityCustomData.lineColor, gHandler.localGridControlledEntityCustomData.radarBrightness, 1f, false);
 		}
 
+        /// <summary>
+        /// Get the position to draw the toolbars
+        /// </summary>
+        /// <returns></returns>
 		private Vector3D getToolbarPos()
 		{
 			Vector3D pos = Vector3D.Zero;
@@ -6908,6 +7164,12 @@ namespace EliDangHUD
 			return pos;
 		}
 
+        /// <summary>
+        /// Get the player's head elevation relative to a reference position and matrix.
+        /// </summary>
+        /// <param name="referencePosition"></param>
+        /// <param name="referenceMatrix"></param>
+        /// <returns></returns>
 		private double GetHeadElevation(Vector3D referencePosition, MatrixD referenceMatrix)
 		{
 			// Get the player's character entity
@@ -6934,6 +7196,15 @@ namespace EliDangHUD
 			return elevation;
 		}
 
+        /// <summary>
+        /// Draw an action slot with name and value at a position
+        /// </summary>
+        /// <param name="slot"></param>
+        /// <param name="name"></param>
+        /// <param name="value"></param>
+        /// <param name="position"></param>
+        /// <param name="height"></param>
+        /// <param name="flippit"></param>
 		private void DrawActionSlot(int slot, string name, string value, Vector3D position, double height, bool flippit = false)
 		{
 			double fontSize = 0.005;
@@ -7021,6 +7292,12 @@ namespace EliDangHUD
 			return itemNames;
 		}
 
+        /// <summary>
+        /// Get information about the currently controlled cockpit, including its name and integrity.
+        /// </summary>
+        /// <param name="name"></param>
+        /// <param name="current"></param>
+        /// <param name="max"></param>
 		private void GetCockpitInfo(out string name, out float current, out float max)
 		{
 			VRage.Game.ModAPI.Interfaces.IMyControllableEntity controlledEntity = MyAPIGateway.Session.Player.Controller.ControlledEntity;
@@ -7057,6 +7334,9 @@ namespace EliDangHUD
 			max = maxIntegrity;
 		}
 
+        /// <summary>
+        /// An ammo info class to contain info about ammo type and count
+        /// </summary>
 		public class AmmoInfo
 		{
 			public string AmmoType { get; set; }
@@ -7082,7 +7362,7 @@ namespace EliDangHUD
 			List<VRage.Game.ModAPI.IMySlimBlock> slimBlocks = new List<VRage.Game.ModAPI.IMySlimBlock>();
 			grid.GetBlocks(slimBlocks, block => block.FatBlock is Sandbox.ModAPI.IMyUserControllableGun || block.FatBlock is Sandbox.ModAPI.IMyLargeTurretBase);
 
-			foreach (var slimBlock in slimBlocks)
+			foreach (VRage.Game.ModAPI.IMySlimBlock slimBlock in slimBlocks)
 			{
 
                 VRage.Game.ModAPI.IMyCubeBlock fat = slimBlock.FatBlock;
@@ -7131,7 +7411,7 @@ namespace EliDangHUD
 			}
 
 			List<AmmoInfo> ammoInfos = new List<AmmoInfo>();
-			foreach (var entry in ammoCounts)
+			foreach (KeyValuePair<string, int> entry in ammoCounts)
 			{
 				ammoInfos.Add(new AmmoInfo(entry.Key, entry.Value));
 			}
@@ -7139,13 +7419,19 @@ namespace EliDangHUD
 			return ammoInfos;
 		}
 
+        /// <summary>
+        /// Get the count of an ammo type on a grid by searching all inventories on the grid.
+        /// </summary>
+        /// <param name="grid"></param>
+        /// <param name="ammoType"></param>
+        /// <returns></returns>
 		private int GetAmmoCount(VRage.Game.ModAPI.IMyCubeGrid grid, string ammoType)
 		{
 			int count = 0;
 			List<VRage.Game.ModAPI.IMySlimBlock> slimBlocks = new List<VRage.Game.ModAPI.IMySlimBlock>();
 			grid.GetBlocks(slimBlocks, block => block.FatBlock is IMyInventoryOwner);
 
-			foreach (var slimBlock in slimBlocks)
+			foreach (VRage.Game.ModAPI.IMySlimBlock slimBlock in slimBlocks)
 			{
 				IMyInventoryOwner inventoryOwner = slimBlock.FatBlock as IMyInventoryOwner;
 				if (inventoryOwner != null)
@@ -7153,11 +7439,11 @@ namespace EliDangHUD
 
 					for (int i = 0; i < inventoryOwner.InventoryCount; i++)
 					{
-						var inventory = inventoryOwner.GetInventory(i);
+						VRage.Game.ModAPI.Ingame.IMyInventory inventory = inventoryOwner.GetInventory(i);
 						List<MyInventoryItem> items = new List<MyInventoryItem>();
 						inventory.GetItems(items);
 
-						foreach (var item in items)
+						foreach (MyInventoryItem item in items)
 						{
 							if (item.Type.SubtypeId == ammoType)
 							{
