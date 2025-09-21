@@ -733,13 +733,14 @@ namespace EliDangHUD
 
                 IMyPowerProducer producer = block.FatBlock as IMyPowerProducer;
                 IMyBatteryBlock battery = block.FatBlock as IMyBatteryBlock;
-                if (producer != null)
-                {
-                    localGridPowerProducersDict[block.Position] = producer;
-                }
-                else if (battery != null)
+                // Have to do batteries first, because they are also producers!
+                if (battery != null)
                 {
                     localGridBatteriesDict[block.Position] = battery;
+                }
+                else if (producer != null)
+                {
+                    localGridPowerProducersDict[block.Position] = producer;
                 }
 
                 IMyJumpDrive jumpDrive = block.FatBlock as IMyJumpDrive;
@@ -1963,13 +1964,14 @@ namespace EliDangHUD
 
                 IMyPowerProducer producer = block.FatBlock as IMyPowerProducer;
                 IMyBatteryBlock battery = block.FatBlock as IMyBatteryBlock;
-                if (producer != null)
-                {
-                    localGridPowerProducersDict[block.Position] = producer;
-                }
-                else if (battery != null)
+                // Have to do batteries first, because they are also producers!
+                if (battery != null)
                 {
                     localGridBatteriesDict[block.Position] = battery;
+                }
+                else if (producer != null)
+                {
+                    localGridPowerProducersDict[block.Position] = producer;
                 }
 
                 IMyJumpDrive jumpDrive = block.FatBlock as IMyJumpDrive;
@@ -2489,10 +2491,11 @@ namespace EliDangHUD
                     {
                         totalPowerConsumed += producer.CurrentOutput;
                         totalPowerProduced += producer.MaxOutput;
-                        if (producer.Enabled && producer.CurrentOutput > 0.01f)
+                        if (producer.Enabled && producer.CurrentOutput > 0.0001f)
                         {
                             gridHasPower = true;
                         }
+                        
                     }
                 }
                 foreach (IMyBatteryBlock battery in localGridBatteriesDict.Values)
@@ -2503,7 +2506,7 @@ namespace EliDangHUD
                         totalPowerProduced += battery.MaxOutput;
                         currentCharge += battery.CurrentStoredPower;
                         maxCharge += battery.MaxStoredPower;
-                        if (battery.Enabled && battery.CurrentStoredPower > 0.01f) 
+                        if (battery.Enabled && battery.CurrentStoredPower > 0.0001f)
                         {
                             gridHasPower = true;
                         }
