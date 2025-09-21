@@ -46,6 +46,7 @@ Blip icons are from an X4 Mod with permission, link in the credits section below
 - Everything configurable! You can turn off planet orbits, velocity lines, local hologram, target hologram, radar, visor effects, cockpit dust, grid flares etc. You can tweak the clustering logic, and the performance vs fidelity balance.
 You can tweak how quickly the holograms recluster after block add/removal, and how many clusters it processes per tick to spread the load out. All explained further below.
 
+- Chat commands to edit global settings in-game! Type "/elidang help" in chat to see available commands. Type "/elidang <setting_name> help" for help with a specific setting. Type "/elidang <setting_name> <value>" to change a setting.
 
 
 # Readme / Configuration
@@ -437,6 +438,9 @@ public enum MyKeys : byte
 }
 
 # Changelog
+## 2025-09-21 
+DONE: Add chat commands to edit/update settings that otherwise must be written to the xml in world storage. Remember to refresh GridHelpers settings as well as CircleRenderer when changed.
+
 ## 2025-09-20
 DONE: Dynamic block clustering that uses a range. It will still pick a cluster size based on grid block count, but then can go up and down from there. Sparse regions can be broken down to smaller
 clusters, and denser regions will be represented by one larger square. Eg. at cluster size 2 we get 1x1x1, 2x2x2, or 3x3x3 clusters. Based on various settings this can be tweaked. 
@@ -552,8 +556,6 @@ TODO: Fix the maxSpeed variable, it should load the max speed for the localGrid'
 TODO: Make holograms show more data, weapons, effective range, DPS?
 
 TODO: Make radar sprites show more data for selected target. Eg. when you pick a target the radar screen has an "effective range" bubble for the target. 
-
-TODO: Add chat commands to edit/update settings that otherwise must be written to the xml in world storage. Remember to refresh GridHelpers settings as well as CircleRenderer when changed.
 
 TODO: Polishing pass - add summaries to methods etc. It's becoming less documented as I go haha. 
 

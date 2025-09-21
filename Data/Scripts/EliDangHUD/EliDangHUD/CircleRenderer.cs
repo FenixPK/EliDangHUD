@@ -313,7 +313,7 @@ namespace EliDangHUD
 		/// </summary>
 		public bool useMainCockpitInsteadOfTag = false;
 		public string useMainCockpitInsteadOfTag_DESCRIPTION = "If true the mod is enabled by setting seat as Main Cockpit instead of using a tag [ELI_HUD], for users who prefer the original method. \r\n " +
-			"Note that with this setting enabled you can only have one HUD seat per grid. If you leave this disabled you can use the [ELI_HUD] tag on as many seats as you want.";
+			"Note that with this setting enabled you can only have one HUD seat per grid. If you leave this disabled you can use the [ELI_HUD] tag on as many seats as you want. (True/False)";
 
         /// <summary>
         /// Max global radar range, setting -1 will use the draw distance. Otherwise you can set a global maximum limit for the radar range. 
@@ -321,7 +321,7 @@ namespace EliDangHUD
         /// </summary>
         public double maxRadarRangeGlobal = -1;
         public string maxRadarRange_DESCRIPTION = "Max global radar range in meters, setting -1 will use the draw distance. Otherwise you can set a global maximum limit for the radar range. \r\n " +
-            "I think you could technically exceed the games 50km limit in radar scale, but there is a hard limit at the 50km antenna broadcast range for detecting.";
+            "I think you could technically exceed the games 50km limit in radar scale, but there is a hard limit at the 50km antenna broadcast range for detecting. (-1 to 50000)";
 
         /// <summary>
         /// Represents the distance, in meters, used for range bracketing in radar targeting calculations.
@@ -331,13 +331,13 @@ namespace EliDangHUD
         public int rangeBracketDistance = 200;
         public string rangeBracketDistance_DESCRIPTION = "Represents the distance in meters used for range bracketing in radar targeting calculations. \r\n" +
             "This value is used to determine the \"bracket\" a target fits into for zooming the radar. Or when changing broadcast distance of antennas (radar range). \r\n" +
-            "Adjusting this value can affect the precision of radar zoom levels.";
+            "Adjusting this value can affect the precision of radar zoom levels. (1+, should be a reasonable fraction of maxRadarRange)";
 
         /// <summary>
         /// Maximum number of entities/voxels that can be displayed as radar pings on the radar at once.
         /// </summary>
         public int maxPings = 500;
-        public string maxPings_DESCRIPTION = "Maximum number of entities/voxels that can be displayed as radar pings on the radar at once.";
+        public string maxPings_DESCRIPTION = "Maximum number of entities/voxels that can be displayed as radar pings on the radar at once. (1+)";
 
 		/// <summary>
 		/// When true uses SigInt lite logic with Active and Passive radar.
@@ -347,13 +347,13 @@ namespace EliDangHUD
 			"on your grid will be considered active mode, powered but not broadcasting is considered passive mode. \r\n " +
 			"Active can pick up all entities (voxels and grids) within the broadcast range. This is your radar waves painting everything within that radius and pinging them. \r\n " +
 			"Passive can only pick up actively broadcasting grids within your broadcast radius, and their broadcast radius. This is your radar picking up signals that are pinging off you. \r\n " +
-			"When disabled uses the simple logic of largest radius from all powered antennae on the grid as your radar range.";
+			"When disabled uses the simple logic of largest radius from all powered antennae on the grid as your radar range. (True/False)";
 
         /// <summary>
         /// How far away can a holo table be before it no longer renders the radar.
         /// </summary>
         public double holoTableRenderDistance = 20;
-        public string holoTableRenderDistance_DESCRIPTION = "How far away can a holo table be before it no longer renders the radar.";
+        public string holoTableRenderDistance_DESCRIPTION = "How far away can a holo table be before it no longer renders the radar (1+)";
 
         /// <summary>
         /// Percentage threshold at which radar pings start to fade out at the edge of the radar range Eg. 0.01 = 0.01*100 = 1%. 
@@ -361,20 +361,20 @@ namespace EliDangHUD
         /// </summary>
         public double fadeThreshold = 0.01;
         public string fadeThreshold_DESCRIPTION = "Percentage threshold at which radar pings start to fade out at the edge of the radar range Eg. 0.01 = 0.01*100 = 1%. \r\n" +
-            " Also used for notifying the player of new pings. \r\n When pings cross the threshold distance they will be announced audibly and visually on the radar.";
+            " Also used for notifying the player of new pings. \r\n When pings cross the threshold distance they will be announced audibly and visually on the radar (0.01 to 0.99)";
 
         /// <summary>
         /// The thickness of the lines used for rendering circles and other shapes in the HUD.
         /// </summary>
         public float lineThickness = 1.5f;
-        public string lineThickness_DESCRIPTION = "The thickness of the lines used for rendering circles and other shapes in the HUD.";
+        public string lineThickness_DESCRIPTION = "The thickness of the lines used for rendering circles and other shapes in the HUD. (0.1+)";
 
         /// <summary>
         /// The number of segments used to render circles and other circular shapes in the HUD. Lowering this number can make it more blocky. Eg. setting this to 6 would make it a hexagon instead of a circle. 
         /// </summary>
         public int lineDetail = 90;
         public string lineDetail_DESCRIPTION = "The number of segments used to render circles and other circular shapes in the HUD. \r\n " +
-            "Lowering this number can make it more blocky. Eg. setting this to 6 would make it a hexagon instead of a circle.";
+            "Lowering this number can make it more blocky. Eg. setting this to 6 would make it a hexagon instead of a circle. (1 to 360)";
 
         /// <summary>
         /// Default color of the HUD lines, used for rendering circles and other shapes.
@@ -382,7 +382,7 @@ namespace EliDangHUD
         /// 
         //public Vector4 lineColorDefault = new Vector4(1f, 0.5f, 0.0f, 1f);
         public SerializableVector4 lineColorDefault = new SerializableVector4(new Vector4(1f, 0.5f, 0.0f, 1f));
-        public string lineColorDefault_DESCRIPTION = "Default color of the HUD lines, used for rendering circles and other shapes.";
+        public string lineColorDefault_DESCRIPTION = "Default color of the HUD lines, used for rendering circles and other shapes. (Must be in format \"(Red,Green,Blue,Alpha)\" where each value is 0.00 to 1.00 eg (1.0,0.0,0.5,1.1) )";
 
         /// <summary>
         /// Position of the star. No idea if we need to change this for "RealStars" mod or not.
@@ -395,7 +395,7 @@ namespace EliDangHUD
         /// Does the star follow the skybox?
         /// </summary>
         public bool starFollowSky = true;
-        public string starFollowSky_DESCRIPTION = "Does the star position follow the skybox?";
+        public string starFollowSky_DESCRIPTION = "Does the star position follow the skybox? (True/False)";
 
         /// <summary>
         /// Enable or disable the white "flares" that glint behind grids in the distance.
@@ -405,135 +405,135 @@ namespace EliDangHUD
         public bool enableGridFlares = true;
         public string enableGridFlares_DESCRIPTION = "Enable or disable the white \"flares\" that glint behind grids in the distance. \r\n" +
             "This is what makes a distant ship \"glint\" in the void of space. Some users like this, as you can see where ships are better. \r\n" +
-            "Others prefer a more realistic environment with this off so you can hide in the void.";
+            "Others prefer a more realistic environment with this off so you can hide in the void. (True/False)";
 
         /// <summary>
         /// Enable cockpit dust effects.
         /// </summary>
         public bool enableCockpitDust = true;
-        public string enableCockpitDust_DESCRIPTION = "Enable cockpit dust effects.";
+        public string enableCockpitDust_DESCRIPTION = "Enable cockpit dust effects. (True/False)";
 
         /// <summary>
         /// Show visor effects or not.
         /// </summary>
         public bool enableVisor = true;
-        public string enableVisor_DESCRIPTION = "Show visor effects or not.";
+        public string enableVisor_DESCRIPTION = "Show visor effects or not. (True/False)";
 
         public bool enableVelocityLines = true;
-        public string enableVelocityLines_DESCRIPTION = "Show the velocity lines or not.";
+        public string enableVelocityLines_DESCRIPTION = "Show the velocity lines or not. (True/False)";
 
         public bool enablePlanetOrbits = true;
-        public string enablePlanetOrbits_DESCRIPTION = "Show the planet orbit lines or not.";
+        public string enablePlanetOrbits_DESCRIPTION = "Show the planet orbit lines or not. (True/False)";
 
         /// <summary>
         /// Whether any kind of Hologram can be shown or not. Each cockpit can override this setting, and turn on/off holograms for the local grid or the target grid separately in the block's custom data.
         /// </summary>
         public bool enableHologramsGlobal = true; 
         public string enableHolograms_DESCRIPTION = "Whether any kind of Hologram can be shown or not. \r\n " +
-            "Each cockpit can override this setting, and turn on/off holograms for the local grid or the target grid separately in the block's custom data.";
+            "Each cockpit can override this setting, and turn on/off holograms for the local grid or the target grid separately in the block's custom data. (True/False)";
 
         /// <summary>
         /// Should the targeting reticle be hollow or have a "dot" in the middle that can sometimes block the view of the target especially if it's a small grid.
         /// </summary>
         public bool useHollowReticle = true;
-        public string useHollowReticle_DESCRIPTION = "Should the targeting reticle be hollow or have a \"dot\" in the middle that can sometimes block the view of the target especially if it's a small grid.";
+        public string useHollowReticle_DESCRIPTION = "Should the targeting reticle be hollow or have a \"dot\" in the middle that can sometimes block the view of the target especially if it's a small grid. (True/False)";
 
 		/// <summary>
 		/// Minimum number of blocks a grid must have to be selectable as a target
 		/// </summary>
 		public int minTargetBlocksCount = 5;
-		public string minTargetBlocksCount_DESCRIPTION = "The minimum number of blocks required for a grid to be selected as a target. Helps reduce pieces of debris being selected";
+		public string minTargetBlocksCount_DESCRIPTION = "The minimum number of blocks required for a grid to be selected as a target. Helps reduce pieces of debris being selected (1+)";
 
 
         /// <summary>
         /// Whether to use a mouse button, or a keybind, for selecting new targets in Eli Dang hud
         /// </summary>
         public bool useMouseTargetSelect = true;
-		public string useMouseTargetSelect_DESCRIPTION = "Whether to use a mouse button, or a keybind, for selecting new targets in Eli Dang hud";
+		public string useMouseTargetSelect_DESCRIPTION = "Whether to use a mouse button, or a keybind, for selecting new targets in Eli Dang hud (True/False)";
 
         /// <summary>
         /// Mouse button to use: 0 = Left, 1 = Right, 2 = Middle
         /// </summary>
         public int selectTargetMouseButton = 1;
-		public string selectTargetMouseButton_DESCRIPTION = "Mouse button to use: 0 = Left, 1 = Right, 2 = Middle. (Default is Right)";
+		public string selectTargetMouseButton_DESCRIPTION = "Mouse button to use: 0 = Left, 1 = Right, 2 = Middle. (Default is Right click) (0, 1, or 2)";
 
         /// <summary>
         /// Key to select target, if mouse button is disabled
         /// </summary>
         public int selectTargetKey = 84; // (int)MyKeys.T;
-		public string selectTargetKey_DESCRIPTION = "Key to select target, if mouse button is disabled (Default is T)";
+		public string selectTargetKey_DESCRIPTION = "Key to select target, if mouse button is disabled (Default is T) (0-254, see GitHub Readme Keybindings section for details)";
 
         /// <summary>
         /// Key to rotate the static hologram view in the +X axis
         /// </summary>
         public int rotateLeftKey = 100; // (int)MyKeys.NumPad4;
-		public string rotateLeftKey_DESCRIPTION = "Key to rotate the static hologram view in the +X axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad4)";
+		public string rotateLeftKey_DESCRIPTION = "Key to rotate the static hologram view in the +X axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad4) (0-254, see GitHub Readme Keybindings section for details)";
 
         /// <summary>
         /// Key to rotate the static hologram view in the -X axis
         /// </summary>
         public int rotateRightKey = 102; // (int)MyKeys.NumPad6;
-        public string rotateRightKey_DESCRIPTION = "Key to rotate the static hologram view in the -X axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad6)";
+        public string rotateRightKey_DESCRIPTION = "Key to rotate the static hologram view in the -X axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad6) (0-254, see GitHub Readme Keybindings section for details)";
 
         /// <summary>
         /// Key to rotate the static hologram view in the +Y axis
         /// </summary>
         public int rotateUpKey = 104; // (int)MyKeys.NumPad8;
-        public string rotateUpKey_DESCRIPTION = "Key to rotate the static hologram view in the +Y axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad8)";
+        public string rotateUpKey_DESCRIPTION = "Key to rotate the static hologram view in the +Y axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad8) (0-254, see GitHub Readme Keybindings section for details)";
 
         /// <summary>
         /// Key to rotate the static hologram view in the -Y axis
         /// </summary>
         public int rotateDownKey = 98; // (int)MyKeys.NumPad2;
-        public string rotateDownKey_DESCRIPTION = "Key to rotate the static hologram view in the -Y axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad2)";
+        public string rotateDownKey_DESCRIPTION = "Key to rotate the static hologram view in the -Y axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad2) (0-254, see GitHub Readme Keybindings section for details)";
 
         /// <summary>
         /// Key to rotate the static hologram view in the +Z axis
         /// </summary>
         public int rotatePosZKey = 103; // (int)MyKeys.NumPad7;
-        public string rotatePosZKey_DESCRIPTION = "Key to rotate the static hologram view in the +Z axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad7)";
+        public string rotatePosZKey_DESCRIPTION = "Key to rotate the static hologram view in the +Z axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad7) (0-254, see GitHub Readme Keybindings section for details)";
 
         /// <summary>
         /// Key to rotate the static hologram view in the -Z axis
         /// </summary>
         public int rotateNegZKey = 105; // (int)MyKeys.NumPad9;
-        public string rotateNegZKey_DESCRIPTION = "Key to rotate the static hologram view in the -Z axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad9)";
+        public string rotateNegZKey_DESCRIPTION = "Key to rotate the static hologram view in the -Z axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad9) (0-254, see GitHub Readme Keybindings section for details)";
 
         /// <summary>
         /// Key to reset static hologram view (Ctrl modifier cycles local hologram, no Ctrl cycles target)
         /// </summary>
         public int resetKey = 101; // (int)MyKeys.NumPad5;
-		public string resetKey_DESCRIPTION = "Key to reset hologram view (Ctrl modifier cycles local hologram, no Ctrl cycles target, Default is NumPad5)";
+		public string resetKey_DESCRIPTION = "Key to reset hologram view (Ctrl modifier cycles local hologram, no Ctrl cycles target, Default is NumPad5) (0-254, see GitHub Readme Keybindings section for details)";
 
         /// <summary>
         /// Key to set hologram view to Orbit cam (Only for target)
         /// </summary>
         public int orbitViewKey = 97; // (int)MyKeys.NumPad1;
-		public string orbitViewKey_DESCRIPTION = "Key to set hologram view to Orbit cam (Only for target, Default is NumPad1)";
+		public string orbitViewKey_DESCRIPTION = "Key to set hologram view to Orbit cam (Only for target, Default is NumPad1) (0-254, see GitHub Readme Keybindings section for details)";
 
         /// <summary>
         /// Key to set hologram view to Perspective cam (Only for target)
         /// </summary>
         public int perspectiveViewKey = 99; // (int)MyKeys.NumPad3;
-		public string perspectiveViewKey_DESCRIPTION = "Key to set hologram view to Perspective cam (Only for target, Default is NumPad3)";
+		public string perspectiveViewKey_DESCRIPTION = "Key to set hologram view to Perspective cam (Only for target, Default is NumPad3) (0-254, see GitHub Readme Keybindings section for details)";
 
         public int largeGridSizeOneMaxBlocks = 1500;
         public int largeGridSizeTwoMaxBlocks = 2500;
         public int largeGridSizeThreeMaxBlocks = 5000;
         public int largeGridSizeFourMaxBlocks = 7500;
         public int largeGridSizeFiveMaxBlocks = 15000;
-        public string largeGridSizeTiers_DESCRIPTION = "Set the various size in blocks for the tiers that determine blip icons used. There are six (6) large grid icons.";
+        public string largeGridSizeTiers_DESCRIPTION = "Set the various size in blocks for the tiers that determine blip icons used. There are six (6) large grid icons. (1+ for each value, should ensure the range between each step makes sense)";
 
         public int smallGridSizeOneMaxBlocks = 600;
         public int smallGridSizeTwoMaxBlocks = 1200;
         public int smallGridSizeThreeMaxBlocks = 1800;
-        public string smallGridSizeTiers_DESCRIPTION = "Set the various size in blocks for the tiers that determine blip icons used. There are four (4) small grid icons.";
+        public string smallGridSizeTiers_DESCRIPTION = "Set the various size in blocks for the tiers that determine blip icons used. There are four (4) small grid icons. (1+ for each value, should ensure the range between each step makes sense)";
 
         public bool renderHoloRadarsInSeat = false;
-        public string renderHoloRadarsInSeat_DESCRIPTION = "Whether holo table radars should still render if you are in a cockpit that has active hud.";
+        public string renderHoloRadarsInSeat_DESCRIPTION = "Whether holo table radars should still render if you are in a cockpit that has active hud. (True/False)";
 
         public bool renderHoloHologramInSeat = false;
-        public string renderHoloHologramsInSeat_DESCRIPTION = "Whether holo table holograms should still render if you are in a cockpit that has active hud.";
+        public string renderHoloHologramsInSeat_DESCRIPTION = "Whether holo table holograms should still render if you are in a cockpit that has active hud. (True/False)";
 
         public int blockCountClusterStep = 10000;
         public string blockCountClusterStep_DESCRIPTION = "Used for setting max and min cluster sizes when building the grid hologram (There is a complex relationship with this and clusterSplitRatio for fidelity). \r\n " +
@@ -545,22 +545,22 @@ namespace EliDangHUD
             "Eg. At blockClusterStep = 10000: a grid of 9999 blocks will range between 1x1x1 and 2x2x2 clusters and a grid of 10001 - 80000 blocks will range between 1x1x1 and 3x3x3 clusters. \r\n " +
             "A grid of 80001 blocks will range between 2x2x2 and 4x4x4 (because the next step is at blockCount / (2x2x2) and we do clusterSize-1 to clusterSize+1). \r\n " +
             "This clustering logic is the largest performance increase we can make, the number of squares drawn is the largest bottleneck. \r\n " +
-            "We can adjust this to cluster sooner/later and adjust the splitThreshold to allow more/less fidelity around sparse blocks.";
+            "We can adjust this to cluster sooner/later and adjust the splitThreshold to allow more/less fidelity around sparse blocks. (1+, recommend minimum of 1000)";
 
         public int blockClusterAddlMax = 1;
-        public string blockCLusterAddlMax_DESCRIPTION = "The value to add to get the max cluster range. eg. for a grid identified as clusterSize = 2, the max would be 3 if this value is 1, meaning it would start at 3x3x3 clusters and size down where sparse.";
+        public string blockCLusterAddlMax_DESCRIPTION = "The value to add to get the max cluster range. eg. for a grid identified as clusterSize = 2, the max would be 3 if this value is 1, meaning it would start at 3x3x3 clusters and size down where sparse. (0+, recommend 1)";
 
         public int blockClusterAddlMin = 1;
-        public string blockCLusterAddlMin_DESCRIPTION = "The value to subtract to get the min cluster range. eg. for a grid identified as clusterSize = 3, the min would be 2 if this value is 1, meaning it wouldn't go smaller than 2x2x2 clusters for sparse regions.";
+        public string blockCLusterAddlMin_DESCRIPTION = "The value to subtract to get the min cluster range. eg. for a grid identified as clusterSize = 3, the min would be 2 if this value is 1, meaning it wouldn't go smaller than 2x2x2 clusters for sparse regions. (0+, recommend 1)";
 
         public float clusterSplitThreshold = 0.33f;
         public string clusterSplitThreshold_DESCRIPTION = "The fill ratio threshold at which a larger block cluster will be split into smaller clusters. Eg at 0.33 (33%) a larger cluster will only break down to smaller clusters if less than 33% full. \r\n " +
             "So for a 3x3x3 cluster at 8/27 blocks it will break to smaller 2x2x2 and 1x1x1 clusters. At 9/27 blocks it will show as one 3x3x3 cluster. Combined with the blockCountClusterStep this allows drawing larger grids at larger cluster sizes with \r\n " +
-            "less fidelity but more performance by reducing the number of block squares drawn on screen. By tweaking the splitThreshold we can add fidelity for sparse clusters, while allowing larger clusters for the rest of the grid.";
+            "less fidelity but more performance by reducing the number of block squares drawn on screen. By tweaking the splitThreshold we can add fidelity for sparse clusters, while allowing larger clusters for the rest of the grid. (0.01 to 0.99)";
         
         public int clusterRebuildClustersPerTick = 200;
         public string clusterRebuildClustersPerTick_DESCRIPTION = "The number of block clusters built per game tick on a rebuild of the hologram clusters triggered due to blocks being removed or added. This spreads load over time to reduce stutter. \r\n " +
-            "Lowering this value will increase the speed at which add/removal of blocks reprocesses the hologram but increases load. ";
+            "Lowering this value will increase the speed at which add/removal of blocks reprocesses the hologram but increases load. (1+, recommend minimum of 100)";
 
         public int ticksUntilClusterRebuildAfterChange = 100;
         public string ticksUntilClusterRebuildAfterChange_DESCRIPTION = "The number of game ticks that must pass after add or remove of a block before re-processing the hologram. Prevents rebuilds until after a period of inactivity to reduce stutter. \r\n " +
@@ -568,13 +568,13 @@ namespace EliDangHUD
             "Loss of blocks in a cluster will also update integrity (or remove if no blocks left), but the hologram won't reprocess fully until after this many ticks have passed. \r\n" +
             "Then it will start a rebuild and process clusterRebuildClustersPerTick clusters each tick. \r\n " +
             "If another add/removal occurs that process stops, and only restarts after this number of ticks have passed. \r\n " +
-            "Lowering this values will increase the speed at which the hologram reprocess starts. ";
+            "Lowering this values will increase the speed at which the hologram reprocess starts. (1+, recommend minimum of 60";
 
         public int maxSpeedSmallGrid = 100;
-        public string maxSpeedSmallGrid_DESCRIPTION = "The max speed in m/s for small grids. Default is 100. Set this manually to match any speed mods you may have, for RelativeTopSpeed I suggest the max with boost."; 
+        public string maxSpeedSmallGrid_DESCRIPTION = "The max speed in m/s for small grids. Default is 100. Set this manually to match any speed mods you may have, for RelativeTopSpeed I suggest the max with boost. (1+, set to your max speed if modded, 100 is SE default)"; 
 
         public int maxSpeedLargeGrid = 100;
-        public string maxSpeedLargeGrid_DESCRIPTION = "The max speed in m/s for large grids. Default is 100. Set this manually to match any speed mods you may have, for RelativeTopSpeed I suggest the max with boost.";
+        public string maxSpeedLargeGrid_DESCRIPTION = "The max speed in m/s for large grids. Default is 100. Set this manually to match any speed mods you may have, for RelativeTopSpeed I suggest the max with boost. (1+, set to your max speed if modded, 100 is SE default)";
 
     }
 
@@ -822,8 +822,6 @@ namespace EliDangHUD
 
         private Vector3D _hologramRightOffset_HardCode = new Vector3D(-0.2, 0.075, 0);
         //private Vector3D _hologramOffsetLeft_HardCode = new Vector3D(0.2, 0.075, 0);
-
-        private bool _chatCommandRegistered = false;
 		
 
 		//================= WEAPON CORE ===============================================================================================
@@ -857,18 +855,14 @@ namespace EliDangHUD
             }
 
 			MyAPIGateway.Multiplayer.RegisterSecureMessageHandler(MessageId, OnSyncSettingsReceived);
-			MyAPIGateway.Multiplayer.RegisterSecureMessageHandler(RequestMessageId, OnSettingsRequestReceived);
+			//MyAPIGateway.Multiplayer.RegisterSecureMessageHandler(RequestMessageId, OnSettingsRequestReceived);
 
 			if (!MyAPIGateway.Session.IsServer) // In single player this is skipped because we are a server, makes sense. 
 			{
 				RequestSettingsFromServer(); // In multiplayer all clients do RequestSettingsFromServer
             }
 
-            if (!_chatCommandRegistered)
-            {
-                MyAPIGateway.Utilities.MessageEntered += OnMessageEntered;
-                _chatCommandRegistered = true;
-            }
+            
         }
 
         /// <summary>
@@ -883,12 +877,6 @@ namespace EliDangHUD
 			}
 
 			MyAPIGateway.Multiplayer.UnregisterSecureMessageHandler(MessageId, OnSyncSettingsReceived);
-
-            if (_chatCommandRegistered)
-            {
-                MyAPIGateway.Utilities.MessageEntered -= OnMessageEntered;
-                _chatCommandRegistered = false;
-            }
         }
 
 		/// <summary>
@@ -1044,17 +1032,31 @@ namespace EliDangHUD
         private void OnMessageEntered(string messageText, ref bool sendToOthers)
         {
             if (!messageText.StartsWith("/"))
+            {
                 return;
-
+            }
             sendToOthers = false;
 
-            var parts = messageText.TrimStart('/').Split(' ');
-            string command = parts[0].ToLowerInvariant();
+            ModSettings settingDescriptions = new ModSettings(); // To pull default description strings from, as I don't want to
+            // modify the serializer to re-write just the descriptions each save while retaining user customizations. 
+
+            string[] parts = messageText.TrimStart('/').Split(' ');
+            string command = parts[0].ToLowerInvariant(); // Have to do this since .Equals with OrdinalIgnoreCase is prohibited in SE ModAPI.
+
+            string helpString1 = @"Type ""/elidang <setting_name> <value>"" to set global settings. Type ""/elidang <setting_name> help"" for information on the command, <setting_name> is not case sensitive. ";
+              
+            string helpString2 = "Valid settings: useMainCockpitInsteadOfTag,  maxRadarRangeGlobal,  rangeBracketDistance,  maxPings,  useSigIntLite,  holoTableRenderDistance,  fadeThreshold,  " +
+                "lineThickness,  lineDetail,  lineColorDefault,  starFollowSky,  enableGridFlares,  enableCockpitDust,  enableVisor,  enableVelocityLines,  enablePlanetOrbits,  " +
+                "enableHologramsGlobal,  useHollowReticle,  minTargetBlocksCount,  useMouseTargetSelect,  selectTargetMouseButton,  selectTargetKey,  rotateLeftKey,  rotateRightKey,  " +
+                "rotateUpKey,  rotateDownKey,  rotatePosZKey,  rotateNegZKey,  resetKey,  orbitViewKey,  perspectiveViewKey,  largeGridSizeOneMaxBlocks,  largeGridSizeTwoMaxBlocks,  " +
+                "largeGridSizeThreeMaxBlocks,  largeGridSizeFourMaxBlocks,  largeGridSizeFiveMaxBlocks,  smallGridSizeOneMaxBlocks,  smallGridSizeTwoMaxBlocks,  smallGridSizeThreeMaxBlocks,  " +
+                "renderHoloRadarsInSeat, renderHoloHologramInSeat, blockCountClusterStep, blockClusterAddlMax, blockClusterAddlMin, clusterSplitThreshold, clusterRebuildClustersPerTick, " +
+                "ticksUntilClusterRebuildAfterChange,  maxSpeedSmallGrid,  maxSpeedLargeGrid";
 
             // Only allow in SP or admins in MP
             if (MyAPIGateway.Multiplayer.MultiplayerActive)
             {
-                var player = MyAPIGateway.Session?.Player;
+                VRage.Game.ModAPI.IMyPlayer player = MyAPIGateway.Session?.Player;
                 if (player == null || !MyAPIGateway.Session.IsUserAdmin(player.SteamUserId))
                 {
                     MyAPIGateway.Utilities.ShowMessage("EliDang", "You must be an admin to use this command.");
@@ -1062,28 +1064,1119 @@ namespace EliDangHUD
                 }
             }
 
-            if (command == "elidang" && parts.Length >= 3)
+            if (command.Equals("elidang") && parts[1].ToLowerInvariant().Equals("help")) 
             {
-                string setting = parts[1].ToLowerInvariant();
+                MyAPIGateway.Utilities.ShowMessage("EliDang", $"{helpString1}");
+                MyAPIGateway.Utilities.ShowMessage("EliDang", $"{helpString2}");
+                return;
+            }
+
+            if (command.Equals("elidang") && parts.Length >= 3)
+            {
+                string setting = parts[1].ToLowerInvariant(); // Have to do this since .Equals with OrdinalIgnoreCase is prohibited in SE ModAPI.
                 string value = parts[2];
 
-                if (setting == "blockcountclusterstep")
+                if (setting.Equals("usemaincockpitinsteadoftag"))
                 {
+                    if (value.ToLowerInvariant().Equals("help")) 
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"useMainCockpitInsteadOfTag: {settingDescriptions.useMainCockpitInsteadOfTag_DESCRIPTION}");
+                        return;
+                    }
+
+                    bool valueBool;
+                    if (bool.TryParse(value, out valueBool))
+                    {
+                        theSettings.useMainCockpitInsteadOfTag = valueBool;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"useMainCockpitInsteadOfTag set to {valueBool}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("maxradarrangeglobal"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"maxRadarRangeGlobal: {settingDescriptions.maxRadarRange_DESCRIPTION}");
+                        return;
+                    }
+
+                    double valueDouble;
+                    if (double.TryParse(value, out valueDouble))
+                    {
+                        theSettings.maxRadarRangeGlobal = valueDouble;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"maxRadarRangeGlobal set to {valueDouble}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("rangebracketdistance"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"rangeBracketDistance: {settingDescriptions.rangeBracketDistance_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.rangeBracketDistance = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"rangeBracketDistance set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("maxpings"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"maxPings: {settingDescriptions.maxPings_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.maxPings = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"maxPings set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("usesigintlite"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"useSigIntLite: {settingDescriptions.useSigIntLite_DESCRIPTION}");
+                        return;
+                    }
+
+                    bool valueBool;
+                    if (bool.TryParse(value, out valueBool))
+                    {
+                        theSettings.useSigIntLite = valueBool;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"useSigIntLite set to {valueBool}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("holotablerenderdistance"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"holoTableRenderDistance: {settingDescriptions.holoTableRenderDistance_DESCRIPTION}");
+                        return;
+                    }
+
+                    double valueDouble;
+                    if (double.TryParse(value, out valueDouble))
+                    {
+                        theSettings.holoTableRenderDistance = valueDouble;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"holoTableRenderDistance set to {valueDouble}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("fadethreshold"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"fadeThreshold: {settingDescriptions.fadeThreshold_DESCRIPTION}");
+                        return;
+                    }
+
+                    double valueDouble;
+                    if (double.TryParse(value, out valueDouble))
+                    {
+                        theSettings.fadeThreshold = valueDouble;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"fadeThreshold set to {valueDouble}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("linethickness"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"lineThickness: {settingDescriptions.lineThickness_DESCRIPTION}");
+                        return;
+                    }
+
+                    float valueFloat;
+                    if (float.TryParse(value, out valueFloat))
+                    {
+                        theSettings.lineThickness = valueFloat;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"lineThickness set to {valueFloat}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("linedetail"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"lineDetail: {settingDescriptions.lineDetail_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.lineDetail = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"lineDetail set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("linecolordefault"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"lineColorDefault: {settingDescriptions.lineColorDefault_DESCRIPTION}");
+                        return;
+                    }
+
+                    if (value.ToLowerInvariant().StartsWith("(") && value.ToLowerInvariant().EndsWith(")"))
+                    {
+                        string vector4String = value.Substring(1, value.Length - 2);
+                        string[] components = vector4String.Split(',');
+                        if (components.Length == 4)
+                        {
+                            float red;
+                            float green;
+                            float blue;
+                            float alpha;
+
+                            if (float.TryParse(components[0], out red) &&
+                                float.TryParse(components[1], out green) &&
+                                float.TryParse(components[2], out blue) &&
+                                float.TryParse(components[3], out alpha))
+                            {
+                                theSettings.lineColorDefault = new SerializableVector4(new Vector4(red, green, blue, alpha));
+                                MyAPIGateway.Utilities.ShowMessage("EliDang", $"lineColorDefault set to ({red}, {green}, {blue}, {alpha})");
+                                return;
+                            }
+                            else 
+                            {
+                                MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                                return;
+                            }
+                        }
+                        else 
+                        {
+                            MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                            return;
+                        }
+                    }
+                    else 
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("starfollowsky"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"starFollowSky: {settingDescriptions.starFollowSky_DESCRIPTION}");
+                        return;
+                    }
+
+                    bool valueBool;
+                    if (bool.TryParse(value, out valueBool))
+                    {
+                        theSettings.starFollowSky = valueBool;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"starFollowSky set to {valueBool}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("enablegridflares"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"enableGridFlares: {settingDescriptions.enableGridFlares_DESCRIPTION}");
+                        return;
+                    }
+
+                    bool valueBool;
+                    if (bool.TryParse(value, out valueBool))
+                    {
+                        theSettings.enableGridFlares = valueBool;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"enableGridFlares set to {valueBool}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("enablecockpitdust"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"enableCockpitDust: {settingDescriptions.enableCockpitDust_DESCRIPTION}");
+                        return;
+                    }
+
+                    bool valueBool;
+                    if (bool.TryParse(value, out valueBool))
+                    {
+                        theSettings.enableCockpitDust = valueBool;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"enableCockpitDust set to {valueBool}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("enablevisor"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"enableVisor: {settingDescriptions.enableVisor_DESCRIPTION}");
+                        return;
+                    }
+
+                    bool valueBool;
+                    if (bool.TryParse(value, out valueBool))
+                    {
+                        theSettings.enableVisor = valueBool;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"enableVisor set to {valueBool}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("enablevelocitylines"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"enableVelocityLines: {settingDescriptions.enableVelocityLines_DESCRIPTION}");
+                        return;
+                    }
+
+                    bool valueBool;
+                    if (bool.TryParse(value, out valueBool))
+                    {
+                        theSettings.enableVelocityLines = valueBool;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"enableVelocityLines set to {valueBool}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("enableplanetorbits"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"enablePlanetOrbits: {settingDescriptions.enablePlanetOrbits_DESCRIPTION}");
+                        return;
+                    }
+
+                    bool valueBool;
+                    if (bool.TryParse(value, out valueBool))
+                    {
+                        theSettings.enablePlanetOrbits = valueBool;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"enablePlanetOrbits set to {valueBool}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("enablehologramsglobal"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"enableHologramsGlobal: {settingDescriptions.enableHolograms_DESCRIPTION}");
+                        return;
+                    }
+
+                    bool valueBool;
+                    if (bool.TryParse(value, out valueBool))
+                    {
+                        theSettings.enableHologramsGlobal = valueBool;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"enableHologramsGlobal set to {valueBool}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("usehollowreticle"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"useHollowReticle: {settingDescriptions.useHollowReticle_DESCRIPTION}");
+                        return;
+                    }
+
+                    bool valueBool;
+                    if (bool.TryParse(value, out valueBool))
+                    {
+                        theSettings.useHollowReticle = valueBool;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"useHollowReticle set to {valueBool}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("mintargetblockscount"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"minTargetBlocksCount: {settingDescriptions.minTargetBlocksCount_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.minTargetBlocksCount = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"minTargetBlocksCount set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("usemousetargetselect"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"useMouseTargetSelect: {settingDescriptions.useMouseTargetSelect_DESCRIPTION}");
+                        return;
+                    }
+
+                    bool valueBool;
+                    if (bool.TryParse(value, out valueBool))
+                    {
+                        theSettings.useMouseTargetSelect = valueBool;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"useMouseTargetSelect set to {valueBool}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("selecttargetmousebutton"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"selectTargetMouseButton: {settingDescriptions.minTargetBlocksCount_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.selectTargetMouseButton = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"selectTargetMouseButton set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("selecttargetkey"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"selectTargetKey: {settingDescriptions.selectTargetKey_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.selectTargetKey = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"selectTargetKey set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("rotateleftkey"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"rotateLeftKey: {settingDescriptions.rotateLeftKey_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.rotateLeftKey = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"rotateLeftKey set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("rotaterightkey"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"rotateRightKey: {settingDescriptions.rotateRightKey_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.rotateRightKey = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"rotateRightKey set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("rotateupkey"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"rotateUpKey: {settingDescriptions.rotateUpKey_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.rotateUpKey = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"rotateUpKey set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("rotatedownkey"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"rotateDownKey: {settingDescriptions.rotateDownKey_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.rotateDownKey = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"rotateDownKey set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("rotateposzkey"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"rotatePosZKey: {settingDescriptions.rotatePosZKey_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.rotatePosZKey = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"rotatePosZKey set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("rotatenegzkey"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"rotateNegZKey: {settingDescriptions.rotateNegZKey_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.rotateNegZKey = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"rotateNegZKey set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("resetkey"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"resetKey: {settingDescriptions.resetKey_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.resetKey = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"resetKey set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("orbitviewkey"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"orbitViewKey: {settingDescriptions.orbitViewKey_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.orbitViewKey = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"orbitViewKey set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("perspectiveviewkey"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"perspectiveViewKey: {settingDescriptions.perspectiveViewKey_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.perspectiveViewKey = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"perspectiveViewKey set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("largegridsizeonemaxblocks"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"largeGridSizeOneMaxBlocks: {settingDescriptions.largeGridSizeTiers_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.largeGridSizeOneMaxBlocks = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"largeGridSizeOneMaxBlocks set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("largegridsizetwomaxblocks"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"largeGridSizeTwoMaxBlocks: {settingDescriptions.largeGridSizeTiers_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.largeGridSizeTwoMaxBlocks = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"largeGridSizeTwoMaxBlocks set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("largegridsizethreemaxblocks"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"largeGridSizeThreeMaxBlocks: {settingDescriptions.largeGridSizeTiers_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.largeGridSizeThreeMaxBlocks = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"largeGridSizeThreeMaxBlocks set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("largegridsizefourmaxblocks"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"largeGridSizeFourMaxBlocks: {settingDescriptions.largeGridSizeTiers_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.largeGridSizeFourMaxBlocks = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"largeGridSizeFourMaxBlocks set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("largegridsizefivemaxblocks"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"largeGridSizeFiveMaxBlocks: {settingDescriptions.largeGridSizeTiers_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.largeGridSizeFiveMaxBlocks = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"largeGridSizeFiveMaxBlocks set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("smallgridsizeonemaxblocks"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"smallGridSizeOneMaxBlocks: {settingDescriptions.smallGridSizeTiers_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.smallGridSizeOneMaxBlocks = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"smallGridSizeOneMaxBlocks set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("smallgridsizetwomaxblocks"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"smallGridSizeTwoMaxBlocks: {settingDescriptions.smallGridSizeTiers_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.smallGridSizeTwoMaxBlocks = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"smallGridSizeTwoMaxBlocks set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("smallgridsizethreemaxblocks"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"smallGridSizeThreeMaxBlocks: {settingDescriptions.smallGridSizeTiers_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.smallGridSizeThreeMaxBlocks = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"smallGridSizeThreeMaxBlocks set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("renderholoradarsinseat"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"renderHoloRadarsInSeat: {settingDescriptions.renderHoloRadarsInSeat_DESCRIPTION}");
+                        return;
+                    }
+
+                    bool valueBool;
+                    if (bool.TryParse(value, out valueBool))
+                    {
+                        theSettings.renderHoloRadarsInSeat = valueBool;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"renderHoloRadarsInSeat set to {valueBool}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("renderholoholograminseat"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"renderHoloHologramInSeat: {settingDescriptions.renderHoloHologramsInSeat_DESCRIPTION}");
+                        return;
+                    }
+
+                    bool valueBool;
+                    if (bool.TryParse(value, out valueBool))
+                    {
+                        theSettings.renderHoloHologramInSeat = valueBool;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"renderHoloHologramInSeat set to {valueBool}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("blockcountclusterstep"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"blockCountClusterStep: {settingDescriptions.blockCountClusterStep_DESCRIPTION}");
+                        return;
+                    }
+
                     int valueInt;
                     if (int.TryParse(value, out valueInt))
                     {
                         theSettings.blockCountClusterStep = valueInt;
                         MyAPIGateway.Utilities.ShowMessage("EliDang", $"blockCountClusterStep set to {valueInt}");
+                        return;
                     }
                     else
                     {
-                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}");
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
                     }
                 }
 
-                if (gHandler != null) 
+                if (setting.Equals("blockclusteraddlmax"))
                 {
-                    gHandler.theSettings = theSettings;
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"blockClusterAddlMax: {settingDescriptions.blockCLusterAddlMax_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.blockClusterAddlMax = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"blockClusterAddlMax set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("blockclusteraddlmin"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"blockClusterAddlMin: {settingDescriptions.blockCLusterAddlMin_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.blockClusterAddlMin = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"blockClusterAddlMin set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("clustersplitthreshold"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"clusterSplitThreshold: {settingDescriptions.clusterSplitThreshold_DESCRIPTION}");
+                        return;
+                    }
+
+                    float valueFloat;
+                    if (float.TryParse(value, out valueFloat))
+                    {
+                        theSettings.clusterSplitThreshold = valueFloat;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"clusterSplitThreshold set to {valueFloat}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("clusterrebuildclusterspertick"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"clusterRebuildClustersPerTick: {settingDescriptions.clusterRebuildClustersPerTick_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.clusterRebuildClustersPerTick = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"clusterRebuildClustersPerTick set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("ticksuntilclusterrebuildafterchange"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"ticksUntilClusterRebuildAfterChange: {settingDescriptions.ticksUntilClusterRebuildAfterChange_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.ticksUntilClusterRebuildAfterChange = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"ticksUntilClusterRebuildAfterChange set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("maxspeedsmallgrid"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"maxSpeedSmallGrid: {settingDescriptions.maxSpeedSmallGrid_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.maxSpeedSmallGrid = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"maxSpeedSmallGrid set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("maxspeedlargegrid"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"maxSpeedLargeGrid: {settingDescriptions.maxSpeedLargeGrid_DESCRIPTION}");
+                        return;
+                    }
+
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.maxSpeedLargeGrid = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"maxSpeedLargeGrid set to {valueInt}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
                 }
             }
         }
@@ -2194,7 +3287,6 @@ namespace EliDangHUD
             // Only execute things in here once for the mod. Everything out here should be executed potentially more than once such as the grid handler updating per ship. 
             if (!_modInitialized)
 			{
-
                 if (!_entitiesInitialized)
                 {
                     // Initialize the planet manager
@@ -2590,7 +3682,8 @@ namespace EliDangHUD
 			// Subscribe to the OnEntityAdd event
 			MyAPIGateway.Entities.OnEntityAdd += OnEntityAdd;
 			MyAPIGateway.Entities.OnEntityRemove += OnEntityRemove;
-		}
+            MyAPIGateway.Utilities.MessageEntered += OnMessageEntered;
+        }
 
         /// <summary>
         /// Unsubscribes from OnEntityAdd/OnEntityRemoved events
@@ -2600,7 +3693,8 @@ namespace EliDangHUD
 			// Unsubscribe from the OnEntityAdd event
 			MyAPIGateway.Entities.OnEntityAdd -= OnEntityAdd;
 			MyAPIGateway.Entities.OnEntityRemove -= OnEntityRemove;
-		}
+            MyAPIGateway.Utilities.MessageEntered -= OnMessageEntered;
+        }
 
 
         /// <summary>
