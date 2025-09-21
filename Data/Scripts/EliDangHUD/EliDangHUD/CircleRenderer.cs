@@ -104,9 +104,8 @@ hjmiiiiiiiiooooooooooooooooooooooo88888888888888888888888888888888...;//////////
 
 namespace EliDangHUD
 {
-
-	// Define a class to hold planet information
-	public class PlanetInfo
+    // Define a class to hold planet information
+    public class PlanetInfo
 	{
 		public VRage.ModAPI.IMyEntity Entity { get; set; }
 		public double Mass { get; set; }	// We'll use radius as a stand-in for mass
@@ -570,6 +569,13 @@ namespace EliDangHUD
             "Then it will start a rebuild and process clusterRebuildClustersPerTick clusters each tick. \r\n " +
             "If another add/removal occurs that process stops, and only restarts after this number of ticks have passed. \r\n " +
             "Lowering this values will increase the speed at which the hologram reprocess starts. ";
+
+        public int maxSpeedSmallGrid = 100;
+        public string maxSpeedSmallGrid_DESCRIPTION = "The max speed in m/s for small grids. Default is 100. Set this manually to match any speed mods you may have, for RelativeTopSpeed I suggest the max with boost."; 
+
+        public int maxSpeedLargeGrid = 100;
+        public string maxSpeedLargeGrid_DESCRIPTION = "The max speed in m/s for large grids. Default is 100. Set this manually to match any speed mods you may have, for RelativeTopSpeed I suggest the max with boost.";
+
     }
 
     /// <summary>
@@ -816,6 +822,8 @@ namespace EliDangHUD
 
         private Vector3D _hologramRightOffset_HardCode = new Vector3D(-0.2, 0.075, 0);
         //private Vector3D _hologramOffsetLeft_HardCode = new Vector3D(0.2, 0.075, 0);
+
+        private bool _chatCommandRegistered = false;
 		
 
 		//================= WEAPON CORE ===============================================================================================
@@ -828,7 +836,7 @@ namespace EliDangHUD
 		}
         //=============================================================================================================================
 
-
+        
         //=====================SYNC SETTINGS WITH CLIENTS===============================================================================
         //This entire section is a complete nightmare. Holy moly, I'm out of my depth.
         //I really hope this works.
@@ -855,7 +863,13 @@ namespace EliDangHUD
 			{
 				RequestSettingsFromServer(); // In multiplayer all clients do RequestSettingsFromServer
             }
-		}
+
+            if (!_chatCommandRegistered)
+            {
+                MyAPIGateway.Utilities.MessageEntered += OnMessageEntered;
+                _chatCommandRegistered = true;
+            }
+        }
 
         /// <summary>
         /// Unregister event listeners and save settings when the mod is unloaded.
@@ -869,7 +883,13 @@ namespace EliDangHUD
 			}
 
 			MyAPIGateway.Multiplayer.UnregisterSecureMessageHandler(MessageId, OnSyncSettingsReceived);
-		}
+
+            if (_chatCommandRegistered)
+            {
+                MyAPIGateway.Utilities.MessageEntered -= OnMessageEntered;
+                _chatCommandRegistered = false;
+            }
+        }
 
 		/// <summary>
 		/// Sends a request to the server to retrieve settings.
@@ -1019,9 +1039,59 @@ namespace EliDangHUD
         {
             UnsubscribeFromEvents();
         }
+
+
+        private void OnMessageEntered(string messageText, ref bool sendToOthers)
+        {
+            if (!messageText.StartsWith("/"))
+                return;
+
+            sendToOthers = false;
+
+            var parts = messageText.TrimStart('/').Split(' ');
+            string command = parts[0].ToLowerInvariant();
+
+            // Only allow in SP or admins in MP
+            if (MyAPIGateway.Multiplayer.MultiplayerActive)
+            {
+                var player = MyAPIGateway.Session?.Player;
+                if (player == null || !MyAPIGateway.Session.IsUserAdmin(player.SteamUserId))
+                {
+                    MyAPIGateway.Utilities.ShowMessage("EliDang", "You must be an admin to use this command.");
+                    return;
+                }
+            }
+
+            if (command == "elidang" && parts.Length >= 3)
+            {
+                string setting = parts[1].ToLowerInvariant();
+                string value = parts[2];
+
+                if (setting == "blockcountclusterstep")
+                {
+                    int valueInt;
+                    if (int.TryParse(value, out valueInt))
+                    {
+                        theSettings.blockCountClusterStep = valueInt;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"blockCountClusterStep set to {valueInt}");
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}");
+                    }
+                }
+
+                if (gHandler != null) 
+                {
+                    gHandler.theSettings = theSettings;
+                }
+            }
+        }
+
+
         //=============================================================================================================================
 
-        
+
 
         /// <summary>
         /// This method draws text on the radar HUD.
@@ -1108,14 +1178,12 @@ namespace EliDangHUD
 			DrawArc(worldRadarPos-radarMatrix.Up*0.0025, gHandler.localGridControlledEntityCustomData.radarRadius*1.27 + 0.01, radarMatrix.Up, 42, 42+powerPer, gHandler.localGridControlledEntityCustomData.lineColorComp, 0.002f, 0.75f);
 		}
 
-		double maxSpeed;
+		
         /// <summary>
         /// This function draws the speed gauge on the HUD.
         /// </summary>
         private void DrawSpeed()
 		{
-			maxSpeed = Math.Max(maxSpeed, gHandler.localGridSpeed);
-
 			double PL = Math.Round(gHandler.localGridSpeed);
 			double size = 0.0070;
 			string units = "m";
@@ -1137,7 +1205,7 @@ namespace EliDangHUD
 			DrawText("0000 ", size, _speedPosition, _speedDirection, gHandler.localGridControlledEntityCustomData.lineColor, gHandler.localGridControlledEntityCustomData.radarBrightness, 0.333f, false);
 
 			//----ARC----
-			float arcLength = (float)(gHandler.localGridSpeed/maxSpeed);
+			float arcLength = (float)(gHandler.localGridSpeed/ gHandler.localGridMaxSpeed);
 			arcLength = Clamped(arcLength, 0, 1);
 			arcLength *= 70;
             
@@ -2032,6 +2100,8 @@ namespace EliDangHUD
             }
         }
 
+        
+
         /// <summary>
         /// Update values for the Velocity Lines.
         /// </summary>
@@ -2124,6 +2194,7 @@ namespace EliDangHUD
             // Only execute things in here once for the mod. Everything out here should be executed potentially more than once such as the grid handler updating per ship. 
             if (!_modInitialized)
 			{
+
                 if (!_entitiesInitialized)
                 {
                     // Initialize the planet manager
@@ -2162,6 +2233,7 @@ namespace EliDangHUD
             // If localGrid is not initialized or unpowered then we can skip all of this. 
             if (gHandler.localGrid != null && gHandler.localGridInitialized && gHandler.localGridHasPower) 
             {
+
                 if ((gHandler.localGridControlledEntity != null && gHandler.localGridControlledEntityInitialized 
                     && gHandler.localGridControlledEntityCustomData.masterEnabled) || gHandler.localGridRadarTerminals.Count > 0)
                 {
@@ -5348,6 +5420,9 @@ namespace EliDangHUD
             }
         }
 
+        
+
+
         /// <summary>
         /// Check player input, could handle various things. Currently just right-click target locking. 
         /// </summary>
@@ -5967,7 +6042,7 @@ namespace EliDangHUD
             MyAPIGateway.Utilities.ShowMessage("WC", "WeaponCore API initialized");  
         }
 
-		/// <summary>
+        /// <summary>
         /// Initialize weapon core weapons, WIP.
         /// </summary>
         public void InitializeWeaponCoreWeapons()

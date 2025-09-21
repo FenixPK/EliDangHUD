@@ -545,6 +545,8 @@ DONE: Removed arbitrary DisplayName == "Stone" || DisplayName == null filter fro
 I'd like to do further settings to allow users to more specifically choose to filter our floating items of name 'Stone' for eg, or only voxels (asteroids and deposits) of certain types or sizes even. 
 
 # TODO
+TODO: Add keybinds for next/previous/nearest target, make them work for holo tables too! =D
+
 TODO: Fix the maxSpeed variable, it should load the max speed for the localGrid's gridsize from the world. 
 
 TODO: Make holograms show more data, weapons, effective range, DPS?

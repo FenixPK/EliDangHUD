@@ -211,7 +211,8 @@ namespace EliDangHUD
         public double localGridHologramActivationTime = 0;
         public double localGridHologramBootUpAlpha = 1;
 
-        public Vector4[] localGridHologramPalleteForClusterSlices;
+        public int localGridMaxSpeed = 100;
+
 
 
         //--Target Grid--
@@ -261,8 +262,6 @@ namespace EliDangHUD
 
         public double targetGridHologramActivationTime = 0;
         public double targetGridHologramBootUpAlpha = 1;
-
-        public Vector4[] targetGridHologramPalleteForClusterSlices;
 
 
         //----------------
@@ -1008,8 +1007,7 @@ namespace EliDangHUD
                 localGridControlledEntityCustomData = theData;
                 localGridControlledEntityLastCustomData = terminal.CustomData;
 
-                localGridHologramPalleteForClusterSlices = BuildIntegrityColors(theData.scannerColor * 0.5f);
-                targetGridHologramPalleteForClusterSlices = BuildIntegrityColors(theData.lineColorComp * 0.5f);
+      
             }
         }
 
@@ -1649,11 +1647,6 @@ namespace EliDangHUD
                 localGridControlledEntityLastCustomData = localGridControlledEntity.CustomData;
                 localGridControlledEntity.CustomDataChanged += OnControlledEntityCustomDataChanged;
 
-                localGridHologramPalleteForClusterSlices = BuildIntegrityColors(theData.scannerColor * 0.5f);
-                targetGridHologramPalleteForClusterSlices = BuildIntegrityColors(theData.lineColorComp * 0.5f);
-
-               
-
                 Quaternion initialQuat = Quaternion.CreateFromYawPitchRoll(
                            MathHelper.ToRadians(localGridControlledEntityCustomData.holoLocalRotationX),
                            MathHelper.ToRadians(localGridControlledEntityCustomData.holoLocalRotationY),
@@ -2014,6 +2007,8 @@ namespace EliDangHUD
                 UpdateLocalGridHydrogen();
                 UpdateLocalGridOxygen();
                 UpdateLocalGridJumpDrives();
+                UpdateLocalGridMaxSpeed();
+
 
                 // This is set to 0 on initialization, then increments each tick from there so long as a target is selected. Resets on loss of target, and is reset again on initialization. 
                 localGridHologramActivationTime += deltaTimeSinceLastTick * 0.667;
@@ -2170,9 +2165,6 @@ namespace EliDangHUD
 
                     localGridControlledEntityCustomData = theData;
                     localGridControlledEntityLastCustomData = localGridControlledEntity.CustomData;
-
-                    localGridHologramPalleteForClusterSlices = BuildIntegrityColors(theData.scannerColor * 0.5f);
-                    targetGridHologramPalleteForClusterSlices = BuildIntegrityColors(theData.lineColorComp * 0.5f);
                 }
             }
         }
@@ -2471,6 +2463,24 @@ namespace EliDangHUD
             localGridMaxActiveRadarRange = Math.Min(localGridMaxActiveRadarRange, maxRadarRange);
         }
 
+        /// <summary>
+        /// Use the settings to determine the localGrid max speed for the HUD. 
+        /// </summary>
+        public void UpdateLocalGridMaxSpeed()
+        {
+            if (localGrid != null)
+            {
+                if (localGrid.GridSizeEnum == VRage.Game.MyCubeSize.Large)
+                {
+                    localGridMaxSpeed = theSettings.maxSpeedLargeGrid;
+                }
+                else
+                {
+                    localGridMaxSpeed = theSettings.maxSpeedSmallGrid;
+                }
+            }
+
+        }
 
         /// <summary>
         /// Update the localGrid's power status by evaluating all power producers and batteries, calculating total production, consumption, stored power, usage percentage, and estimated time remaining.
