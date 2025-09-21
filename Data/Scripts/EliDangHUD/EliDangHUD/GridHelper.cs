@@ -2491,7 +2491,7 @@ namespace EliDangHUD
                     {
                         totalPowerConsumed += producer.CurrentOutput;
                         totalPowerProduced += producer.MaxOutput;
-                        if (producer.Enabled && producer.CurrentOutput > 0.0001f)
+                        if (producer.Enabled && producer.CurrentOutput > 0.0000001f)
                         {
                             gridHasPower = true;
                         }
@@ -2506,7 +2506,7 @@ namespace EliDangHUD
                         totalPowerProduced += battery.MaxOutput;
                         currentCharge += battery.CurrentStoredPower;
                         maxCharge += battery.MaxStoredPower;
-                        if (battery.Enabled && battery.CurrentStoredPower > 0.0001f)
+                        if (battery.Enabled && battery.CurrentStoredPower > 0.0000001f)
                         {
                             gridHasPower = true;
                         }
