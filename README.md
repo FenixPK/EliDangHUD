@@ -458,6 +458,10 @@ DONE: Make small grid radar sprites slightly smaller.
 
 DONE: Make holo tables only work if they are powered and functional
 
+DONE: Fix bug with power producers/batteries being mixed up, causing issues with the HUD disappearing when a battery powered grid was below a certain power usage.
+
+DONE: Update radar ping logarithmic scaling to be more linear (more accurately reflecting true distance from the player, but still spreads them out when very near to keep radar readable)
+
 ## 2025-09-07
 DONE: Make Main Cockpit or Tag be an option. Make custom cockpit sliders/checkboxes etc. load based on only this setting, no longer requires a broadcasting antenna. (Was a leftover of original). 
 
