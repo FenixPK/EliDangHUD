@@ -4510,7 +4510,7 @@ namespace EliDangHUD
             // Normalize the distance vs radarScaleRange to a 0-1 range. 
             double distanceToScaleRatio = Math.Min(distance / Math.Max(1e-6, localGridRadarScaleRange), 1.0);
 
-            const double BETA = 8.0; // BETA, the larger this value the farther away blips are from the center of the screen when nearby.
+            const double BETA = 2.0; // BETA, the larger this value the farther away blips are from the center of the screen when nearby.
             // EG if our radar scale is 10km and we have a blip at 10km it the function will not modify it at all and it will be placed at the edge. 
             // if we have a blip at 500m then BETA will make that appear farther from the center than it would be linearly, to make the nearby stuff more readable. 
             // How much of an effect it has is based on the value of BETA, larger pushes nearby stuff farther, smaller keeps it near. At 1.0 it is almost linear.
