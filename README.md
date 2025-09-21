@@ -439,7 +439,7 @@ public enum MyKeys : byte
 
 # Changelog
 ## 2025-09-21 
-DONE: Add chat commands to edit/update settings that otherwise must be written to the xml in world storage. Remember to refresh GridHelpers settings as well as CircleRenderer when changed.
+DONE: Add chat commands to edit/update settings that otherwise must be written to the xml in world storage.
 
 ## 2025-09-20
 DONE: Dynamic block clustering that uses a range. It will still pick a cluster size based on grid block count, but then can go up and down from there. Sparse regions can be broken down to smaller
