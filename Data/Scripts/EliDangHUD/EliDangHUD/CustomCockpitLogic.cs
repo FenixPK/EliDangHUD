@@ -510,44 +510,44 @@ public class CustomCockpitLogic : MyGameLogicComponent
 			c.Getter = block => {
 				bool result;
 				// Attempt to parse the string from CustomData. If it fails, return a default value.
-				if (bool.TryParse(GetParameter(block, "ScannerLines"), out result))
+				if (bool.TryParse(GetParameter(block, "ScannerVelocityLines"), out result))
 					return result;
 				return true;  // Default value if parsing fails or parameter does not exist
 			};
 
 			c.Setter = (block, value) => {
 				// Convert float to string and set it using SetParameter
-				SetParameter(block, "ScannerLines", value.ToString());
+				SetParameter(block, "ScannerVelocityLines", value.ToString());
 			};
 			MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(c);
 		}
-		{
-			var c = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSlider, IMyCockpit>("OrbitLines");
-			c.Title = MyStringId.GetOrCompute("Map Speed Threshold");
-			c.SetLimits(0f, 50000f);
-			// Correctly handle string-to-float conversions for the Getter and Setter
-			c.Getter = block => {
-				float result;
-				// Attempt to parse the string from CustomData. If it fails, return a default value.
-				if (float.TryParse(GetParameter(block, "ScannerOrbits"), out result))
-					return result;
-				return 100f;  // Default value if parsing fails or parameter does not exist
-			};
+		//{
+		//	var c = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSlider, IMyCockpit>("OrbitLines");
+		//	c.Title = MyStringId.GetOrCompute("Map Speed Threshold");
+		//	c.SetLimits(0f, 50000f);
+		//	// Correctly handle string-to-float conversions for the Getter and Setter
+		//	c.Getter = block => {
+		//		float result;
+		//		// Attempt to parse the string from CustomData. If it fails, return a default value.
+		//		if (float.TryParse(GetParameter(block, "ScannerOrbits"), out result))
+		//			return result;
+		//		return 100f;  // Default value if parsing fails or parameter does not exist
+		//	};
 
-			c.Setter = (block, value) => {
-				// Convert float to string and set it using SetParameter
-				SetParameter(block, "ScannerOrbits", value.ToString());	
-			};
+		//	c.Setter = (block, value) => {
+		//		// Convert float to string and set it using SetParameter
+		//		SetParameter(block, "ScannerOrbits", value.ToString());	
+		//	};
 
-			c.Writer = (block, sb) => {
-				float currentValue = c.Getter(block)/1000f;
-				sb.AppendFormat("{0} km/s", currentValue.ToString("F2"));  // Formatting to two decimal places
+		//	c.Writer = (block, sb) => {
+		//		float currentValue = c.Getter(block)/1000f;
+		//		sb.AppendFormat("{0} km/s", currentValue.ToString("F2"));  // Formatting to two decimal places
 
-			};
-			c.Enabled = block => true;
-			c.Visible = block => IsEligibleCockpit(block);
-			MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(c);
-		}
+		//	};
+		//	c.Enabled = block => true;
+		//	c.Visible = block => IsEligibleCockpit(block);
+		//	MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(c);
+		//}
 		{
 			var c = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlCheckbox, IMyCockpit>("ShowVoxels");
 			c.Title = MyStringId.GetOrCompute("Show Non-Ships");

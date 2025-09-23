@@ -438,6 +438,11 @@ public enum MyKeys : byte
 }
 
 # Changelog
+## 2025-09-22
+DONE: Make the Clustering logic access of the allBlocksDict safer if a key no longer exists due to a block being removed. 
+
+DONE: Fix the Velocity lines checkbox and remove the deprecated Orbit Speed Threshold slider. 
+
 ## 2025-09-21 
 DONE: Add chat commands to edit/update settings that otherwise must be written to the xml in world storage.
 
