@@ -3378,7 +3378,12 @@ namespace EliDangHUD
 
                         foreach (Vector3I pos in clusterBlockPositions)
                         {
-                            GridBlock gridBlock = allBlocksDict[pos];
+                            GridBlock gridBlock;
+                            if (!allBlocksDict.TryGetValue(pos, out gridBlock))
+                            {
+                                continue;
+                            }
+
                             cluster.Blocks[pos] = gridBlock;
                             cluster.Integrity += gridBlock.Block.Integrity;
                             cluster.MaxIntegrity += gridBlock.Block.MaxIntegrity;

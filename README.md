@@ -549,15 +549,13 @@ DONE: Removed arbitrary DisplayName == "Stone" || DisplayName == null filter fro
 I'd like to do further settings to allow users to more specifically choose to filter our floating items of name 'Stone' for eg, or only voxels (asteroids and deposits) of certain types or sizes even. 
 
 # TODO
-TODO: Add keybinds for next/previous/nearest target, make them work for holo tables too! =D
+TODO: Consider a "recently damaged clusters" dictionary that can be used to animate squares being hit. eg. on damage add to dict, then within 0.5s to 1.0 seconds lerp to a bigger size then back, then remove from dict when complete or re-set if damaged again. 
 
-TODO: Fix the maxSpeed variable, it should load the max speed for the localGrid's gridsize from the world. 
+TODO: Add keybinds for next/previous/nearest target, make them work for holo tables too! =D
 
 TODO: Make holograms show more data, weapons, effective range, DPS?
 
 TODO: Make radar sprites show more data for selected target. Eg. when you pick a target the radar screen has an "effective range" bubble for the target. 
-
-TODO: Polishing pass - add summaries to methods etc. It's becoming less documented as I go haha. 
 
 TODO: Waypoint system with GPS. Would show on screen and on radar. Could we do something global that syncs between players? So a CIC could set waypoints or even pin radar pings?
 
@@ -565,42 +563,22 @@ TODO: Maybe a lightweight player hud that matches this, we could keep default to
 
 TODO: I'd like to do further settings to allow users to more specifically choose to filter our floating items of name 'Stone' for eg, or only voxels (asteroids and deposits) of certain types or sizes even. 
 
-TODO: Figure out all this DamageAmount/AttachGrid/DetachGrid event handler stuff. It looks... incomplete? Eg GetDamageAmount if called would re-set the amount to zero. It is used to get a damage amount to add to glitch amount overload.
-but the way it is configured all that happens prior to this is attaching event handlers for on function changed. So amount would always be 0?
-Is this a remnant from presumably older code that used the queue of blocks to check each one for current damage, so it would do something like upon sitting in the control seat of a grid that was already damaged
-store that value? 
-
-TODO: Look into use of IMyCockpit vs IMyShipController, didn't we see reports of players wishing it worked for remote controlled ships?
-
-TODO: (PARTIAL) Make player condition hologram better - would love to make it flip to show side taking damage most recently?
-
-TODO: Can we color code power, weapon, antenna, control blocks in the target/player hologram? Then apply a yellow/red color gradient overtop for damage. Or even shade them? For eg. instead of MaterialSquare
-we have other squares that have /// or ### or something. Who knows. There's definitely something to do here just not sure exact approach. 
+TODO: Consider making this work in Third Person view, as well as for Remote Controlled ships?
 
 TODO (PARTIAL): Make altitude readout - I have the value, but haven't decided where to draw it on screen yet.
 
-TODO: Make broadcast range only affect active signal sent out, and make scale be something else configurable that gets stored in the cockpit's block data that can have up/down toggles added to toolbar. 
-No idea how to do this so using the broadcast range for now. MIGHT NOT DO THIS AFTER ALL. I kinda like broadcast range directly controlling scale it gives visual feedback for how far out your antenna is set too.
-
-TODO: Make radar work on a holotable
-
-TODO: Make radar work on LCD with up or down triangles for verticality for eg. Only after holotable. 
+TODO: Make radar work on LCD with up or down triangles for verticality for eg. Possibly? 
 
 TODO: Compatibility with frame shift drive? Likely around the jumpdrive mechanic? Will look into this.
 
 TODO: Show modded ammo types in the gauges. Attempted but might have failed? needs testing...
 
-TODO: WeaponCore compatibility - partiall attempted, but I really have no idea what I'm doing. I may need to load up the WeaponCore source code to figure out how to hook into it. 
+TODO: WeaponCore compatibility - partially attempted, but I really have no idea what I'm doing. I may need to load up the WeaponCore source code to figure out how to hook into it. 
 
 TODO: Advanced SigInt logic where active signals from any ship can bounce around and be picked up in passive mode? So one active ship can feed passive fleet?
-
-TODO: Apparently splitting/merging a ship with merge blocks causes a crash.
-
-TODO: Remote control ship and then get out of antenna range (or have remote controlled ship explode for eg) was causing crash. Another author may have fixed that in this already.
+This might tie into a much longer term goal of CIC and fleet management content, if I ever do it. 
 
 TODO: Check shield mod integrations, how can we make that universal across shield mods?
-
-TODO: Apparently asteroids can cause phantom pings on planets, should try and look into that for Cherub.
 
 # Credits
 Polygon cherub for original mod https://steamcommunity.com/sharedfiles/filedetails/?id=3252520404
