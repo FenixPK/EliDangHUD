@@ -438,6 +438,9 @@ public enum MyKeys : byte
 }
 
 # Changelog
+## 2025-09-24 
+DONE: Add keybinds for next/previous/nearest target.
+
 ## 2025-09-22
 DONE: Make the Clustering logic access of the allBlocksDict safer if a key no longer exists due to a block being removed. 
 
@@ -554,9 +557,9 @@ DONE: Removed arbitrary DisplayName == "Stone" || DisplayName == null filter fro
 I'd like to do further settings to allow users to more specifically choose to filter our floating items of name 'Stone' for eg, or only voxels (asteroids and deposits) of certain types or sizes even. 
 
 # TODO
-TODO: Consider a "recently damaged clusters" dictionary that can be used to animate squares being hit. eg. on damage add to dict, then within 0.5s to 1.0 seconds lerp to a bigger size then back, then remove from dict when complete or re-set if damaged again. 
+TODO: Take a pass at the CustomCockpitLogic.cs and make sure all sliders/settings work, and add more as necessary.
 
-TODO: Add keybinds for next/previous/nearest target, make them work for holo tables too! =D
+TODO: Consider a "recently damaged clusters" dictionary that can be used to animate squares being hit. eg. on damage add to dict, then within 0.5s to 1.0 seconds lerp to a bigger size then back, then remove from dict when complete or re-set if damaged again. 
 
 TODO: Make holograms show more data, weapons, effective range, DPS?
 

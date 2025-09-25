@@ -464,6 +464,24 @@ namespace EliDangHUD
 		public string selectTargetKey_DESCRIPTION = "Key to select target, if mouse button is disabled (Default is T) (0-254, see GitHub Readme Keybindings section for details)";
 
         /// <summary>
+        /// Key to target nearest hostile target, or nearest grid if Shift is held
+        /// </summary>
+        public int targetNearestGridKey = 82; // (int)MyKeys.R;
+        public string selectNearestGrid_DESCRIPTION = "Key to target nearest hostile grid (Default is R), or if Shift is held nearest grid (0-254, see GitHub Readme Keybindings section for details)";
+
+        /// <summary>
+        /// Key to target next hostile grid, or any grid if Shift is held
+        /// </summary>
+        public int targetNextGridKey = 78; // (int)MyKeys.N;
+        public string selectNextGrid_DESCRIPTION = "Key to target next hostile grid (Default is N), or if Shift is held next grid (0-254, see GitHub Readme Keybindings section for details)";
+
+        /// <summary>
+        /// Key to target previous grid, or any grid if Shift is held
+        /// </summary>
+        public int targetPreviousGridKey = 66; // (int)MyKeys.B;
+        public string selectPreviousGrid_DESCRIPTION = "Key to target previous hostile grid (Default is B), or if Shift is held previous grid (0-254, see GitHub Readme Keybindings section for details)";
+
+        /// <summary>
         /// Key to rotate the static hologram view in the +X axis
         /// </summary>
         public int rotateLeftKey = 100; // (int)MyKeys.NumPad4;
@@ -814,6 +832,16 @@ namespace EliDangHUD
         private float min_blip_scale = 0.05f;
 
         Dictionary<VRage.ModAPI.IMyEntity, RadarPing> radarPings = new Dictionary<VRage.ModAPI.IMyEntity, RadarPing>();
+
+        /// <summary>
+        /// Radar pings sorted by distance from player, nearest first. 
+        /// </summary>
+        List<VRage.ModAPI.IMyEntity> sortedRadarPings = new List<VRage.ModAPI.IMyEntity>();
+
+        /// <summary>
+        /// Hostile radar pings sorted by distance from player, nearest first. 
+        /// </summary>
+        List<VRage.ModAPI.IMyEntity> sortedHostileRadarPings = new List<VRage.ModAPI.IMyEntity>();
 
         //private float SpeedThreshold = 10f;
 
@@ -3054,6 +3082,12 @@ namespace EliDangHUD
             {
                 radarPings.Remove(keyToRemove);
             }
+
+            sortedRadarPings = radarPings.Where(kv => kv.Value.PlayerCanDetect == true && kv.Key.GetTopMostParent() != gHandler.localGridControlledEntity.GetTopMostParent())
+                .OrderBy(kv => kv.Value.RadarPingDistanceSqr).Select(kv => kv.Key).OfType<VRage.Game.ModAPI.IMyCubeGrid>().Cast<VRage.ModAPI.IMyEntity>().ToList();
+            sortedHostileRadarPings = radarPings.Where(kv => kv.Value.Status == RelationshipStatus.Hostile && kv.Value.PlayerCanDetect == true && kv.Key.GetTopMostParent()
+            != gHandler.localGridControlledEntity.GetTopMostParent())
+                .OrderBy(kv => kv.Value.RadarPingDistanceSqr).Select(kv => kv.Key).OfType<VRage.Game.ModAPI.IMyCubeGrid>().Cast<VRage.ModAPI.IMyEntity>().ToList();
         }
 
         /// <summary>
@@ -3191,9 +3225,15 @@ namespace EliDangHUD
             {
                 radarPings.Remove(keyToRemove);
             }
+
+            sortedRadarPings = radarPings.Where(kv => kv.Value.PlayerCanDetect == true && kv.Key.GetTopMostParent() != gHandler.localGridControlledEntity.GetTopMostParent())
+                .OrderBy(kv => kv.Value.RadarPingDistanceSqr).Select(kv => kv.Key).OfType<VRage.Game.ModAPI.IMyCubeGrid>().Cast<VRage.ModAPI.IMyEntity>().ToList();
+            sortedHostileRadarPings = radarPings.Where(kv => kv.Value.Status == RelationshipStatus.Hostile && kv.Value.PlayerCanDetect == true && kv.Key.GetTopMostParent() 
+            != gHandler.localGridControlledEntity.GetTopMostParent())
+                .OrderBy(kv => kv.Value.RadarPingDistanceSqr).Select(kv => kv.Key).OfType<VRage.Game.ModAPI.IMyCubeGrid>().Cast<VRage.ModAPI.IMyEntity>().ToList();
         }
 
-        
+
 
         /// <summary>
         /// Update values for the Velocity Lines.
@@ -6522,6 +6562,8 @@ namespace EliDangHUD
         /// </summary>
         private void CheckPlayerInput()
 		{
+            // We have R, B, X and some other keys as options but these are closest to WASD. Technically we have ` as well. 
+            // Update I believe B, N would be good for previous and next. Shift B,N as alternatives. Even Ctrl. R can be for nearest. Shift R for nearest alt. 
             MyKeys rotateLeftKey = (MyKeys)theSettings.rotateLeftKey;
             MyKeys rotateRightKey = (MyKeys)theSettings.rotateRightKey;
             MyKeys rotateUpKey = (MyKeys)theSettings.rotateUpKey;
@@ -6532,6 +6574,10 @@ namespace EliDangHUD
             MyKeys orbitKey = (MyKeys)theSettings.orbitViewKey;
             MyKeys perspectiveKey = (MyKeys)theSettings.perspectiveViewKey;
 
+            MyKeys targetNearestGrid = (MyKeys)theSettings.targetNearestGridKey;
+            MyKeys targetNextGrid = (MyKeys)theSettings.targetNextGridKey;
+            MyKeys targetPreviousGrid = (MyKeys)theSettings.targetPreviousGridKey;
+
             if (IsSelectTargetPressed())
 			{
 				//Echo ("Press");
@@ -6539,7 +6585,8 @@ namespace EliDangHUD
 				{
 					// Toggle off if the same target is still valid
 					ReleaseTarget();
-				}
+                    return;
+                }
 				else
 				{
 					// Attempt to lock on a new target, gets the nearest entity in camera sights.
@@ -6572,99 +6619,122 @@ namespace EliDangHUD
                     if (isTargetLocked)
                     {
                         ReleaseTarget();
+                        return;
                     }
 				}
 			}
 
             bool ctrl = MyAPIGateway.Input.IsAnyCtrlKeyPressed();
+            bool shift = MyAPIGateway.Input.IsAnyShiftKeyPressed();
 
-			if (ctrl)
-			{
-                if (MyAPIGateway.Input.IsNewKeyPressed(rotateLeftKey))
+   //         if (ctrl)
+			//{
+   //             if (MyAPIGateway.Input.IsNewKeyPressed(rotateLeftKey))
+   //             {
+   //                 if (gHandler.localGridControlledEntityCustomData.localGridHologramViewType != HologramViewType.Static)
+   //                 {
+   //                     gHandler.SetHologramViewType(false, HologramViewType.Static);
+   //                 }
+   //                 else 
+   //                 {
+   //                     gHandler.SetHologramRotation(false, 0, 90);
+   //                 }
+   //                 return;
+   //                 //HologramViewLocal_Current = ((int)HologramViewLocal_Current - 1 < 0 ? HologramViewType.Bottom : HologramViewLocal_Current - 1); // Step down, or roll over to max.
+   //             }
+   //             if (MyAPIGateway.Input.IsNewKeyPressed(rotateRightKey))
+   //             {
+   //                 if (gHandler.localGridControlledEntityCustomData.localGridHologramViewType != HologramViewType.Static)
+   //                 {
+   //                     gHandler.SetHologramViewType(false, HologramViewType.Static);
+   //                 }
+   //                 else 
+   //                 {
+   //                     gHandler.SetHologramRotation(false, 0, -90);
+   //                 }
+   //                 return;
+   //                 //HologramViewLocal_Current = ((int)HologramViewLocal_Current + 1 > HologramViewLocal_Current_MaxSide ? HologramViewType.Rear : HologramViewLocal_Current + 1); // Step up, or roll over to min.
+   //             }
+   //             if (MyAPIGateway.Input.IsNewKeyPressed(rotateUpKey))
+   //             {
+   //                 if (gHandler.localGridControlledEntityCustomData.localGridHologramViewType != HologramViewType.Static)
+   //                 {
+   //                     gHandler.SetHologramViewType(false, HologramViewType.Static);
+   //                 }
+   //                 else 
+   //                 {
+   //                     gHandler.SetHologramRotation(false, 1, 90);
+   //                 }
+   //                 return;
+   //             }
+   //             if (MyAPIGateway.Input.IsNewKeyPressed(rotateDownKey))
+   //             {
+   //                 if (gHandler.localGridControlledEntityCustomData.localGridHologramViewType != HologramViewType.Static)
+   //                 {
+   //                     gHandler.SetHologramViewType(false, HologramViewType.Static);
+   //                 }
+   //                 else 
+   //                 {
+   //                     gHandler.SetHologramRotation(false, 1, -90);
+   //                 }
+   //                 return;
+   //             }
+   //             if (MyAPIGateway.Input.IsNewKeyPressed(rotatePosZKey))
+   //             {
+   //                 if (gHandler.localGridControlledEntityCustomData.localGridHologramViewType != HologramViewType.Static)
+   //                 {
+   //                     gHandler.SetHologramViewType(false, HologramViewType.Static);
+   //                 }
+   //                 else 
+   //                 {
+   //                     gHandler.SetHologramRotation(false, 2, 90);
+   //                 }
+   //                 return;
+   //             }
+   //             if (MyAPIGateway.Input.IsNewKeyPressed(rotateNegZKey))
+   //             {
+   //                 if (gHandler.localGridControlledEntityCustomData.localGridHologramViewType != HologramViewType.Static)
+   //                 {
+   //                     gHandler.SetHologramViewType(false, HologramViewType.Static);
+   //                 }
+   //                 else 
+   //                 {
+   //                     gHandler.SetHologramRotation(false, 2, -90);
+   //                 }
+   //                 return;
+   //             }
+   //             if (MyAPIGateway.Input.IsNewKeyPressed(resetKey))
+   //             {
+   //                 if (gHandler.localGridControlledEntityCustomData.localGridHologramViewType != HologramViewType.Static)
+   //                 {
+   //                     gHandler.SetHologramViewType(false, HologramViewType.Static);
+   //                 }
+   //                 else 
+   //                 {
+   //                     gHandler.SetHologramRotation(false, 0, 361); // Anything >= 360 gets set back to 0.
+   //                     gHandler.SetHologramRotation(false, 1, 361); // Anything >= 360 gets set back to 0.
+   //                     gHandler.SetHologramRotation(false, 2, 361); // Anything >= 360 gets set back to 0.
+   //                 }
+   //                 return;
+   //             }
+   //         }
+
+            // If a regular key
+            if (MyAPIGateway.Input.IsNewKeyPressed(rotateLeftKey))
+            {
+                if (ctrl)
                 {
                     if (gHandler.localGridControlledEntityCustomData.localGridHologramViewType != HologramViewType.Static)
                     {
                         gHandler.SetHologramViewType(false, HologramViewType.Static);
                     }
-                    else 
+                    else
                     {
                         gHandler.SetHologramRotation(false, 0, 90);
                     }
-                    //HologramViewLocal_Current = ((int)HologramViewLocal_Current - 1 < 0 ? HologramViewType.Bottom : HologramViewLocal_Current - 1); // Step down, or roll over to max.
+                    return;
                 }
-                if (MyAPIGateway.Input.IsNewKeyPressed(rotateRightKey))
-                {
-                    if (gHandler.localGridControlledEntityCustomData.localGridHologramViewType != HologramViewType.Static)
-                    {
-                        gHandler.SetHologramViewType(false, HologramViewType.Static);
-                    }
-                    else 
-                    {
-                        gHandler.SetHologramRotation(false, 0, -90);
-                    }
-                    //HologramViewLocal_Current = ((int)HologramViewLocal_Current + 1 > HologramViewLocal_Current_MaxSide ? HologramViewType.Rear : HologramViewLocal_Current + 1); // Step up, or roll over to min.
-                }
-                if (MyAPIGateway.Input.IsNewKeyPressed(rotateUpKey))
-                {
-                    if (gHandler.localGridControlledEntityCustomData.localGridHologramViewType != HologramViewType.Static)
-                    {
-                        gHandler.SetHologramViewType(false, HologramViewType.Static);
-                    }
-                    else 
-                    {
-                        gHandler.SetHologramRotation(false, 1, 90);
-                    }    
-                }
-                if (MyAPIGateway.Input.IsNewKeyPressed(rotateDownKey))
-                {
-                    if (gHandler.localGridControlledEntityCustomData.localGridHologramViewType != HologramViewType.Static)
-                    {
-                        gHandler.SetHologramViewType(false, HologramViewType.Static);
-                    }
-                    else 
-                    {
-                        gHandler.SetHologramRotation(false, 1, -90);
-                    }  
-                }
-                if (MyAPIGateway.Input.IsNewKeyPressed(rotatePosZKey))
-                {
-                    if (gHandler.localGridControlledEntityCustomData.localGridHologramViewType != HologramViewType.Static)
-                    {
-                        gHandler.SetHologramViewType(false, HologramViewType.Static);
-                    }
-                    else 
-                    {
-                        gHandler.SetHologramRotation(false, 2, 90);
-                    }   
-                }
-                if (MyAPIGateway.Input.IsNewKeyPressed(rotateNegZKey))
-                {
-                    if (gHandler.localGridControlledEntityCustomData.localGridHologramViewType != HologramViewType.Static)
-                    {
-                        gHandler.SetHologramViewType(false, HologramViewType.Static);
-                    }
-                    else 
-                    {
-                        gHandler.SetHologramRotation(false, 2, -90);
-                    }
-                }
-                if (MyAPIGateway.Input.IsNewKeyPressed(resetKey))
-                {
-                    if (gHandler.localGridControlledEntityCustomData.localGridHologramViewType != HologramViewType.Static)
-                    {
-                        gHandler.SetHologramViewType(false, HologramViewType.Static);
-                    }
-                    else 
-                    {
-                        gHandler.SetHologramRotation(false, 0, 361); // Anything >= 360 gets set back to 0.
-                        gHandler.SetHologramRotation(false, 1, 361); // Anything >= 360 gets set back to 0.
-                        gHandler.SetHologramRotation(false, 2, 361); // Anything >= 360 gets set back to 0.
-                    }
-                }
-            }
-			else 
-			{
-                if (MyAPIGateway.Input.IsNewKeyPressed(rotateLeftKey))
+                else 
                 {
                     if (gHandler.localGridControlledEntityCustomData.targetGridHologramViewType != HologramViewType.Static)
                     {
@@ -6674,9 +6744,24 @@ namespace EliDangHUD
                     {
                         gHandler.SetHologramRotation(true, 0, 90);
                     }
-                    //HologramViewLocal_Current = ((int)HologramViewLocal_Current - 1 < 0 ? HologramViewType.Bottom : HologramViewLocal_Current - 1); // Step down, or roll over to max.
+                    return;
                 }
-                if (MyAPIGateway.Input.IsNewKeyPressed(rotateRightKey))
+            }
+            if (MyAPIGateway.Input.IsNewKeyPressed(rotateRightKey))
+            {
+                if (ctrl)
+                {
+                    if (gHandler.localGridControlledEntityCustomData.localGridHologramViewType != HologramViewType.Static)
+                    {
+                        gHandler.SetHologramViewType(false, HologramViewType.Static);
+                    }
+                    else
+                    {
+                        gHandler.SetHologramRotation(false, 0, -90);
+                    }
+                    return;
+                }
+                else 
                 {
                     if (gHandler.localGridControlledEntityCustomData.targetGridHologramViewType != HologramViewType.Static)
                     {
@@ -6686,9 +6771,24 @@ namespace EliDangHUD
                     {
                         gHandler.SetHologramRotation(true, 0, -90);
                     }
-                    //HologramViewLocal_Current = ((int)HologramViewLocal_Current + 1 > HologramViewLocal_Current_MaxSide ? HologramViewType.Rear : HologramViewLocal_Current + 1); // Step up, or roll over to min.
+                    return;
                 }
-                if (MyAPIGateway.Input.IsNewKeyPressed(rotateUpKey))
+            }
+            if (MyAPIGateway.Input.IsNewKeyPressed(rotateUpKey))
+            {
+                if (ctrl)
+                {
+                    if (gHandler.localGridControlledEntityCustomData.localGridHologramViewType != HologramViewType.Static)
+                    {
+                        gHandler.SetHologramViewType(false, HologramViewType.Static);
+                    }
+                    else
+                    {
+                        gHandler.SetHologramRotation(false, 1, 90);
+                    }
+                    return;
+                }
+                else 
                 {
                     if (gHandler.localGridControlledEntityCustomData.targetGridHologramViewType != HologramViewType.Static)
                     {
@@ -6698,8 +6798,24 @@ namespace EliDangHUD
                     {
                         gHandler.SetHologramRotation(true, 1, 90);
                     }
+                    return;
                 }
-                if (MyAPIGateway.Input.IsNewKeyPressed(rotateDownKey))
+            }
+            if (MyAPIGateway.Input.IsNewKeyPressed(rotateDownKey))
+            {
+                if (ctrl)
+                {
+                    if (gHandler.localGridControlledEntityCustomData.localGridHologramViewType != HologramViewType.Static)
+                    {
+                        gHandler.SetHologramViewType(false, HologramViewType.Static);
+                    }
+                    else
+                    {
+                        gHandler.SetHologramRotation(false, 1, -90);
+                    }
+                    return;
+                }
+                else 
                 {
                     if (gHandler.localGridControlledEntityCustomData.targetGridHologramViewType != HologramViewType.Static)
                     {
@@ -6709,8 +6825,24 @@ namespace EliDangHUD
                     {
                         gHandler.SetHologramRotation(true, 1, -90);
                     }
+                    return;
                 }
-                if (MyAPIGateway.Input.IsNewKeyPressed(rotatePosZKey))
+            }
+            if (MyAPIGateway.Input.IsNewKeyPressed(rotatePosZKey))
+            {
+                if (ctrl)
+                {
+                    if (gHandler.localGridControlledEntityCustomData.localGridHologramViewType != HologramViewType.Static)
+                    {
+                        gHandler.SetHologramViewType(false, HologramViewType.Static);
+                    }
+                    else
+                    {
+                        gHandler.SetHologramRotation(false, 2, 90);
+                    }
+                    return;
+                }
+                else 
                 {
                     if (gHandler.localGridControlledEntityCustomData.targetGridHologramViewType != HologramViewType.Static)
                     {
@@ -6720,8 +6852,24 @@ namespace EliDangHUD
                     {
                         gHandler.SetHologramRotation(true, 2, 90);
                     }
+                    return;
                 }
-                if (MyAPIGateway.Input.IsNewKeyPressed(rotateNegZKey))
+            }
+            if (MyAPIGateway.Input.IsNewKeyPressed(rotateNegZKey))
+            {
+                if (ctrl)
+                {
+                    if (gHandler.localGridControlledEntityCustomData.localGridHologramViewType != HologramViewType.Static)
+                    {
+                        gHandler.SetHologramViewType(false, HologramViewType.Static);
+                    }
+                    else
+                    {
+                        gHandler.SetHologramRotation(false, 2, -90);
+                    }
+                    return;
+                }
+                else 
                 {
                     if (gHandler.localGridControlledEntityCustomData.targetGridHologramViewType != HologramViewType.Static)
                     {
@@ -6731,8 +6879,26 @@ namespace EliDangHUD
                     {
                         gHandler.SetHologramRotation(true, 2, -90);
                     }
+                    return;
+                }    
+            }
+            if (MyAPIGateway.Input.IsNewKeyPressed(resetKey))
+            {
+                if (ctrl)
+                {
+                    if (gHandler.localGridControlledEntityCustomData.localGridHologramViewType != HologramViewType.Static)
+                    {
+                        gHandler.SetHologramViewType(false, HologramViewType.Static);
+                    }
+                    else
+                    {
+                        gHandler.SetHologramRotation(false, 0, 361); // Anything >= 360 gets set back to 0.
+                        gHandler.SetHologramRotation(false, 1, 361); // Anything >= 360 gets set back to 0.
+                        gHandler.SetHologramRotation(false, 2, 361); // Anything >= 360 gets set back to 0.
+                    }
+                    return;
                 }
-                if (MyAPIGateway.Input.IsNewKeyPressed(resetKey))
+                else 
                 {
                     if (gHandler.localGridControlledEntityCustomData.targetGridHologramViewType != HologramViewType.Static)
                     {
@@ -6744,18 +6910,205 @@ namespace EliDangHUD
                         gHandler.SetHologramRotation(true, 1, 361); // Anything >= 360 gets set back to 0.
                         gHandler.SetHologramRotation(true, 2, 361); // Anything >= 360 gets set back to 0.
                     }
-                }
-                if (MyAPIGateway.Input.IsNewKeyPressed(orbitKey))
+                    return;
+                }  
+            }
+            if (MyAPIGateway.Input.IsNewKeyPressed(orbitKey))
+            {
+                gHandler.SetHologramViewType(true, HologramViewType.Orbit);
+                return;
+            }
+            if (MyAPIGateway.Input.IsNewKeyPressed(perspectiveKey))
+            {
+                gHandler.SetHologramViewType(true, HologramViewType.Perspective);
+                return;
+                //HologramViewTarget_Current = HologramViewType.Perspective; // Perspective
+            }
+
+            if (MyAPIGateway.Input.IsNewKeyPressed(targetNearestGrid))
+            {
+                
+                if (shift)
                 {
-                    gHandler.SetHologramViewType(true, HologramViewType.Orbit);
+                    if (sortedHostileRadarPings.Count == 0)
+                    {
+                        return;
+                    }
+                    VRage.ModAPI.IMyEntity nearestTarget = sortedHostileRadarPings.First<VRage.ModAPI.IMyEntity>();
+                    if (nearestTarget != null && nearestTarget != gHandler.targetGrid)
+                    {
+                        LockTarget(nearestTarget);
+                    }
                 }
-                if (MyAPIGateway.Input.IsNewKeyPressed(perspectiveKey))
+                else 
                 {
-                    gHandler.SetHologramViewType(true, HologramViewType.Perspective);
-                    //HologramViewTarget_Current = HologramViewType.Perspective; // Perspective
+                    if (sortedRadarPings.Count == 0)
+                    {
+                        return;
+                    }
+                    VRage.ModAPI.IMyEntity nearestTarget = sortedRadarPings.First<VRage.ModAPI.IMyEntity>();
+                    if (nearestTarget != null && nearestTarget != gHandler.targetGrid)
+                    {
+                        LockTarget(nearestTarget);
+                    }
                 }
             }
-		}
+            if (MyAPIGateway.Input.IsNewKeyPressed(targetNextGrid))
+            {
+                if (shift)
+                {
+                    if (sortedHostileRadarPings.Count == 0)
+                    {
+                        return;
+                    }
+                    VRage.ModAPI.IMyEntity nextTarget;
+                    if (gHandler.targetGrid != null)
+                    {
+                        int currentIndex = sortedHostileRadarPings.IndexOf(gHandler.targetGrid);
+                        if (currentIndex != -1)
+                        {
+                            int indexToSelect = (currentIndex + 1);
+                            if (indexToSelect >= sortedHostileRadarPings.Count)
+                            {
+                                nextTarget = sortedHostileRadarPings.First<VRage.ModAPI.IMyEntity>();
+                            }
+                            else 
+                            {
+                                nextTarget = sortedHostileRadarPings[indexToSelect];
+                            }   
+                        }
+                        else 
+                        {
+                            nextTarget = sortedHostileRadarPings.First<VRage.ModAPI.IMyEntity>();
+                        }
+                    }
+                    else 
+                    {
+                        nextTarget = sortedHostileRadarPings.First<VRage.ModAPI.IMyEntity>();
+                    }
+
+                    if (nextTarget != null)
+                    {
+                        LockTarget(nextTarget);
+                    }
+                }
+                else
+                {
+                    if (sortedRadarPings.Count == 0)
+                    {
+                        return;
+                    }
+                    VRage.ModAPI.IMyEntity nextTarget;
+                    if (gHandler.targetGrid != null)
+                    {
+                        int currentIndex = sortedRadarPings.IndexOf(gHandler.targetGrid);
+                        if (currentIndex != -1)
+                        {
+                            int indexToSelect = (currentIndex + 1);
+                            if (indexToSelect >= sortedRadarPings.Count)
+                            {
+                                nextTarget = sortedRadarPings.First<VRage.ModAPI.IMyEntity>();
+                            }
+                            else
+                            {
+                                nextTarget = sortedRadarPings[indexToSelect];
+                            }
+                        }
+                        else
+                        {
+                            nextTarget = sortedRadarPings.First<VRage.ModAPI.IMyEntity>();
+                        }
+                    }
+                    else
+                    {
+                        nextTarget = sortedRadarPings.First<VRage.ModAPI.IMyEntity>();
+                    }
+
+                    if (nextTarget != null)
+                    {
+                        LockTarget(nextTarget);
+                    }
+                }
+            }
+            if (MyAPIGateway.Input.IsNewKeyPressed(targetPreviousGrid))
+            {
+                if (shift)
+                {
+                    if (sortedHostileRadarPings.Count == 0)
+                    {
+                        return;
+                    }
+                    VRage.ModAPI.IMyEntity previousTarget;
+                    if (gHandler.targetGrid != null)
+                    {
+                        int currentIndex = sortedHostileRadarPings.IndexOf(gHandler.targetGrid);
+                        if (currentIndex != -1)
+                        {
+                            int indexToSelect = (currentIndex - 1);
+                            if (indexToSelect < 0)
+                            {
+                                previousTarget = sortedHostileRadarPings.Last<VRage.ModAPI.IMyEntity>();
+                            }
+                            else 
+                            {
+                                previousTarget = sortedHostileRadarPings[indexToSelect];
+                            } 
+                        }
+                        else
+                        {
+                            previousTarget = sortedHostileRadarPings.Last<VRage.ModAPI.IMyEntity>();
+                        }
+                    }
+                    else
+                    {
+                        previousTarget = sortedHostileRadarPings.Last<VRage.ModAPI.IMyEntity>();
+                    }
+
+                    if (previousTarget != null)
+                    {
+                        LockTarget(previousTarget);
+                    }
+                }
+                else
+                {
+                    if (sortedRadarPings.Count == 0)
+                    {
+                        return;
+                    }
+                    VRage.ModAPI.IMyEntity previousTarget;
+                    if (gHandler.targetGrid != null)
+                    {
+                        int currentIndex = sortedRadarPings.IndexOf(gHandler.targetGrid);
+                        if (currentIndex != -1)
+                        {
+                            int indexToSelect = (currentIndex - 1);
+                            if (indexToSelect < 0)
+                            {
+                                previousTarget = sortedRadarPings.Last<VRage.ModAPI.IMyEntity>();
+                            }
+                            else
+                            {
+                                previousTarget = sortedRadarPings[indexToSelect];
+                            }
+                        }
+                        else
+                        {
+                            previousTarget = sortedRadarPings.Last<VRage.ModAPI.IMyEntity>();
+                        }
+                    }
+                    else
+                    {
+                        previousTarget = sortedRadarPings.Last<VRage.ModAPI.IMyEntity>();
+                    }
+
+                    if (previousTarget != null)
+                    {
+                        LockTarget(previousTarget);
+                    }
+                }
+            }
+
+        }
 
         /// <summary>
         /// This function evaluates a grids antenna blocks. Pseudo SIGINT logic where we can receive passive or output active.
