@@ -3084,10 +3084,10 @@ namespace EliDangHUD
                 radarPings.Remove(keyToRemove);
             }
 
-            sortedRadarPings = radarPings.Where(kv => kv.Value.PlayerCanDetect == true && kv.Key.GetTopMostParent() != gHandler.localGrid.GetTopMostParent())
+            sortedRadarPings = radarPings.Where(kv =>  kv.Value.PlayerCanDetect == true && kv.Key.GetTopMostParent() != gHandler.localGrid.GetTopMostParent() && (!onlyPowered || kv.Value.RadarPingHasPower))
                 .OrderBy(kv => kv.Value.RadarPingDistanceSqr).Select(kv => kv.Key).OfType<VRage.Game.ModAPI.IMyCubeGrid>().Cast<VRage.ModAPI.IMyEntity>().ToList();
             sortedHostileRadarPings = radarPings.Where(kv => kv.Value.Status == RelationshipStatus.Hostile && kv.Value.PlayerCanDetect == true && kv.Key.GetTopMostParent()
-            != gHandler.localGrid.GetTopMostParent())
+            != gHandler.localGrid.GetTopMostParent() && (!onlyPowered || kv.Value.RadarPingHasPower))
                 .OrderBy(kv => kv.Value.RadarPingDistanceSqr).Select(kv => kv.Key).OfType<VRage.Game.ModAPI.IMyCubeGrid>().Cast<VRage.ModAPI.IMyEntity>().ToList();
         }
 
@@ -3281,10 +3281,10 @@ namespace EliDangHUD
                 radarPings.Remove(keyToRemove);
             }
 
-            sortedRadarPings = radarPings.Where(kv => kv.Value.PlayerCanDetect == true && kv.Key.GetTopMostParent() != gHandler.localGrid.GetTopMostParent())
-                .OrderBy(kv => kv.Value.RadarPingDistanceSqr).Select(kv => kv.Key).OfType<VRage.Game.ModAPI.IMyCubeGrid>().Cast<VRage.ModAPI.IMyEntity>().ToList();
-            sortedHostileRadarPings = radarPings.Where(kv => kv.Value.Status == RelationshipStatus.Hostile && kv.Value.PlayerCanDetect == true && kv.Key.GetTopMostParent() 
-            != gHandler.localGrid.GetTopMostParent())
+            sortedRadarPings = radarPings.Where(kv => kv.Value.PlayerCanDetect == true && kv.Key.GetTopMostParent() != gHandler.localGrid.GetTopMostParent() && (!onlyPowered || kv.Value.RadarPingHasPower))
+                 .OrderBy(kv => kv.Value.RadarPingDistanceSqr).Select(kv => kv.Key).OfType<VRage.Game.ModAPI.IMyCubeGrid>().Cast<VRage.ModAPI.IMyEntity>().ToList();
+            sortedHostileRadarPings = radarPings.Where(kv => kv.Value.Status == RelationshipStatus.Hostile && kv.Value.PlayerCanDetect == true && kv.Key.GetTopMostParent()
+            != gHandler.localGrid.GetTopMostParent() && (!onlyPowered || kv.Value.RadarPingHasPower))
                 .OrderBy(kv => kv.Value.RadarPingDistanceSqr).Select(kv => kv.Key).OfType<VRage.Game.ModAPI.IMyCubeGrid>().Cast<VRage.ModAPI.IMyEntity>().ToList();
         }
 
