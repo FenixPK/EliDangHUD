@@ -183,8 +183,6 @@ namespace EliDangHUD
         public Dictionary<Vector3I, HoloRadarCustomDataTerminalPair> localGridRadarTerminalsData = new Dictionary<Vector3I, HoloRadarCustomDataTerminalPair>();
         public Dictionary<Vector3I, IMyTerminalBlock> localGridHologramTerminals = new Dictionary<Vector3I, IMyTerminalBlock>();
         public Dictionary<Vector3I, HologramCustomDataTerminalPair> localGridHologramTerminalsData = new Dictionary<Vector3I, HologramCustomDataTerminalPair>();
-        public Dictionary<Vector3I, Vector4[]> localGridHologramTerminalPallets = new Dictionary<Vector3I, Vector4[]>();
-        public Dictionary<Vector3I, MatrixD> localGridHologramTerminalRotations = new Dictionary<Vector3I, MatrixD>();
         // TODO add shield generators from shield mods? Midnight something or other was a new one I saw?
 
         public Dictionary<Vector3I, IMyRadioAntenna> localGridAntennasDict = new Dictionary<Vector3I, IMyRadioAntenna>();
@@ -698,8 +696,6 @@ namespace EliDangHUD
                             thePair.HologramCustomData = theData;
                             thePair.HologramCustomDataString = terminal.CustomData;
                             localGridHologramTerminalsData[block.Position] = thePair;
-                            Vector4[] colorPallet = BuildIntegrityColors(theData.lineColor);
-                            localGridHologramTerminalPallets[terminal.Position] = colorPallet;
                         }
                         if (!string.IsNullOrEmpty(terminal.CustomName) && terminal.CustomName.Contains("[ELI_HOLO]"))
                         {
@@ -796,7 +792,6 @@ namespace EliDangHUD
                             localGridHologramTerminals.Remove(terminal.Position);
                             localGridRadarTerminals.Remove(terminal.Position);
                             localGridHologramTerminalsData.Remove(terminal.Position);
-                            localGridHologramTerminalPallets.Remove(terminal.Position);
                             localGridRadarTerminalsData.Remove(terminal.Position);
                         }
                         if (antenna != null)
@@ -1722,7 +1717,6 @@ namespace EliDangHUD
             localGridEligibleTerminals.Clear();
             localGridHologramTerminals.Clear();
             localGridHologramTerminalsData.Clear();
-            localGridHologramTerminalRotations.Clear();
             localGridRadarTerminals.Clear();
             localGridRadarTerminalsData.Clear();
             localGridAntennasDict.Clear();
@@ -1923,8 +1917,6 @@ namespace EliDangHUD
                             thePair.HologramCustomData = theData;
                             thePair.HologramCustomDataString = terminal.CustomData;
                             localGridHologramTerminalsData[block.Position] = thePair;
-                            Vector4[] colorPallet = BuildIntegrityColors(theData.lineColor * 0.5f);
-                            localGridHologramTerminalPallets[terminal.Position] = colorPallet;
                         }
                         if (terminal.CustomName.Contains("[ELI_HOLO]"))
                         {
@@ -2199,8 +2191,6 @@ namespace EliDangHUD
                         thePair.HologramCustomData = theData;
                         thePair.HologramCustomDataString = terminal.CustomData;
                         localGridHologramTerminalsData[terminal.Position] = thePair;
-                        Vector4[] colorPallet = BuildIntegrityColors(theData.lineColor * 0.5f);
-                        localGridHologramTerminalPallets[terminal.Position] = colorPallet;
 
                     }
                 }
@@ -4026,6 +4016,10 @@ namespace EliDangHUD
             theData.lineColor = new Vector4(theData.lineColorRGB, 1f);
             theData.lineColorRGBComplimentary = secondaryColor(theData.lineColorRGB) * 2 + new Vector3(0.01f, 0.01f, 0.01f);
             theData.lineColorComp = new Vector4(theData.lineColorRGBComplimentary, 1f);
+
+            // Draw the target hologram instead of local grid
+            theData.holoDisplayTargetGrid = ini.Get(mySection, "HoloDisplayTargetGrid").ToBoolean(false);
+            ini.Set(mySection, "HoloDisplayTargetGrid", theData.holoDisplayTargetGrid.ToString());
 
             // Save custom data back to block (preserves EndContent too, so text and other config sections don't get eliminated)
             block.CustomData = ini.ToString();
