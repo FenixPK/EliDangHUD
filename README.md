@@ -15,8 +15,10 @@ Enabled on any control seat with either the tag [ELI_HUD] (default) or by settin
 - Some actions like toggling display of unpowered grids, voxels, holograms, or entire HUD can be toggled via toolbar actions if you assign the cockpit to your toolbar. More actions to be added in the future. 
 
 - Holographic radar projection can be displayed above any terminal block (like a holo table, LCD, control panel etc.) using [ELI_HOLO] tag in the block custom name, then use CustomData to tweak position, scale, rotation, and what it detects.
+Can use keybinds for nearest/next/previous target to select a target on the closest holo radar table!
 
 - Holographic local grid projection can be displayed above any terminal block using [ELI_LOCAL] tag in the block custom name, then use CustomData to tweak position, scale, rotation, and color.
+Can change CustomData of block to show target hologram instead as well. 
 
 - Holographic projections for the local grid and the selected target grid showing hull integrity and shield status (technically jump drives right now, to be overhauled for modern shield mods).
 These projections use "block clustering" which defaults to a range of 1x1x1 to 2x2x2 for grids below a certain block count (and increases to 1x1x1 to 3x3x3 after) to reduce the squares drawn on screen for performance. 
@@ -37,7 +39,8 @@ Blip icons are from an X4 Mod with permission, link in the credits section below
 
 - Keybinds to rotate the holograms (local and target) around all three axes, reset the view, and for target only you can cycle between orbit cam, perspective, or static view you can rotate manually. Configurable.
 
-- Mouse button or keybind to target the entity in the center of your view. Configurable. 
+- Mouse button or keybind to target the entity in the center of your view. Configurable. Keybinds to target nearest grid, target previous grid, and target next grid. 
+(Defaults: R for nearest, B for previous, N for next. Hold Ctrl for hostiles only.). Also works for holo radar tables!
 
 - Huge optimizations for Radar and Holograms versus the original mod. 
 
@@ -443,12 +446,12 @@ DONE: Make it work in Third Person view, as well as for remote control, and turr
 
 DONE: Make [ELI_LOCAL] also show target hologram by setting a True/False value in CustomData.
 
-DONE: Make the holo tables also use targetNearest, nextTarget, and previousTarget keybinds. Control whichever holo table is nearest. 
+DONE: Make the holo tables also use targetNearest, nextTarget, and previousTarget keybinds. Control whichever holo table is nearest. (R for targetNearest, B for previous, N for next. Hold Ctrl for hostiles only.)
 
 DONE: Fix bug where sound emitter would not work both on foot and in seat.
 
 ## 2025-09-24 
-DONE: Add keybinds for next/previous/nearest target.
+DONE: Add keybinds for next/previous/nearest target. (R for targetNearest, B for previous, N for next. Hold Ctrl for hostiles only.)
 
 ## 2025-09-22
 DONE: Make the Clustering logic access of the allBlocksDict safer if a key no longer exists due to a block being removed. 
