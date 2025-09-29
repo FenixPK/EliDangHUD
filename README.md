@@ -438,6 +438,15 @@ public enum MyKeys : byte
 }
 
 # Changelog
+## 2025-09-28
+DONE: Make it work in Third Person view, as well as for remote control, and turrets.
+
+DONE: Make [ELI_LOCAL] also show target hologram by setting a True/False value in CustomData.
+
+DONE: Make the holo tables also use targetNearest, nextTarget, and previousTarget keybinds. Control whichever holo table is nearest. 
+
+DONE: Fix bug where sound emitter would not work both on foot and in seat.
+
 ## 2025-09-24 
 DONE: Add keybinds for next/previous/nearest target.
 
@@ -550,13 +559,32 @@ DONE: Local Grid and Target Grid holograms can have their views cycled. Ctrl mod
 
 DONE: Fix HasPowerProduction to check if batteries have stored power too. 
 
-DONE: Moved some functions back into Draw(), while calculating UI positions in UpdateAfterSimulation seemed like a good optimization, when grids are moving quickly it lags too far behind and causes UI to draw oddly. 
+DONE: Moved some functions back into Draw(), while calculating UI positions in UpdateAfterSimulation seemed like a good optimization, when grids are  moving quickly it lags too far behind and causes UI to draw oddly. 
 I suspect this would be even worse with speed mods allowing over 300m/s. I have left updating the radar detections themselves in UpdateAfterSimulation, and this should be fine. 
 
 DONE: Removed arbitrary DisplayName == "Stone" || DisplayName == null filter from radar entities return. In my testing this prevented asteroids of any type I spawned in from showing. 
 I'd like to do further settings to allow users to more specifically choose to filter our floating items of name 'Stone' for eg, or only voxels (asteroids and deposits) of certain types or sizes even. 
 
 # TODO
+TODO: Consider a personal on foot hologram, might help with making repairs?  Only select nearest with R, and only with welder selected? Maybe... Not sure how to do this since there isn't a customdata to be able to write size, offset etc.
+
+TODO: CIC table with [ELI_CIC]. Works just like any other holo radar regarding selecting target etc. But can use Alt+Numpad1-9 to pin the currently selected target, 
+this is done by saving it to the [ELI_CIC] CustomData (all of them if more than one) as PinTarget1=EntityID so on.
+Any holo radar table ([ELI_CIC] or [ELI_HOLO]) will parse the CustomData for PinTarget# entries on the first ELI_CIC table on the grid and store those in memory. If their radar pings within range include any of these, they will get a custom
+outline icon showing they are pinned. 
+This allows someone at a CIC table to select targets and view them at a nearby hologram table. Decide if worth pinning. Pin them. And then the rest of the ship will see this whether seated or not. 
+
+TODO: Stellar Cartography table with [ELI_CART]. Can zoom in or out (with +/- on numpad perhaps?) and view the entire system. Shows all planets. No asteroids. It will show grids within radar range of the local grid, AND if there are any
+grids on the same faction with overlapping active radar ranges they can relay data, I'd like to also make this work with laser antennas connecting two grids too. This way if you could do something like establish a relay network
+and see grids at a far away planet for eg. if a friendly grid there can detect them and relay the signal to you. Because of the zoom level, it will group grids together based on scale. 
+So when zoomed in it might be all grids within 1km, when zoomed out it might be within 10km. So you will get one blip for friendly, one blip for neutral, 
+one blip for hostile that shows the count of each size grid based on the icon tiers. 3xSG1, 1xSG2, 3xLG1 so on. Blip will be placed at the average position of all grids in the cluster. If friendly/hostile/neutral clusters overlap
+then just place one combined blip, the blip will cycle between the colors of friendly/neutral/hostile. And all ship size icons will show in order, friendly, hostile, neutral. 
+Can also plot nav waypoints. Thinking of using a button to start placement like star on the numpad. Which will place a cursor in the center of the holo cartography table you can move using the numpad 2, 4, 8, 6 keys. 
+Press Alt+1-9 to place up to 9 nav points Only the first one shows a marker (though all show on radar if within range). 
+Press star to cancel. Stores waypoints in customdata of the Cartography table and much like CIC all holo radars will display waypoints if within range. And any Eli_Hud will show a marker on screen for it with distance. As local grid
+gets within X meters of the waypoint it clears it and the next one will show if available. Just an idea right now... this could be tricky!
+
 TODO: Take a pass at the CustomCockpitLogic.cs and make sure all sliders/settings work, and add more as necessary.
 
 TODO: Consider a "recently damaged clusters" dictionary that can be used to animate squares being hit. eg. on damage add to dict, then within 0.5s to 1.0 seconds lerp to a bigger size then back, then remove from dict when complete or re-set if damaged again. 

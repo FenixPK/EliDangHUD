@@ -40,7 +40,7 @@ namespace EliDangHUD
         /// <summary>
         /// We find the entity the player is controlling and store it here, which is a cockpit or control block (or perhaps even a passenger seat?) This is an IMyCockpit entity only.
         /// </summary>
-        public IMyCockpit localGridControlledEntity;
+        public IMyTerminalBlock localGridControlledEntity;
 
         public ControlledEntityCustomData localGridControlledEntityCustomData;
 
@@ -70,6 +70,12 @@ namespace EliDangHUD
         /// Stores whether the player is in control of a grid (cockpit/seat)
         /// </summary>
         public bool isPlayerControlling;
+
+        /// <summary>
+        /// Stores whether the player is in control of a turret. 
+        /// </summary>
+        public bool isPlayerControllingTurret;
+
 
         //----THE GRID ITSELF----//
         /// <summary>
@@ -185,6 +191,8 @@ namespace EliDangHUD
         public Dictionary<Vector3I, HologramCustomDataTerminalPair> localGridHologramTerminalsData = new Dictionary<Vector3I, HologramCustomDataTerminalPair>();
         // TODO add shield generators from shield mods? Midnight something or other was a new one I saw?
 
+        public Dictionary<Vector3I, GridBlock> localGridSpecialBlocks = new Dictionary<Vector3I, GridBlock>();
+
         public Dictionary<Vector3I, IMyRadioAntenna> localGridAntennasDict = new Dictionary<Vector3I, IMyRadioAntenna>();
         public bool localGridHasPassiveRadar = false;
         public bool localGridHasActiveRadar = false;
@@ -193,6 +201,7 @@ namespace EliDangHUD
         public double maxRadarRange = 50000;
 
         public Dictionary<Vector3I, BlockCluster> localGridBlockClusters = new Dictionary<Vector3I, BlockCluster>();
+
         public Dictionary<Vector3I, Vector3I> localGridBlockToClusterMap = new Dictionary<Vector3I, Vector3I>();
         public int localGridClusterSize = 1;
         public bool localGridClustersNeedRefresh = false;
@@ -200,16 +209,13 @@ namespace EliDangHUD
 
 
 
-        //public List<ClusterBox> localGridBlockClusterSlices = new List<ClusterBox>();
-        //public Dictionary<Vector3I, int> localGridBlockToClusterSliceIndexMap = new Dictionary<Vector3I, int>(); // WIP, probably will re-factor the slice logic first before doing more.
-        public Dictionary<int, List<ClusterBox>> localGridFloorClusterSlices = new Dictionary<int, List<ClusterBox>>();
-        public Dictionary<int, Dictionary<Vector3I, int>> localGridBlockToFloorClusterSlicesMap = new Dictionary<int, Dictionary<Vector3I, int>>();
-        public bool localGridClusterSlicesNeedRefresh = false;
-
         public double localGridHologramActivationTime = 0;
         public double localGridHologramBootUpAlpha = 1;
 
         public int localGridMaxSpeed = 100;
+
+        public bool isWeaponCore = false;
+        public bool isAegisSystems = false;
 
 
 
@@ -260,6 +266,8 @@ namespace EliDangHUD
 
         public double targetGridHologramActivationTime = 0;
         public double targetGridHologramBootUpAlpha = 1;
+
+
 
 
         //----------------
@@ -630,6 +638,22 @@ namespace EliDangHUD
                         return BlockClusterType.HydrogenThruster;
                     }
                 }
+                IMyUpgradeModule upgradeModule = fatBlock as IMyUpgradeModule;
+                if (upgradeModule != null)
+                {
+                    if (blockDescription.Contains("fsd supercruise")) 
+                    {
+                        return BlockClusterType.FrameShiftDrive;
+                    }
+                    if (blockDescription.Contains("defense shield"))
+                    {
+                        return BlockClusterType.DefenseShield;
+                    }
+                    if (blockDescription.Contains("midnight shield systems")) 
+                    {
+                        return BlockClusterType.MidnightShield;
+                    }
+                }
 
                 // TODO Add the Shield type from perhaps midnight systems?
             }
@@ -661,6 +685,7 @@ namespace EliDangHUD
                 gridBlock.Block = block;
                 gridBlock.DrawPosition = blockScaledInvertedPosition;
                 gridBlock.LastCurrentIntegrity = block.Integrity;
+                gridBlock.ClusterType = GetClusterType(block);
 
                 localGridAllBlocksDict[block.Position] = gridBlock;
 
@@ -743,6 +768,12 @@ namespace EliDangHUD
                 {
                     localGridJumpDrivesDict[block.Position] = jumpDrive;
                 }
+
+                if (gridBlock.ClusterType != BlockClusterType.Structure) 
+                {
+                    localGridSpecialBlocks[block.Position] = gridBlock;
+                }
+                
 
                 localGridIntegrityNeedsRefresh = true;
 
@@ -1697,11 +1728,6 @@ namespace EliDangHUD
             localGridBlockToClusterMap.Clear();
             localGridClustersNeedRefresh = false;
 
-            // Local grid cluster slices
-            localGridFloorClusterSlices.Clear();
-            localGridBlockToFloorClusterSlicesMap.Clear();
-            localGridClusterSlicesNeedRefresh = false;
-
             // Local grid tanks/containers
             localGridHydrogenTanksDict.Clear();
             localGridOxygenTanksDict.Clear();
@@ -1781,32 +1807,30 @@ namespace EliDangHUD
         public void CheckForLocalGrid()
         {
             // Check if the player is currently controlling a grid entity, if so it becomes the local grid.
-            isPlayerControlling = IsLocalPlayerControllingGrid();
+            isPlayerControlling = IsLocalPlayerControllingEligibleEntity();
             if (isPlayerControlling)
             {
                 // Retrieve the current entity being controlled.
                 localGridControlledEntity = GetLocalPlayerControlledEntity(); // Store the controlled entity
                 if (localGridControlledEntity != null)
                 {
-                    IMyCockpit cockpit = localGridControlledEntity;
+                    IMyTerminalBlock controlledTerminal = localGridControlledEntity;
 
                     // At this point we know the player is controlling a seat that belongs to a grid entity or IsPlayerControlling would be false (remote control/no grid = false)
                     // We also know that they are controlling SOME entity or localGridControlledEntity would be null.
                     // So now we are checking if it is a cockpit block versus some seat that can't control the grid?
-                    if (localGrid != null && localGrid != cockpit.CubeGrid)
+                    if (localGrid != null && localGrid != controlledTerminal.CubeGrid)
                     {
                         // If the current grid we are controlling is not the same as the last local grid we were a part of we need to re-init everything.
                         ResetLocalGrid();
 
                         // We just reset everything so we re-store the localGridControlledEntity and the localGrid it belongs to.
-                        localGridControlledEntity = cockpit;
-                        localGrid = cockpit.CubeGrid;
-                        //MyLog.Default.WriteLine($"FENIX_HUD: Cleared old localGrid then Set localGrid = cockpit.CubeGrid");
+                        localGridControlledEntity = controlledTerminal;
+                        localGrid = controlledTerminal.CubeGrid;
                     }
                     else
                     {
                         localGrid = localGridControlledEntity.CubeGrid; // Store the parent CubeGrid of the controlled entity
-                        //MyLog.Default.WriteLine($"FENIX_HUD: Set localGrid = localGridControlledEntity.CubeGrid");
                     }
                 }
                 else
@@ -1884,6 +1908,7 @@ namespace EliDangHUD
                 gridBlock.Block = block;
                 gridBlock.DrawPosition = blockScaledInvertedPosition;
                 gridBlock.LastCurrentIntegrity = block.Integrity;
+                gridBlock.ClusterType = GetClusterType(block);
 
                 localGridAllBlocksDict[block.Position] = gridBlock;
 
@@ -1963,6 +1988,11 @@ namespace EliDangHUD
                 if (jumpDrive != null)
                 {
                     localGridJumpDrivesDict[block.Position] = jumpDrive;
+                }
+
+                if (gridBlock.ClusterType != BlockClusterType.Structure)
+                {
+                    localGridSpecialBlocks[block.Position] = gridBlock;
                 }
 
                 localGridCurrentIntegrity += block.Integrity;
@@ -2684,56 +2714,121 @@ namespace EliDangHUD
         /// Checks if the local player is currently controlling a grid entity, and that it is tagged correctly for the mod
         /// </summary>
         /// <returns></returns>
-        public bool IsLocalPlayerControllingGrid()
+        public bool IsLocalPlayerControllingEligibleEntity()
         {
-            IMyShipController controlledObj = MyAPIGateway.Session?.ControlledObject as IMyShipController;
-            if (controlledObj == null)
-            {
-                return false;
-            }
+            Sandbox.ModAPI.IMyCockpit cockpit = MyAPIGateway.Session?.ControlledObject as Sandbox.ModAPI.IMyCockpit;
+            Sandbox.ModAPI.IMyRemoteControl remote = MyAPIGateway.Session?.ControlledObject as Sandbox.ModAPI.IMyRemoteControl;
+            Sandbox.ModAPI.IMyUserControllableGun controlledGun = MyAPIGateway.Session?.ControlledObject as Sandbox.ModAPI.IMyUserControllableGun;
 
-            // Check if this is a Remote Control block
-            if (controlledObj is IMyRemoteControl)
+            if (cockpit != null)
             {
-                return false;
+                if (theSettings.useMainCockpitInsteadOfTag)
+                {
+                    if (cockpit.IsMainCockpit)
+                    {
+                        return true;
+                    }
+                }
+                else
+                {
+                    if (cockpit.CustomName.Contains("[ELI_HUD]"))
+                    {
+                        return true;
+                    }
+                }
+                //MyLog.Default.WriteLine($"FENIX_HUD: cockpit = {MyAPIGateway.Session?.ControlledObject}");
             }
-
-            // Get player's character
-            IMyCharacter character = MyAPIGateway.Session.Player?.Character;
-            if (character == null)
+            else if (remote != null)
             {
-                return false;
-            }
-
-            // If the player's character is not in the same grid, it means remote control
-            IMyCubeGrid charGrid = character.Parent as IMyCubeGrid;
-            if (charGrid != null && charGrid != controlledObj.CubeGrid)
-            {
-                return false;
-            }
-
-            IMyCockpit cockpit = controlledObj as IMyCockpit;
-            if (cockpit == null)
-            {
-                return false;
-            }
-
-            if (theSettings.useMainCockpitInsteadOfTag)
-            {
-                if (!cockpit.IsMainCockpit)
+                if (!theSettings.enableHudOnRemoteGrids) 
                 {
                     return false;
                 }
+                if (theSettings.useMainCockpitInsteadOfTag)
+                {
+                    if (remote.IsMainCockpit)
+                    {
+                        return true;
+                    }
+                }
+                else
+                {
+                    if (remote.CustomName.Contains("[ELI_HUD]"))
+                    {
+                        return true;
+                    }
+                }
+                //MyLog.Default.WriteLine($"FENIX_HUD: remote = {MyAPIGateway.Session?.ControlledObject}");
             }
-            else 
+            else if (controlledGun != null)
             {
-                if (!cockpit.CustomName.Contains("[ELI_HUD]")) 
+                if (!theSettings.enableHudInTurrets) 
                 {
                     return false;
                 }
+                if (controlledGun.CustomName.Contains("[ELI_HUD]"))
+                {
+                    return true;
+                }
+                //MyLog.Default.WriteLine($"FENIX_HUD: controlledGun = {MyAPIGateway.Session?.ControlledObject}");
             }
+            return false;
+            
 
-            return true; // Physically sitting in this grid
+
+            //VRage.Game.ModAPI.Interfaces.IMyControllableEntity controlledEntity = MyAPIGateway.Session?.ControlledObject;
+            //if (controlledEntity == null)
+            //{ 
+            //    return false; 
+            //}
+            //IMyShipController controlledObj = MyAPIGateway.Session?.ControlledObject as IMyShipController;
+            //if (controlledObj == null) // If a ship OR a turret then we can enable hud. 
+            //{
+            //    return false;
+            //}
+
+            //// Check if this is a Remote Control block
+            //if (controlledObj is IMyRemoteControl)
+            //{
+            //    return false;
+            //}
+
+            //// Get player's character
+            //IMyCharacter character = MyAPIGateway.Session.Player?.Character;
+            //if (character == null)
+            //{
+            //    return false;
+            //}
+
+            //// If the player's character is not in the same grid, it means remote control
+            //IMyCubeGrid charGrid = character.Parent as IMyCubeGrid;
+            //if (charGrid != null && charGrid != controlledObj.CubeGrid)
+            //{
+            //    return false;
+            //}
+
+            //IMyCockpit cockpit = controlledObj as IMyCockpit;
+            //if (cockpit == null)
+            //{
+            //    return false;
+            //}
+
+            //if (theSettings.useMainCockpitInsteadOfTag)
+            //{
+            //    if (!cockpit.IsMainCockpit)
+            //    {
+            //        return false;
+            //    }
+            //}
+            //else 
+            //{
+            //    if (!cockpit.CustomName.Contains("[ELI_HUD]")) 
+            //    {
+            //        return false;
+            //    }
+            //}
+
+            //return true; // Physically sitting in this grid
         }
 
         /// <summary>
@@ -2817,22 +2912,35 @@ namespace EliDangHUD
             return nearestGrid;
         }
 
+        public IMyLargeTurretBase GetLocalPlayerControlledTurret() 
+        {
+            IMyLargeTurretBase controlledTurret = MyAPIGateway.Session?.ControlledObject as IMyLargeTurretBase;
+            if (controlledTurret != null) // If a ship OR a turret then we can enable hud. 
+            {
+                return controlledTurret;
+            }
+            return null;
+        }
+
         /// <summary>
         /// Retrieves the current entity controlled by the local player, a cockpit or seat for eg. Only returns IMyCockpit entities to alleviate all the extra casts to IMyCockpit the original author was doing later on.
         /// </summary>
         /// <returns></returns>
-        public IMyCockpit GetLocalPlayerControlledEntity()
+        public IMyTerminalBlock GetLocalPlayerControlledEntity()
         {
             VRage.Game.ModAPI.Interfaces.IMyControllableEntity controlledEntity = MyAPIGateway.Session.ControlledObject;
-            IMyCockpit cockpit = controlledEntity?.Entity as IMyCockpit;
-            if (cockpit != null)
+            IMyTerminalBlock controlledTerminal = controlledEntity?.Entity as IMyTerminalBlock;
+            if (controlledTerminal != null) 
             {
-                return cockpit;
+                return controlledTerminal;
             }
-            else
-            {
-                return null;
-            }
+
+            //IMyCockpit cockpit = controlledEntity?.Entity as IMyCockpit;
+            //if (cockpit != null)
+            //{
+            //    return cockpit;
+            //}
+            return null;
         }
 
         /// <summary>
@@ -3786,6 +3894,10 @@ namespace EliDangHUD
             // Master
             theData.masterEnabled = ini.Get(mySection, "ScannerEnable").ToBoolean(true);
             ini.Set(mySection, "ScannerEnable", theData.masterEnabled.ToString());
+
+            // Third Person Hud
+            theData.enableHudInThirdPerson = ini.Get(mySection, "ScannerEnableThirdPerson").ToBoolean(true);
+            ini.Set(mySection, "ScannerEnableThirdPerson", theData.enableHudInThirdPerson.ToString());
 
             // Holograms Master
             theData.enableHolograms = ini.Get(mySection, "ScannerHolo").ToBoolean(true);

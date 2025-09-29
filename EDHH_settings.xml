@@ -3,6 +3,12 @@
   <useMainCockpitInsteadOfTag>false</useMainCockpitInsteadOfTag>
   <useMainCockpitInsteadOfTag_DESCRIPTION>If true the mod is enabled by setting seat as Main Cockpit instead of using a tag [ELI_HUD], for users who prefer the original method. 
  Note that with this setting enabled you can only have one HUD seat per grid. If you leave this disabled you can use the [ELI_HUD] tag on as many seats as you want.</useMainCockpitInsteadOfTag_DESCRIPTION>
+  <enableHudInThirdPerson>true</enableHudInThirdPerson>
+  <enableHudInThirdPerson_DESCRIPTION>Allow the HUD to show when in third person view controlling a grid (True/False)</enableHudInThirdPerson_DESCRIPTION>
+  <enableHudInTurrets>true</enableHudInTurrets>
+  <enableHudInTurrets_DESCRIPTION>Allow the HUD to show when controlling a turret</enableHudInTurrets_DESCRIPTION>
+  <enableHudOnRemoteGrids>true</enableHudOnRemoteGrids>
+  <enableHudOnRemoteGrids_DESCRIPTION>Allow the HUD to show when remote controlling a grid</enableHudOnRemoteGrids_DESCRIPTION>
   <maxRadarRangeGlobal>-1</maxRadarRangeGlobal>
   <maxRadarRange_DESCRIPTION>Max global radar range in meters, setting -1 will use the draw distance. Otherwise you can set a global maximum limit for the radar range. 
  I think you could technically exceed the games 50km limit in radar scale, but there is a hard limit at the 50km antenna broadcast range for detecting.</maxRadarRange_DESCRIPTION>
@@ -37,9 +43,9 @@ Adjusting this value can affect the precision of radar zoom levels.</rangeBracke
   </lineColorDefault>
   <lineColorDefault_DESCRIPTION>Default color of the HUD lines, used for rendering circles and other shapes.</lineColorDefault_DESCRIPTION>
   <starPos>
-    <X>0</X>
-    <Y>0</Y>
-    <Z>0</Z>
+    <X>11832963.046332523</X>
+    <Y>68888110.0184581</Y>
+    <Z>-71515103.308922082</Z>
   </starPos>
   <starPos_DESCRIPTION>Position of the star. No idea if we need to change this for "RealStars" mod or not.</starPos_DESCRIPTION>
   <starFollowSky>true</starFollowSky>
@@ -69,6 +75,12 @@ Others prefer a more realistic environment with this off so you can hide in the 
   <selectTargetMouseButton_DESCRIPTION>Mouse button to use: 0 = Left, 1 = Right, 2 = Middle. (Default is Right)</selectTargetMouseButton_DESCRIPTION>
   <selectTargetKey>84</selectTargetKey>
   <selectTargetKey_DESCRIPTION>Key to select target, if mouse button is disabled (Default is T)</selectTargetKey_DESCRIPTION>
+  <targetNearestGridKey>82</targetNearestGridKey>
+  <selectNearestGrid_DESCRIPTION>Key to target nearest hostile grid (Default is R), or if Shift is held nearest grid (0-254, see GitHub Readme Keybindings section for details)</selectNearestGrid_DESCRIPTION>
+  <targetNextGridKey>78</targetNextGridKey>
+  <selectNextGrid_DESCRIPTION>Key to target next hostile grid (Default is N), or if Shift is held next grid (0-254, see GitHub Readme Keybindings section for details)</selectNextGrid_DESCRIPTION>
+  <targetPreviousGridKey>66</targetPreviousGridKey>
+  <selectPreviousGrid_DESCRIPTION>Key to target previous hostile grid (Default is B), or if Shift is held previous grid (0-254, see GitHub Readme Keybindings section for details)</selectPreviousGrid_DESCRIPTION>
   <rotateLeftKey>100</rotateLeftKey>
   <rotateLeftKey_DESCRIPTION>Key to rotate the static hologram view in the +X axis (Ctrl modifier changes local hologram, no Ctrl changes target, Default is NumPad4)</rotateLeftKey_DESCRIPTION>
   <rotateRightKey>102</rotateRightKey>
@@ -116,7 +128,7 @@ Others prefer a more realistic environment with this off so you can hide in the 
   <blockCLusterAddlMax_DESCRIPTION>The value to add to get the max cluster range. eg. for a grid identified as clusterSize = 2, the max would be 3 if this value is 1, meaning it would start at 3x3x3 clusters and size down where sparse.</blockCLusterAddlMax_DESCRIPTION>
   <blockClusterAddlMin>1</blockClusterAddlMin>
   <blockCLusterAddlMin_DESCRIPTION>The value to subtract to get the min cluster range. eg. for a grid identified as clusterSize = 3, the min would be 2 if this value is 1, meaning it wouldn't go smaller than 2x2x2 clusters for sparse regions.</blockCLusterAddlMin_DESCRIPTION>
-  <clusterSplitThreshold>0.33</clusterSplitThreshold>
+  <clusterSplitThreshold>0.5</clusterSplitThreshold>
   <clusterSplitThreshold_DESCRIPTION>The fill ratio threshold at which a larger block cluster will be split into smaller clusters. Eg at 0.33 (33%) a larger cluster will only break down to smaller clusters if less than 33% full. 
  So for a 3x3x3 cluster at 8/27 blocks it will break to smaller 2x2x2 and 1x1x1 clusters. At 9/27 blocks it will show as one 3x3x3 cluster. Combined with the blockCountClusterStep this allows drawing larger grids at larger cluster sizes with 
  less fidelity but more performance by reducing the number of block squares drawn on screen. By tweaking the splitThreshold we can add fidelity for sparse clusters, while allowing larger clusters for the rest of the grid.</clusterSplitThreshold_DESCRIPTION>
@@ -130,4 +142,8 @@ Others prefer a more realistic environment with this off so you can hide in the 
 Then it will start a rebuild and process clusterRebuildClustersPerTick clusters each tick. 
  If another add/removal occurs that process stops, and only restarts after this number of ticks have passed. 
  Lowering this values will increase the speed at which the hologram reprocess starts. </ticksUntilClusterRebuildAfterChange_DESCRIPTION>
+  <maxSpeedSmallGrid>100</maxSpeedSmallGrid>
+  <maxSpeedSmallGrid_DESCRIPTION>The max speed in m/s for small grids. Default is 100. Set this manually to match any speed mods you may have, for RelativeTopSpeed I suggest the max with boost.</maxSpeedSmallGrid_DESCRIPTION>
+  <maxSpeedLargeGrid>100</maxSpeedLargeGrid>
+  <maxSpeedLargeGrid_DESCRIPTION>The max speed in m/s for large grids. Default is 100. Set this manually to match any speed mods you may have, for RelativeTopSpeed I suggest the max with boost.</maxSpeedLargeGrid_DESCRIPTION>
 </ModSettings>

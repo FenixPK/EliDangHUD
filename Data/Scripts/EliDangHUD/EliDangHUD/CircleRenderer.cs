@@ -229,9 +229,11 @@ namespace EliDangHUD
         HydrogenTank = 14,
         OxygenTank = 15,
         JumpDrive = 16,
-        Shield = 17,
+        DefenseShield = 17,
         SolarPanel = 18,
-        PowerProducer = 19
+        PowerProducer = 19,
+        FrameShiftDrive = 20,
+        MidnightShield = 21
     }
 
     /// <summary>
@@ -314,6 +316,24 @@ namespace EliDangHUD
 		public bool useMainCockpitInsteadOfTag = false;
 		public string useMainCockpitInsteadOfTag_DESCRIPTION = "If true the mod is enabled by setting seat as Main Cockpit instead of using a tag [ELI_HUD], for users who prefer the original method. \r\n " +
 			"Note that with this setting enabled you can only have one HUD seat per grid. If you leave this disabled you can use the [ELI_HUD] tag on as many seats as you want. (True/False)";
+
+        /// <summary>
+        /// If true the HUD will render when in third person view too.
+        /// </summary>
+        public bool enableHudInThirdPerson = true;
+        public string enableHudInThirdPerson_DESCRIPTION = "Allow the HUD to show when in third person view controlling a grid (True/False)";
+
+        /// <summary>
+        /// If true the HUD will render when in turrets too.
+        /// </summary>
+        public bool enableHudInTurrets = true;
+        public string enableHudInTurrets_DESCRIPTION = "Allow the HUD to show when controlling a turret";
+
+        /// <summary>
+        /// If true the HUD will render when remote controlling grids too.
+        /// </summary>
+        public bool enableHudOnRemoteGrids = true;
+        public string enableHudOnRemoteGrids_DESCRIPTION = "Allow the HUD to show when remote controlling a grid";
 
         /// <summary>
         /// Max global radar range, setting -1 will use the draw distance. Otherwise you can set a global maximum limit for the radar range. 
@@ -602,6 +622,7 @@ namespace EliDangHUD
     public class ControlledEntityCustomData
     {
         public bool masterEnabled = true;
+        public bool enableHudInThirdPerson = true;
         public bool enableHolograms = true;
         public bool enableHologramsLocalGrid = true;
         public bool enableHologramsTargetGrid = true;
@@ -861,9 +882,18 @@ namespace EliDangHUD
             _isWeaponCore = isWeaponCorePresent;
 			return isWeaponCorePresent;
 		}
+
+        private bool _isAegisSystems = false;
+        public bool IsAegisSystemsLoaded()
+        {
+            //https://steamcommunity.com/sharedfiles/filedetails/?id=2741658601
+            bool isAegisSystemsPresent = MyAPIGateway.Session.Mods.Any(mod => mod.PublishedFileId == 2741658601); // Replace with actual AegisSystems ID (as of 2025-09-26 this is accurate)
+            _isAegisSystems = isAegisSystemsPresent;
+            return isAegisSystemsPresent;
+        }
         //=============================================================================================================================
 
-        
+
         //=====================SYNC SETTINGS WITH CLIENTS===============================================================================
         //This entire section is a complete nightmare. Holy moly, I'm out of my depth.
         //I really hope this works.
@@ -1074,7 +1104,8 @@ namespace EliDangHUD
 
             string helpString1 = @"Type ""/elidang <setting_name> <value>"" to set global settings. Type ""/elidang <setting_name> help"" for information on the command, <setting_name> is not case sensitive. ";
               
-            string helpString2 = "Valid settings: useMainCockpitInsteadOfTag,  maxRadarRangeGlobal,  rangeBracketDistance,  maxPings,  useSigIntLite,  holoTableRenderDistance,  fadeThreshold,  " +
+            string helpString2 = "Valid settings: useMainCockpitInsteadOfTag,  enableHudInThirdPerson,  enableHudInTurrets,  enableHudOnRemoteGrids,  maxRadarRangeGlobal,  " +
+                "rangeBracketDistance,  maxPings,  useSigIntLite,  holoTableRenderDistance,  fadeThreshold,  " +
                 "lineThickness,  lineDetail,  lineColorDefault,  starFollowSky,  enableGridFlares,  enableCockpitDust,  enableVisor,  enableVelocityLines,  enablePlanetOrbits,  " +
                 "enableHologramsGlobal,  useHollowReticle,  minTargetBlocksCount,  useMouseTargetSelect,  selectTargetMouseButton,  selectTargetKey,  rotateLeftKey,  rotateRightKey,  " +
                 "rotateUpKey,  rotateDownKey,  rotatePosZKey,  rotateNegZKey,  resetKey,  orbitViewKey,  perspectiveViewKey,  largeGridSizeOneMaxBlocks,  largeGridSizeTwoMaxBlocks,  " +
@@ -1118,6 +1149,72 @@ namespace EliDangHUD
                     {
                         theSettings.useMainCockpitInsteadOfTag = valueBool;
                         MyAPIGateway.Utilities.ShowMessage("EliDang", $"useMainCockpitInsteadOfTag set to {valueBool}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("enablehudinthirdperson"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"enableHudInThirdPerson: {settingDescriptions.enableHudInThirdPerson_DESCRIPTION}");
+                        return;
+                    }
+
+                    bool valueBool;
+                    if (bool.TryParse(value, out valueBool))
+                    {
+                        theSettings.enableHudInThirdPerson = valueBool;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"enableHudInThirdPerson set to {valueBool}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("enablehudinturrets"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"enableHudInTurrets: {settingDescriptions.enableHudInTurrets_DESCRIPTION}");
+                        return;
+                    }
+
+                    bool valueBool;
+                    if (bool.TryParse(value, out valueBool))
+                    {
+                        theSettings.enableHudInTurrets = valueBool;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"enableHudInTurrets set to {valueBool}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
+
+                if (setting.Equals("enablehudonremotegrids"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"enableHudOnRemoteGrids: {settingDescriptions.enableHudOnRemoteGrids_DESCRIPTION}");
+                        return;
+                    }
+
+                    bool valueBool;
+                    if (bool.TryParse(value, out valueBool))
+                    {
+                        theSettings.enableHudOnRemoteGrids = valueBool;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"enableHudOnRemoteGrids set to {valueBool}");
                         return;
                     }
                     else
@@ -2768,7 +2865,8 @@ namespace EliDangHUD
 		public Vector3D _cameraPosition;
 
         public MatrixD _headMatrix;
-        public Vector3D _headPosition;
+        public Vector3D _headPositionRelativeToSeat;
+        public Vector3D _headPositionWorld;
 
         public Vector3D _powerLoadCurrentPercentPosition;
 		public Vector3D _powerLoadCurrentPercentDirection;
@@ -2815,8 +2913,27 @@ namespace EliDangHUD
 
             //Head Location=================================================
             // Get the player's character entity
-            _headPosition = Vector3D.Zero;
+            _headPositionRelativeToSeat = Vector3D.Zero;
             IMyCharacter character = MyAPIGateway.Session.Player.Character;
+            bool isPlayerFirstPerson = character.IsInFirstPersonView;
+            bool isFirstPerson = true;
+
+            Sandbox.ModAPI.IMyCockpit cockpit = gHandler.localGridControlledEntity as Sandbox.ModAPI.IMyCockpit;
+            Sandbox.ModAPI.IMyRemoteControl remote = gHandler.localGridControlledEntity as Sandbox.ModAPI.IMyRemoteControl;
+            Sandbox.ModAPI.IMyUserControllableGun controlledGun = gHandler.localGridControlledEntity as Sandbox.ModAPI.IMyUserControllableGun;
+
+            if (cockpit != null)
+            {
+                isFirstPerson = cockpit.IsInFirstPersonView;
+            }
+            else if (remote != null)
+            {
+                isFirstPerson = false;
+            }
+            else if (controlledGun != null)
+            {
+                isFirstPerson = false;
+            }
 
             // TODO check for third person and draw in front of camera instead of head if so.
             if (character != null)
@@ -2825,18 +2942,37 @@ namespace EliDangHUD
                 _headMatrix = character.GetHeadMatrix(true);
 
                 // Get the head position from the head matrix
-                _headPosition = _headMatrix.Translation;
-                _headPosition -= gHandler.localGridControlledEntity.GetPosition();
+                _headPositionWorld = _headMatrix.Translation;
+                _headPositionRelativeToSeat = _headMatrix.Translation;
+                _headPositionRelativeToSeat -= gHandler.localGridControlledEntity.GetPosition();
+
             }
-			//==============================================================
+            //==============================================================
 
 
-			// COCKPIT RADAR SCREEN POSITION AND OFFSET //
-			// Apply the radar offset to the ship's position
-			radarMatrix = gHandler.localGridControlledEntity.WorldMatrix; // Set the radar matrix = the localGrid controlled entity matrix, ie. the cockpit or control seat.
-            worldRadarPos = Vector3D.Transform(gHandler.localGridControlledEntityCustomData.radarOffset, radarMatrix) + _headPosition;
+            // COCKPIT RADAR SCREEN POSITION AND OFFSET //
+            // Apply the radar offset to the ship's position
+            if (!isFirstPerson && theSettings.enableHudInThirdPerson && gHandler.localGridControlledEntityCustomData.enableHudInThirdPerson)
+            {
+                radarMatrix = _cameraMatrix;
+                worldRadarPos = Vector3D.Transform(gHandler.localGridControlledEntityCustomData.radarOffset, radarMatrix);
+            }
+            else 
+            {
+                if (isPlayerFirstPerson)
+                {
+                    radarMatrix = gHandler.localGridControlledEntity.WorldMatrix; // Set the radar matrix = the localGrid controlled entity matrix, ie. the cockpit or control seat.
+                    worldRadarPos = Vector3D.Transform(gHandler.localGridControlledEntityCustomData.radarOffset, radarMatrix) + _headPositionRelativeToSeat;
+                }
+                else
+                {
+                    radarMatrix = _cameraMatrix;
+                    worldRadarPos = Vector3D.Transform(gHandler.localGridControlledEntityCustomData.radarOffset, radarMatrix);
+                }
+               
+            }
 
-           
+
             // Positions
             // Power Load / Power Remaining
             _powerLoadCurrentPercentPosition = worldRadarPos + (radarMatrix.Forward * gHandler.localGridControlledEntityCustomData.radarRadius * 0.4) + (radarMatrix.Left * gHandler.localGridControlledEntityCustomData.radarRadius * 1.3) + (radarMatrix.Up * 0.0085);
@@ -3402,6 +3538,8 @@ namespace EliDangHUD
 				{
 					InitWeaponCore();
 				}
+                IsAegisSystemsLoaded(); // For the Aegis Systems shield provider that EliDang was originally compatible with. 
+
                 _modInitialized = true;
             }
 
@@ -3413,6 +3551,8 @@ namespace EliDangHUD
             if (gHandler != null)
             {
                 gHandler.theSettings = theSettings; // Keep settings in sync
+                gHandler.isWeaponCore = _isWeaponCore;
+                gHandler.isAegisSystems = _isAegisSystems;
                 gHandler.CheckForLocalGrid(); // Check if we are controlling or near enough to a grid to set the localGrid to it.
                 gHandler.UpdateLocalGrid(); // Always update current grid each tick
             }
@@ -3707,7 +3847,7 @@ namespace EliDangHUD
 			isSeated = true;
             radarScaleRange_CurrentLogin = 0.001;
             gHandler.localGridGlitchAmountOverload = 0.25;
-            PlayCustomSound(SP_BOOTUP, worldRadarPos);
+            PlayCustomSound(SP_BOOTUP, _headPositionRelativeToSeat);
 		}
 
         /// <summary>
@@ -5996,6 +6136,24 @@ namespace EliDangHUD
 		private List<queuedSound> queuedSounds = new List<queuedSound>();
 
         /// <summary>
+        /// Play queued sounds
+        /// </summary>
+		public void PlayQueuedSounds()
+        {
+            foreach (queuedSound qs in queuedSounds)
+            {
+
+                if (ED_soundEmitter != null && qs.soundId != null && soundEntity != null)
+                {
+                    ED_soundEmitter.SetPosition(qs.position);
+                    ED_soundEmitter.PlaySound(qs.soundId);
+                }
+            }
+
+            queuedSounds.Clear();
+        }
+
+        /// <summary>
         /// Play a custom sound at the specified position.
         /// </summary>
         /// <param name="soundId"></param>
@@ -6007,9 +6165,15 @@ namespace EliDangHUD
 			{
 				timerElapsedTimeSinceLastSound.Start();
 			}
+            // Always refresh the emitter’s entity to match what the player is controlling now
+            VRage.ModAPI.IMyEntity controlledEntity = MyAPIGateway.Session?.Player?.Controller?.ControlledEntity?.Entity;
+            if (controlledEntity != null) 
+            {
+                ED_soundEmitter.Entity = controlledEntity as VRage.Game.Entity.MyEntity;
+            }
 
-			// Only play one sound per 0.05 seconds.
-			if (timerElapsedTimeSinceLastSound.Elapsed.TotalSeconds > 0.05) 
+            // Only play one sound per 0.05 seconds.
+            if (timerElapsedTimeSinceLastSound.Elapsed.TotalSeconds > 0.05) 
 			{
 				ED_soundEmitter.SetPosition(position);
 				ED_soundEmitter.PlaySound(soundId);
@@ -6018,23 +6182,7 @@ namespace EliDangHUD
 			}
 		}
 
-        /// <summary>
-        /// Play queued sounds
-        /// </summary>
-		public void PlayQueuedSounds()
-		{
-			foreach(queuedSound qs in queuedSounds)
-			{
-
-				if (ED_soundEmitter != null && qs.soundId != null && soundEntity != null)
-				{
-					ED_soundEmitter.SetPosition (qs.position);
-					ED_soundEmitter.PlaySound (qs.soundId);
-				}
-			}
-
-			queuedSounds.Clear ();
-		}
+        
 
         /// <summary>
         /// Initialize the audio and set the files to use
@@ -6043,7 +6191,7 @@ namespace EliDangHUD
 		{
 			soundEntity = MyAPIGateway.Session.LocalHumanPlayer?.Controller?.ControlledEntity?.Entity;
 
-			ED_soundEmitter = 	new MyEntity3DSoundEmitter (soundEntity as VRage.Game.Entity.MyEntity, false, 0.01f);
+			ED_soundEmitter = 	new MyEntity3DSoundEmitter(soundEntity as VRage.Game.Entity.MyEntity, false, 0.01f);
 			ED_soundEmitter.Entity = soundEntity as VRage.Game.Entity.MyEntity;
 
 			SP_DAMAGE = 	new MySoundPair(SOUND_DAMAGE);
@@ -6635,6 +6783,17 @@ namespace EliDangHUD
             MyKeys targetNextGrid = (MyKeys)theSettings.targetNextGridKey;
             MyKeys targetPreviousGrid = (MyKeys)theSettings.targetPreviousGridKey;
 
+            bool isChatOpen = MyAPIGateway.Gui.ChatEntryVisible;
+            bool isAnyHudScreenOpen = MyAPIGateway.Gui.IsCursorVisible;
+
+            if (isAnyHudScreenOpen) 
+            {
+                return;
+            }
+            if (isChatOpen) 
+            {
+                return;
+            }
 
 
             if (IsSelectTargetPressed() && gHandler.localGrid != null && gHandler.localGridInitialized)
@@ -6897,15 +7056,65 @@ namespace EliDangHUD
                 if (gHandler.localGridControlledEntity == null || !gHandler.localGridControlledEntityInitialized)
                 {
                     // If we have a holo table we can use it's data to help determine valid targets.
-                    Vector3I nearestHoloRadarKey = GetNearestHoloRadarKeyToPlayer();
-                    HoloRadarCustomData theData = new HoloRadarCustomData();
-                    HoloRadarCustomDataTerminalPair dataPair;
-                    bool onlyPowered = true;
-                    if (gHandler.localGridRadarTerminalsData.TryGetValue(nearestHoloRadarKey, out dataPair))
+                    Vector3I? nearestHoloRadarKey = GetNearestHoloRadarKeyToPlayer();
+                    if (nearestHoloRadarKey != null) 
                     {
+                        Vector3I theHoloTable = nearestHoloRadarKey ?? Vector3I.Zero;
+                        HoloRadarCustomData theData = new HoloRadarCustomData();
+                        HoloRadarCustomDataTerminalPair dataPair;
+                        bool onlyPowered = true;
+                        if (!gHandler.localGridRadarTerminalsData.TryGetValue(theHoloTable, out dataPair))
+                        {
+                            return;
+                        }
+                        Sandbox.ModAPI.IMyTerminalBlock holoTable = null;
+                        if (!gHandler.localGridRadarTerminals.TryGetValue(theHoloTable, out holoTable)) 
+                        {
+                            return;
+                        }
                         theData = dataPair.HoloRadarCustomData;
                         onlyPowered = theData.scannerOnlyPoweredGrids;
+                        Vector3D holoTablePos = holoTable.GetPosition();
+
+                        if (shift)
+                        {
+                            if (sortedHostileRadarPings.Count == 0)
+                            {
+                                return;
+                            }
+                            VRage.ModAPI.IMyEntity nearestTarget = sortedHostileRadarPings.FirstOrDefault(e =>
+                            {
+                                VRage.Game.ModAPI.IMyCubeGrid grid = e as VRage.Game.ModAPI.IMyCubeGrid;
+                                return grid != null && (!onlyPowered || HasPowerProduction(grid));
+                            });
+                            if (nearestTarget != null && nearestTarget != gHandler.targetGrid)
+                            {
+                                LockTarget(nearestTarget);
+                            }
+                        }
+                        else
+                        {
+                            if (sortedRadarPings.Count == 0)
+                            {
+                                return;
+                            }
+                            VRage.ModAPI.IMyEntity nearestTarget = sortedRadarPings.FirstOrDefault(e =>
+                            {
+                                VRage.Game.ModAPI.IMyCubeGrid grid = e as VRage.Game.ModAPI.IMyCubeGrid;
+                                return grid != null && (!onlyPowered || HasPowerProduction(grid));
+                            });
+                            if (nearestTarget != null && nearestTarget != gHandler.targetGrid)
+                            {
+                                LockTarget(nearestTarget);
+                            }
+                        }
                     }
+                }
+                else 
+                {
+                    bool onlyPowered = gHandler.localGridControlledEntityCustomData.scannerOnlyPoweredGrids;
+                    
+                    // Directly controlling a grid, use the seat logic.
                     if (shift)
                     {
                         if (sortedHostileRadarPings.Count == 0)
@@ -6938,34 +7147,6 @@ namespace EliDangHUD
                             LockTarget(nearestTarget);
                         }
                     }
-                }
-                else 
-                {
-                    // Directly controlling a grid, use the seat logic.
-                    if (shift)
-                    {
-                        if (sortedHostileRadarPings.Count == 0)
-                        {
-                            return;
-                        }
-                        VRage.ModAPI.IMyEntity nearestTarget = sortedHostileRadarPings.First<VRage.ModAPI.IMyEntity>();
-                        if (nearestTarget != null && nearestTarget != gHandler.targetGrid)
-                        {
-                            LockTarget(nearestTarget);
-                        }
-                    }
-                    else
-                    {
-                        if (sortedRadarPings.Count == 0)
-                        {
-                            return;
-                        }
-                        VRage.ModAPI.IMyEntity nearestTarget = sortedRadarPings.First<VRage.ModAPI.IMyEntity>();
-                        if (nearestTarget != null && nearestTarget != gHandler.targetGrid)
-                        {
-                            LockTarget(nearestTarget);
-                        }
-                    }
                 } 
             }
             if (MyAPIGateway.Input.IsNewKeyPressed(targetNextGrid) && gHandler.localGrid != null && gHandler.localGridInitialized)
@@ -6973,15 +7154,148 @@ namespace EliDangHUD
                 if (gHandler.localGridControlledEntity == null || !gHandler.localGridControlledEntityInitialized)
                 {
                     // If we have a holo table we can use it's data to help determine valid targets.
-                    Vector3I nearestHoloRadarKey = GetNearestHoloRadarKeyToPlayer();
-                    HoloRadarCustomData theData = new HoloRadarCustomData();
-                    HoloRadarCustomDataTerminalPair dataPair;
-                    bool onlyPowered = true;
-                    if (gHandler.localGridRadarTerminalsData.TryGetValue(nearestHoloRadarKey, out dataPair))
+                    Vector3I? nearestHoloRadarKey = GetNearestHoloRadarKeyToPlayer();
+                    if (nearestHoloRadarKey != null)
                     {
+                        Vector3I theHoloTable = nearestHoloRadarKey ?? Vector3I.Zero;
+                        HoloRadarCustomData theData = new HoloRadarCustomData();
+                        HoloRadarCustomDataTerminalPair dataPair;
+                        bool onlyPowered = true;
+                        if (!gHandler.localGridRadarTerminalsData.TryGetValue(theHoloTable, out dataPair))
+                        {
+                            return;
+                        }
+                        Sandbox.ModAPI.IMyTerminalBlock holoTable = null;
+                        if (!gHandler.localGridRadarTerminals.TryGetValue(theHoloTable, out holoTable))
+                        {
+                            return;
+                        }
                         theData = dataPair.HoloRadarCustomData;
                         onlyPowered = theData.scannerOnlyPoweredGrids;
+                        Vector3D holoTablePos = holoTable.GetPosition();
+                        if (shift)
+                        {
+                            if (sortedHostileRadarPings.Count == 0)
+                            {
+                                return;
+                            }
+                            VRage.ModAPI.IMyEntity nextTarget = null;
+                            if (gHandler.targetGrid != null)
+                            {
+                                int currentIndex = sortedHostileRadarPings.IndexOf(gHandler.targetGrid);
+                                if (currentIndex != -1)
+                                {
+                                    int indexToSelect = (currentIndex + 1);
+                                    if (indexToSelect >= sortedHostileRadarPings.Count)
+                                    {
+                                        nextTarget = sortedHostileRadarPings.FirstOrDefault(e =>
+                                        {
+                                            VRage.Game.ModAPI.IMyCubeGrid grid = e as VRage.Game.ModAPI.IMyCubeGrid;
+                                            return grid != null && (!onlyPowered || HasPowerProduction(grid));
+                                        });
+                                    }
+                                    else
+                                    {
+                                        for (int i = 0; i < sortedHostileRadarPings.Count; i++)
+                                        {
+                                            int idx = (indexToSelect + i) % sortedHostileRadarPings.Count;
+                                            VRage.Game.ModAPI.IMyCubeGrid candidate = sortedHostileRadarPings[idx] as VRage.Game.ModAPI.IMyCubeGrid;
+                                            if (candidate != null && (!onlyPowered || HasPowerProduction(candidate)))
+                                            {
+                                                nextTarget = candidate;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    nextTarget = sortedHostileRadarPings.FirstOrDefault(e =>
+                                    {
+                                        VRage.Game.ModAPI.IMyCubeGrid grid = e as VRage.Game.ModAPI.IMyCubeGrid;
+                                        return grid != null && (!onlyPowered || HasPowerProduction(grid));
+                                    });
+                                }
+                            }
+                            else
+                            {
+                                nextTarget = sortedHostileRadarPings.FirstOrDefault(e =>
+                                {
+                                    VRage.Game.ModAPI.IMyCubeGrid grid = e as VRage.Game.ModAPI.IMyCubeGrid;
+                                    return grid != null && (!onlyPowered || HasPowerProduction(grid));
+                                });
+                            }
+
+                            if (nextTarget != null)
+                            {
+                                LockTarget(nextTarget);
+                            }
+                        }
+                        else
+                        {
+                            // Use seated logic
+                            if (sortedRadarPings.Count == 0)
+                            {
+                                return;
+                            }
+                            VRage.ModAPI.IMyEntity nextTarget = null;
+                            if (gHandler.targetGrid != null)
+                            {
+                                int currentIndex = sortedRadarPings.IndexOf(gHandler.targetGrid);
+                                if (currentIndex != -1)
+                                {
+                                    int indexToSelect = (currentIndex + 1);
+                                    if (indexToSelect >= sortedRadarPings.Count)
+                                    {
+                                        nextTarget = sortedRadarPings.FirstOrDefault(e =>
+                                        {
+                                            VRage.Game.ModAPI.IMyCubeGrid grid = e as VRage.Game.ModAPI.IMyCubeGrid;
+                                            return grid != null && (!onlyPowered || HasPowerProduction(grid));
+                                        });
+                                    }
+                                    else
+                                    {
+                                        for (int i = 0; i < sortedRadarPings.Count; i++)
+                                        {
+                                            int idx = (indexToSelect + i) % sortedRadarPings.Count;
+                                            VRage.Game.ModAPI.IMyCubeGrid candidate = sortedRadarPings[idx] as VRage.Game.ModAPI.IMyCubeGrid;
+                                            if (candidate != null && (!onlyPowered || HasPowerProduction(candidate)))
+                                            {
+                                                nextTarget = candidate;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    nextTarget = sortedRadarPings.FirstOrDefault(e =>
+                                    {
+                                        VRage.Game.ModAPI.IMyCubeGrid grid = e as VRage.Game.ModAPI.IMyCubeGrid;
+                                        return grid != null && (!onlyPowered || HasPowerProduction(grid));
+                                    });
+                                }
+                            }
+                            else
+                            {
+                                nextTarget = sortedRadarPings.FirstOrDefault(e =>
+                                {
+                                    VRage.Game.ModAPI.IMyCubeGrid grid = e as VRage.Game.ModAPI.IMyCubeGrid;
+                                    return grid != null && (!onlyPowered || HasPowerProduction(grid));
+                                });
+                            }
+
+                            if (nextTarget != null)
+                            {
+                                LockTarget(nextTarget);
+                            }
+                        }
                     }
+                    
+                }
+                else 
+                {
+                    bool onlyPowered = gHandler.localGridControlledEntityCustomData.scannerOnlyPoweredGrids;
                     if (shift)
                     {
                         if (sortedHostileRadarPings.Count == 0)
@@ -7074,7 +7388,6 @@ namespace EliDangHUD
                                             break;
                                         }
                                     }
-                                   // nextTarget = sortedRadarPings[indexToSelect];
                                 }
                             }
                             else
@@ -7101,83 +7414,6 @@ namespace EliDangHUD
                         }
                     }
                 }
-                else 
-                {
-                    if (shift)
-                    {
-                        if (sortedHostileRadarPings.Count == 0)
-                        {
-                            return;
-                        }
-                        VRage.ModAPI.IMyEntity nextTarget;
-                        if (gHandler.targetGrid != null)
-                        {
-                            int currentIndex = sortedHostileRadarPings.IndexOf(gHandler.targetGrid);
-                            if (currentIndex != -1)
-                            {
-                                int indexToSelect = (currentIndex + 1);
-                                if (indexToSelect >= sortedHostileRadarPings.Count)
-                                {
-                                    nextTarget = sortedHostileRadarPings.First<VRage.ModAPI.IMyEntity>();
-                                }
-                                else
-                                {
-                                    nextTarget = sortedHostileRadarPings[indexToSelect];
-                                }
-                            }
-                            else
-                            {
-                                nextTarget = sortedHostileRadarPings.First<VRage.ModAPI.IMyEntity>();
-                            }
-                        }
-                        else
-                        {
-                            nextTarget = sortedHostileRadarPings.First<VRage.ModAPI.IMyEntity>();
-                        }
-
-                        if (nextTarget != null)
-                        {
-                            LockTarget(nextTarget);
-                        }
-                    }
-                    else
-                    {
-                        if (sortedRadarPings.Count == 0)
-                        {
-                            return;
-                        }
-                        VRage.ModAPI.IMyEntity nextTarget;
-                        if (gHandler.targetGrid != null)
-                        {
-                            int currentIndex = sortedRadarPings.IndexOf(gHandler.targetGrid);
-                            if (currentIndex != -1)
-                            {
-                                int indexToSelect = (currentIndex + 1);
-                                if (indexToSelect >= sortedRadarPings.Count)
-                                {
-                                    nextTarget = sortedRadarPings.First<VRage.ModAPI.IMyEntity>();
-                                }
-                                else
-                                {
-                                    nextTarget = sortedRadarPings[indexToSelect];
-                                }
-                            }
-                            else
-                            {
-                                nextTarget = sortedRadarPings.First<VRage.ModAPI.IMyEntity>();
-                            }
-                        }
-                        else
-                        {
-                            nextTarget = sortedRadarPings.First<VRage.ModAPI.IMyEntity>();
-                        }
-
-                        if (nextTarget != null)
-                        {
-                            LockTarget(nextTarget);
-                        }
-                    }
-                }
                 
             }
             if (MyAPIGateway.Input.IsNewKeyPressed(targetPreviousGrid) && gHandler.localGrid != null && gHandler.localGridInitialized)
@@ -7185,15 +7421,150 @@ namespace EliDangHUD
                 if (gHandler.localGridControlledEntity == null || !gHandler.localGridControlledEntityInitialized)
                 {
                     // If we have a holo table we can use it's data to help determine valid targets.
-                    Vector3I nearestHoloRadarKey = GetNearestHoloRadarKeyToPlayer();
-                    HoloRadarCustomData theData = new HoloRadarCustomData();
-                    HoloRadarCustomDataTerminalPair dataPair;
-                    bool onlyPowered = true;
-                    if (gHandler.localGridRadarTerminalsData.TryGetValue(nearestHoloRadarKey, out dataPair))
+                    // This will morph as CIC and Stellar Cartography get added
+                    Vector3I? nearestHoloRadarKey = GetNearestHoloRadarKeyToPlayer();
+                    if (nearestHoloRadarKey != null)
                     {
+                        Vector3I theHoloTable = nearestHoloRadarKey ?? Vector3I.Zero;
+                        HoloRadarCustomData theData = new HoloRadarCustomData();
+                        HoloRadarCustomDataTerminalPair dataPair;
+                        bool onlyPowered = true;
+                        if (!gHandler.localGridRadarTerminalsData.TryGetValue(theHoloTable, out dataPair))
+                        {
+                            return;
+                        }
+                        Sandbox.ModAPI.IMyTerminalBlock holoTable = null;
+                        if (!gHandler.localGridRadarTerminals.TryGetValue(theHoloTable, out holoTable))
+                        {
+                            return;
+                        }
                         theData = dataPair.HoloRadarCustomData;
                         onlyPowered = theData.scannerOnlyPoweredGrids;
+                        Vector3D holoTablePos = holoTable.GetPosition();
+                        if (shift)
+                        {
+                            if (sortedHostileRadarPings.Count == 0)
+                            {
+                                return;
+                            }
+                            VRage.ModAPI.IMyEntity previousTarget = null;
+                            if (gHandler.targetGrid != null)
+                            {
+                                int currentIndex = sortedHostileRadarPings.IndexOf(gHandler.targetGrid);
+                                if (currentIndex != -1)
+                                {
+                                    int indexToSelect = (currentIndex - 1);
+                                    if (indexToSelect < 0)
+                                    {
+                                        previousTarget = sortedHostileRadarPings.LastOrDefault(e =>
+                                        {
+                                            VRage.Game.ModAPI.IMyCubeGrid grid = e as VRage.Game.ModAPI.IMyCubeGrid;
+                                            return grid != null && (!onlyPowered || HasPowerProduction(grid));
+                                        });
+                                    }
+                                    else
+                                    {
+                                        for (int i = 0; i < sortedHostileRadarPings.Count; i++)
+                                        {
+                                            int idx = (indexToSelect - i + sortedHostileRadarPings.Count) % sortedHostileRadarPings.Count;
+                                            VRage.Game.ModAPI.IMyCubeGrid candidate = sortedHostileRadarPings[idx] as VRage.Game.ModAPI.IMyCubeGrid;
+                                            if (candidate != null && (!onlyPowered || HasPowerProduction(candidate)))
+                                            {
+                                                previousTarget = candidate;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    previousTarget = sortedHostileRadarPings.LastOrDefault(e =>
+                                    {
+                                        VRage.Game.ModAPI.IMyCubeGrid grid = e as VRage.Game.ModAPI.IMyCubeGrid;
+                                        return grid != null && (!onlyPowered || HasPowerProduction(grid));
+                                    });
+                                }
+                            }
+                            else
+                            {
+                                previousTarget = sortedHostileRadarPings.LastOrDefault(e =>
+                                {
+                                    VRage.Game.ModAPI.IMyCubeGrid grid = e as VRage.Game.ModAPI.IMyCubeGrid;
+                                    return grid != null && (!onlyPowered || HasPowerProduction(grid));
+                                });
+                            }
+
+                            if (previousTarget != null)
+                            {
+                                LockTarget(previousTarget);
+                            }
+                        }
+                        else
+                        {
+                            if (sortedRadarPings.Count == 0)
+                            {
+                                return;
+                            }
+                            VRage.ModAPI.IMyEntity previousTarget = null;
+                            if (gHandler.targetGrid != null)
+                            {
+                                int currentIndex = sortedRadarPings.IndexOf(gHandler.targetGrid);
+                                if (currentIndex != -1)
+                                {
+                                    int indexToSelect = (currentIndex - 1);
+                                    if (indexToSelect < 0)
+                                    {
+                                        previousTarget = sortedRadarPings.LastOrDefault(e =>
+                                        {
+                                            VRage.Game.ModAPI.IMyCubeGrid grid = e as VRage.Game.ModAPI.IMyCubeGrid;
+                                            return grid != null && (!onlyPowered || HasPowerProduction(grid));
+                                        });
+                                    }
+                                    else
+                                    {
+                                        for (int i = 0; i < sortedRadarPings.Count; i++)
+                                        {
+                                            int idx = (indexToSelect - i + sortedRadarPings.Count) % sortedRadarPings.Count;
+                                            VRage.Game.ModAPI.IMyCubeGrid candidate = sortedRadarPings[idx] as VRage.Game.ModAPI.IMyCubeGrid;
+                                            if (candidate != null && (!onlyPowered || HasPowerProduction(candidate)))
+                                            {
+                                                previousTarget = candidate;
+                                                break;
+                                            }
+                                        }
+                                        //previousTarget = sortedRadarPings[indexToSelect];
+                                    }
+                                }
+                                else
+                                {
+                                    previousTarget = sortedRadarPings.LastOrDefault(e =>
+                                    {
+                                        VRage.Game.ModAPI.IMyCubeGrid grid = e as VRage.Game.ModAPI.IMyCubeGrid;
+                                        return grid != null && (!onlyPowered || HasPowerProduction(grid));
+                                    });
+                                }
+                            }
+                            else
+                            {
+                                previousTarget = sortedRadarPings.LastOrDefault(e =>
+                                {
+                                    VRage.Game.ModAPI.IMyCubeGrid grid = e as VRage.Game.ModAPI.IMyCubeGrid;
+                                    return grid != null && (!onlyPowered || HasPowerProduction(grid));
+                                });
+                            }
+
+                            if (previousTarget != null)
+                            {
+                                LockTarget(previousTarget);
+                            }
+                        }
                     }
+                    
+                }
+                else 
+                {
+                    // Use seated logic
+                    bool onlyPowered = gHandler.localGridControlledEntityCustomData.scannerOnlyPoweredGrids;
                     if (shift)
                     {
                         if (sortedHostileRadarPings.Count == 0)
@@ -7310,85 +7681,7 @@ namespace EliDangHUD
                         {
                             LockTarget(previousTarget);
                         }
-                    }
-                }
-                else 
-                {
-                    // Use seated logic
-                    if (shift)
-                    {
-                        if (sortedHostileRadarPings.Count == 0)
-                        {
-                            return;
-                        }
-                        VRage.ModAPI.IMyEntity previousTarget;
-                        if (gHandler.targetGrid != null)
-                        {
-                            int currentIndex = sortedHostileRadarPings.IndexOf(gHandler.targetGrid);
-                            if (currentIndex != -1)
-                            {
-                                int indexToSelect = (currentIndex - 1);
-                                if (indexToSelect < 0)
-                                {
-                                    previousTarget = sortedHostileRadarPings.Last<VRage.ModAPI.IMyEntity>();
-                                }
-                                else
-                                {
-                                    previousTarget = sortedHostileRadarPings[indexToSelect];
-                                }
-                            }
-                            else
-                            {
-                                previousTarget = sortedHostileRadarPings.Last<VRage.ModAPI.IMyEntity>();
-                            }
-                        }
-                        else
-                        {
-                            previousTarget = sortedHostileRadarPings.Last<VRage.ModAPI.IMyEntity>();
-                        }
-
-                        if (previousTarget != null)
-                        {
-                            LockTarget(previousTarget);
-                        }
-                    }
-                    else
-                    {
-                        if (sortedRadarPings.Count == 0)
-                        {
-                            return;
-                        }
-                        VRage.ModAPI.IMyEntity previousTarget;
-                        if (gHandler.targetGrid != null)
-                        {
-                            int currentIndex = sortedRadarPings.IndexOf(gHandler.targetGrid);
-                            if (currentIndex != -1)
-                            {
-                                int indexToSelect = (currentIndex - 1);
-                                if (indexToSelect < 0)
-                                {
-                                    previousTarget = sortedRadarPings.Last<VRage.ModAPI.IMyEntity>();
-                                }
-                                else
-                                {
-                                    previousTarget = sortedRadarPings[indexToSelect];
-                                }
-                            }
-                            else
-                            {
-                                previousTarget = sortedRadarPings.Last<VRage.ModAPI.IMyEntity>();
-                            }
-                        }
-                        else
-                        {
-                            previousTarget = sortedRadarPings.Last<VRage.ModAPI.IMyEntity>();
-                        }
-
-                        if (previousTarget != null)
-                        {
-                            LockTarget(previousTarget);
-                        }
-                    }
+                    } 
                 }
                 
             } 
@@ -7398,48 +7691,43 @@ namespace EliDangHUD
         /// <summary>
         /// Get and return the nearest holo table to the player, returns null if none nearby or player not found
         /// </summary>
-        private Vector3I GetNearestHoloRadarKeyToPlayer()
+        private Vector3I? GetNearestHoloRadarKeyToPlayer()
         {
+            double eligibleDistance = 5d;
             IMyCharacter character = MyAPIGateway.Session.Player?.Character;
             if (character == null)
             {
-                return Vector3I.Zero;
+                return null;
             }
 
             Vector3D playerPos = character.GetPosition();
 
-            Vector3I nearestTerminalKey = Vector3I.Zero;
+            Vector3I? nearestTerminalKey = null;
 
             if (gHandler.localGridRadarTerminals == null)
             {
-                return Vector3I.Zero;
+                return null;
             }
-            if (gHandler.localGridRadarTerminals.Count == 1)
+
+            double closestDistSqr = double.MaxValue;
+            foreach (KeyValuePair<Vector3I, Sandbox.ModAPI.IMyTerminalBlock> terminalPair in gHandler.localGridRadarTerminals)
             {
-                KeyValuePair<Vector3I, Sandbox.ModAPI.IMyTerminalBlock> terminalPair = gHandler.localGridRadarTerminals.First<KeyValuePair<Vector3I, Sandbox.ModAPI.IMyTerminalBlock>>();
                 if (terminalPair.Value.MarkedForClose || !terminalPair.Value.IsFunctional || !terminalPair.Value.IsWorking)
                 {
-                    return Vector3I.Zero;
+                    continue;
                 }
-                nearestTerminalKey = terminalPair.Key;
-            }
-            else
-            {
-                double closestDistSqr = double.MaxValue;
-                foreach (KeyValuePair<Vector3I, Sandbox.ModAPI.IMyTerminalBlock> terminalPair in gHandler.localGridRadarTerminals)
+                double distSqr = Vector3D.DistanceSquared(playerPos, terminalPair.Value.GetPosition());
+                if (distSqr > eligibleDistance * eligibleDistance)
                 {
-                    if (terminalPair.Value.MarkedForClose || !terminalPair.Value.IsFunctional || !terminalPair.Value.IsWorking)
-                    {
-                        continue;
-                    }
-                    double distSqr = Vector3D.DistanceSquared(playerPos, terminalPair.Value.WorldAABB.Center);
-                    if (distSqr < closestDistSqr)
-                    {
-                        closestDistSqr = distSqr;
-                        nearestTerminalKey = terminalPair.Key;
-                    }
+                    continue; // If too far away, then do not consider it. 
+                }
+                if (distSqr < closestDistSqr)
+                {
+                    closestDistSqr = distSqr;
+                    nearestTerminalKey = terminalPair.Key;
                 }
             }
+            
             return nearestTerminalKey;
         }
 
@@ -7760,7 +8048,7 @@ namespace EliDangHUD
             //HG_initializedTarget = false;
             //HG_activationTimeTarget = 0;
             //currentTarget = null;
-            PlayCustomSound(SP_ZOOMIN, worldRadarPos);
+            PlayCustomSound(SP_ZOOMIN, _headPositionWorld);
         }
 
 		/// <summary>
@@ -7775,7 +8063,8 @@ namespace EliDangHUD
                 gHandler.SetTargetGrid(newTargetGrid);
                 isTargetLocked = true;
                 NewBlipAnim(newTarget);
-                PlayCustomSound(SP_ZOOMOUT, worldRadarPos);
+                PlayCustomSound(SP_ZOOMOUT, _headPositionWorld);
+
                 if (_isWeaponCore && _weaponCoreInitialized && _weaponCoreWeaponsInitialized)
                 {
                     LockTargetWeaponCore(newTarget);
@@ -8026,15 +8315,19 @@ namespace EliDangHUD
 
             //bootUpAlpha (bootTime in drawShields) seems to be the problem, it never increases? 
 
-            //Shields, 
-            if (shieldMax > 0.01)
+            if (_isAegisSystems) 
             {
-                double tempShields = LerpD(shieldLast, shieldCurrent, deltaTime * 2);
+                //Shields for AegisSystems
+                if (shieldMax > 0.01)
+                {
+                    double tempShields = LerpD(shieldLast, shieldCurrent, deltaTime * 2);
 
-               // Vector3D ShieldPos_Right = worldRadarPos + radarMatrix.Left * -radarRadius + radarMatrix.Left * HG_Offset.X + radarMatrix.Up * HG_Offset.Y + radarMatrix.Forward * HG_Offset.Z;
-                DrawShields(shieldPos, tempShields, shieldMax, bootUpAlpha, timeToReady);
-                shieldLast = tempShields;
+                    // Vector3D ShieldPos_Right = worldRadarPos + radarMatrix.Left * -radarRadius + radarMatrix.Left * HG_Offset.X + radarMatrix.Up * HG_Offset.Y + radarMatrix.Forward * HG_Offset.Z;
+                    DrawShields(shieldPos, tempShields, shieldMax, bootUpAlpha, timeToReady);
+                    shieldLast = tempShields;
+                }
             }
+            
 
             double hitPoints = 1;
             if (healthMax > 0)
@@ -8759,9 +9052,8 @@ namespace EliDangHUD
             {
                 return;
             }
-
-            Sandbox.ModAPI.IMyCockpit cockpit = gHandler.localGridControlledEntity as Sandbox.ModAPI.IMyCockpit;
-            VRage.Game.ModAPI.IMyCubeGrid grid = cockpit.CubeGrid;
+            Sandbox.ModAPI.IMyTerminalBlock controlledTerminal = gHandler.localGridControlledEntity;
+            VRage.Game.ModAPI.IMyCubeGrid grid = controlledTerminal.CubeGrid;
             if (grid == null)
             {
                 return;
@@ -8779,15 +9071,19 @@ namespace EliDangHUD
         /// </summary>
 		private void DrawToolbars()
 		{
-			if (gHandler.localGridControlledEntity == null) {
+			if (gHandler.localGridControlledEntity == null) 
+            {
 				return;
 			}
 
-            Sandbox.ModAPI.IMyCockpit cockpit = gHandler.localGridControlledEntity as Sandbox.ModAPI.IMyCockpit;
-            VRage.Game.ModAPI.IMyCubeGrid grid = cockpit.CubeGrid;
+            Sandbox.ModAPI.IMyTerminalBlock controlledTerminal = gHandler.localGridControlledEntity;
+            VRage.Game.ModAPI.IMyCubeGrid grid = controlledTerminal.CubeGrid;
             if (grid != null) 
 			{
-			} else {
+
+			} 
+            else 
+            {
 				return;
 			}
 
