@@ -6,36 +6,25 @@ using Sandbox.ModAPI;
 using Sandbox.ModAPI.Ingame;
 using Sandbox.ModAPI.Interfaces;
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Runtime.Remoting.Messaging;
-using System.Text.RegularExpressions;
-using System.Xml.Serialization;
 using VRage;
 using VRage.Game;
 using VRage.Game.Components;
-using VRage.Game.Entity;
 using VRage.Game.ModAPI;
 using VRage.Game.ModAPI.Ingame;
-using VRage.Game.ModAPI.Ingame.Utilities;
-using VRage.Game.ObjectBuilders.Components;
 using VRage.Input;
 using VRage.Library.Utils;
 using VRage.ModAPI;
-using VRage.ObjectBuilders;
 
 //using VRage.ModAPI;
 using VRage.Utils;
 //using VRage.Input;
 using VRageMath;
 using VRageRender;
-using VRageRender.Import;
-using static Sandbox.Game.Entities.MyCubeGrid;
-using static VRageMath.Base6Directions;
 using BlendTypeEnum = VRageRender.MyBillboard.BlendTypeEnum;
 
 //---
@@ -6723,7 +6712,7 @@ namespace EliDangHUD
 			float dimmer = OrbitDimmer;//Clamped(Remap(distanceToSegment, -10000f, 10000000f, 1f, 0f), 0f, 1f) * GlobalDimmer;
 
 			if (thicknessOverride != 0)
-				segmentThickness = thicknessOverride;
+				segmentThickness = thicknessOverride;  
 
 			if (dimmerOverride != 0)
 				dimmer = dimmerOverride;
@@ -6732,9 +6721,34 @@ namespace EliDangHUD
 				DrawLineBillboard(MaterialSquare, gHandler.localGridControlledEntityCustomData.lineColor * dimmer, point1, direction, 0.9f, segmentThickness, BlendTypeEnum.Standard);
 		}
 
-		//==================================SHIP HOLOGRAMS============================================================
-		//private VRage.ModAPI.IMyEntity currentTarget = null;
-		private bool isTargetLocked = false;
+        public List<VRage.Game.ModAPI.IMyCubeGrid> GetConnectedGrids(VRage.Game.ModAPI.IMyCubeGrid grid)
+        {
+            HashSet<VRage.Game.ModAPI.IMyCubeGrid> result = new HashSet<VRage.Game.ModAPI.IMyCubeGrid>();
+            List<VRage.Game.ModAPI.IMyCubeGrid> mech = new List<VRage.Game.ModAPI.IMyCubeGrid>();
+            List<VRage.Game.ModAPI.IMyCubeGrid> logical = new List<VRage.Game.ModAPI.IMyCubeGrid>();
+
+            // Get mechanically linked (rotors, pistons, etc.)
+            MyAPIGateway.GridGroups.GetGroup(grid, GridLinkTypeEnum.Mechanical, mech);
+
+            // Get logically linked (connectors + merges)
+            MyAPIGateway.GridGroups.GetGroup(grid, GridLinkTypeEnum.Logical, logical);
+
+            foreach (VRage.Game.ModAPI.IMyCubeGrid mechanicalGrid in mech) 
+            {
+                result.Add(mechanicalGrid);
+            }
+
+            foreach (VRage.Game.ModAPI.IMyCubeGrid logicalGrid in logical)
+            {
+                result.Add(logicalGrid);
+            }
+
+            return result.ToList();
+        }
+
+        //==================================SHIP HOLOGRAMS============================================================
+        //private VRage.ModAPI.IMyEntity currentTarget = null;
+        private bool isTargetLocked = false;
 		private bool isTargetAnnounced = false;
 
         /// <summary>

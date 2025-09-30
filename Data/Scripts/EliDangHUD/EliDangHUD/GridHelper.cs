@@ -177,7 +177,7 @@ namespace EliDangHUD
         public bool targetHologramScaleNeedsRefresh = false;
         
         public Dictionary<Vector3I, GridBlock> localGridAllBlocksDict = new Dictionary<Vector3I, GridBlock>();
-        public Dictionary<int, Dictionary<Vector3I, IMySlimBlock>> localGridAllBlocksDictByFloor = new Dictionary<int, Dictionary<Vector3I, IMySlimBlock>>();
+        //public Dictionary<int, Dictionary<Vector3I, IMySlimBlock>> localGridAllBlocksDictByFloor = new Dictionary<int, Dictionary<Vector3I, IMySlimBlock>>();
         public Dictionary<IMyComponentStack, Vector3I> localGridBlockComponentStacks = new Dictionary<IMyComponentStack, Vector3I>();
         public Dictionary<Vector3I, IMyGasTank> localGridHydrogenTanksDict = new Dictionary<Vector3I, IMyGasTank>();
         public Dictionary<Vector3I, IMyGasTank> localGridOxygenTanksDict = new Dictionary<Vector3I, IMyGasTank>();
@@ -217,6 +217,8 @@ namespace EliDangHUD
         public bool isWeaponCore = false;
         public bool isAegisSystems = false;
 
+        List<IMyCubeGrid> localGridConnectedGrids = new List<IMyCubeGrid>();
+
 
 
         //--Target Grid--
@@ -244,7 +246,7 @@ namespace EliDangHUD
         Dictionary<Vector3I, Vector3I> targetGridNewBlockToClusterMap = new Dictionary<Vector3I, Vector3I>();
 
         public Dictionary<Vector3I, GridBlock> targetGridAllBlocksDict = new Dictionary<Vector3I, GridBlock>();
-        public Dictionary<int, Dictionary<Vector3I, IMySlimBlock>> targetGridAllBlocksDictByFloor = new Dictionary<int, Dictionary<Vector3I, IMySlimBlock>>();
+        //public Dictionary<int, Dictionary<Vector3I, IMySlimBlock>> targetGridAllBlocksDictByFloor = new Dictionary<int, Dictionary<Vector3I, IMySlimBlock>>();
         public Dictionary<IMyComponentStack, Vector3I> targetGridBlockComponentStacks = new Dictionary<IMyComponentStack, Vector3I>();
         public Dictionary<Vector3I, IMyJumpDrive> targetGridJumpDrivesDict = new Dictionary<Vector3I, IMyJumpDrive>();
         public Dictionary<Vector3I, IMyRadioAntenna> targetGridAntennasDict = new Dictionary<Vector3I, IMyRadioAntenna>();
@@ -266,6 +268,8 @@ namespace EliDangHUD
 
         public double targetGridHologramActivationTime = 0;
         public double targetGridHologramBootUpAlpha = 1;
+
+        public Dictionary<Vector3I, GridBlock> targetGridSpecialBlocks = new Dictionary<Vector3I, GridBlock>();
 
 
 
@@ -456,221 +460,242 @@ namespace EliDangHUD
         /// <returns></returns>
         private BlockClusterType GetClusterType(IMySlimBlock block)
         {
-            IMyCubeBlock fatBlock = block.FatBlock;
-            if (fatBlock == null)
+            try 
             {
-                return BlockClusterType.Structure;
-            }
+                if (block == null)
+                {
+                    return BlockClusterType.Structure;
+                }
 
-            IMyLargeTurretBase largeTurretBase = fatBlock as IMyLargeTurretBase;
-            IMySmallMissileLauncher smallMissileLauncher = fatBlock as IMySmallMissileLauncher;
-            IMySmallGatlingGun smallGatlingGun = fatBlock as IMySmallGatlingGun;
-            IMyConveyorSorter conveyorSorter = fatBlock as IMyConveyorSorter;
+                IMyCubeBlock fatBlock = block.FatBlock;
+                if (fatBlock == null)
+                {
+                    return BlockClusterType.Structure;
+                }
 
-            MyCubeBlockDefinition blockDefinition = MyDefinitionManager.Static.GetCubeBlockDefinition(fatBlock.BlockDefinition);
-            string blockName = blockDefinition.DisplayNameText.ToLower();
-            string blockDescription = blockDefinition.DescriptionText.ToLower();
-            ;
+                IMyLargeTurretBase largeTurretBase = fatBlock as IMyLargeTurretBase;
+                IMySmallMissileLauncher smallMissileLauncher = fatBlock as IMySmallMissileLauncher;
+                IMySmallGatlingGun smallGatlingGun = fatBlock as IMySmallGatlingGun;
+                IMyConveyorSorter conveyorSorter = fatBlock as IMyConveyorSorter;
 
-            // Alright, due to how modders are adding weapons as ConveyorSorters we need to do some funky checks...
-            // I can add most using IMyLargeTurretBase etc. and the rest as IMyConveyorSorter however I need to check that it isn't a REAL conveyor or sorter. 
-            // There might be modded conveyors or sorters that cause issues but I'll do my best, and if one ends up being picked up as a weapon I guess we deal with it at that point. 
-            // It also turns out the distinction between fixed and turret gets blurred with the ConveyorSorter which a lot of amazing mods use, so I'll scrap that and just track weapons in general.
+                MyCubeBlockDefinition blockDefinition = MyDefinitionManager.Static.GetCubeBlockDefinition(fatBlock.BlockDefinition);
 
-            bool isWeapon = false;
-            if (largeTurretBase != null)
-            {
-                isWeapon = true;
-            }
-            else if (smallMissileLauncher != null)
-            {
-                isWeapon = true;
-            }
-            else if (smallGatlingGun != null)
-            {
-                isWeapon = true;
-            }
-            else if (conveyorSorter != null)
-            {
-                string blockPairName = blockDefinition.BlockPairName.ToString().ToLower();
-                if (!(blockPairName.Contains("conveyor") || blockPairName.Contains("sorter")))
+                if (blockDefinition == null)
+                {
+                    return BlockClusterType.Structure;
+                }
+
+                string blockName = blockDefinition.DisplayNameText.ToLower();
+                string blockDescription = blockDefinition.DescriptionText.ToLower();
+
+                // Alright, due to how modders are adding weapons as ConveyorSorters we need to do some funky checks...
+                // I can add most using IMyLargeTurretBase etc. and the rest as IMyConveyorSorter however I need to check that it isn't a REAL conveyor or sorter. 
+                // There might be modded conveyors or sorters that cause issues but I'll do my best, and if one ends up being picked up as a weapon I guess we deal with it at that point. 
+                // It also turns out the distinction between fixed and turret gets blurred with the ConveyorSorter which a lot of amazing mods use, so I'll scrap that and just track weapons in general.
+
+                bool isWeapon = false;
+                if (largeTurretBase != null)
                 {
                     isWeapon = true;
                 }
-            }
+                else if (smallMissileLauncher != null)
+                {
+                    isWeapon = true;
+                }
+                else if (smallGatlingGun != null)
+                {
+                    isWeapon = true;
+                }
+                else if (conveyorSorter != null)
+                {
+                    string blockPairName = blockDefinition.BlockPairName.ToString().ToLower();
+                    if (!(blockPairName.Contains("conveyor") || blockPairName.Contains("sorter")))
+                    {
+                        isWeapon = true;
+                    }
+                }
 
-            if (isWeapon)
-            {
-                // What kind of weapon?
-                // Check PDC First as it's finnicky. Lots of missiles use "vulnerable to point defence" in the description but not usually "point defence cannon"
-                if (blockName.Contains("pdc") || blockName.Contains("gatling") ||
-                    blockName.Contains("pd laser") || blockName.Contains("rotary cannon") ||
-                    blockName.Contains("point defence cannon") || blockName.Contains("ciws") ||
-                    blockDescription.Contains("pdc") ||
-                    blockDescription.Contains("gatling") || blockDescription.Contains("pd laser") ||
-                    blockDescription.Contains("rotary cannon") || blockDescription.Contains("point defence cannon") ||
-                    blockDescription.Contains("point defence laser") || blockDescription.Contains("ciws"))
+                if (isWeapon)
                 {
-                    return BlockClusterType.PDC;
+                    // What kind of weapon?
+                    // Check PDC First as it's finnicky. Lots of missiles use "vulnerable to point defence" in the description but not usually "point defence cannon"
+                    if (blockName.Contains("pdc") || blockName.Contains("gatling") ||
+                        blockName.Contains("pd laser") || blockName.Contains("rotary cannon") ||
+                        blockName.Contains("point defence cannon") || blockName.Contains("ciws") ||
+                        blockDescription.Contains("pdc") ||
+                        blockDescription.Contains("gatling") || blockDescription.Contains("pd laser") ||
+                        blockDescription.Contains("rotary cannon") || blockDescription.Contains("point defence cannon") ||
+                        blockDescription.Contains("point defence laser") || blockDescription.Contains("ciws"))
+                    {
+                        return BlockClusterType.PDC;
+                    }
+                    // Check railgun and gauss next, because they might be called railgun CANNON or gauss CANNON and we want to filter these out first before checking for cannon.
+                    else if (blockName.Contains("railgun") || blockName.Contains("rail gun") ||
+                        blockName.Contains("gauss") ||
+                        blockDescription.Contains("railgun") || blockDescription.Contains("rail gun") ||
+                        blockDescription.Contains("gauss"))
+                    {
+                        return BlockClusterType.Railgun;
+                    }
+                    // Check autocannon or flak next, for medium ballistic or small grid anti-fighter type weapons
+                    else if (blockName.Contains("autocannon") || blockName.Contains("flak") ||
+                        blockDescription.Contains("autocannon") || blockDescription.Contains("flak"))
+                    {
+                        return BlockClusterType.MediumBallistic;
+                    }
+                    // Check energy weapon next, as it might be an "energy cannon" like a laser cannon or phase cannon, before we match on cannon itself.
+                    else if (blockName.Contains("laser") || blockName.Contains("plasma") || blockName.Contains("particle") ||
+                        blockName.Contains("beam") || blockName.Contains("disruptor") ||
+                        blockName.Contains("ion") || blockName.Contains("tesla") ||
+                        blockName.Contains("quantum") || blockName.Contains("graviton") ||
+                        blockDescription.Contains("energy weapon") || blockDescription.Contains("laser") ||
+                        blockDescription.Contains("plasma") || blockDescription.Contains("particle") ||
+                        blockDescription.Contains("beam") || blockDescription.Contains("shock cannon") ||
+                        blockDescription.Contains("phase cannon") || blockDescription.Contains("disruptor") ||
+                        blockDescription.Contains("ion") || blockDescription.Contains("tesla") ||
+                        blockDescription.Contains("quantum") || blockDescription.Contains("graviton"))
+                    {
+                        return BlockClusterType.EnergyWeapon;
+                    }
+                    // Check ballistic weapon
+                    else if (blockName.Contains("cannon") || blockName.Contains("gun") ||
+                        blockName.Contains("artillery") || blockName.Contains("bombard") ||
+                        blockDescription.Contains("cannon") || blockDescription.Contains("gun") ||
+                        blockDescription.Contains("artillery") || blockDescription.Contains("bombard"))
+                    {
+                        return BlockClusterType.LargeBallistic;
+                    }
+                    // Check Torpedo
+                    else if (blockName.Contains("torpedo") || blockDescription.Contains("torpedo"))
+                    {
+                        return BlockClusterType.Torpedo;
+                    }
+                    // Check Missile/Rocket
+                    else if (blockName.Contains("missile") || blockName.Contains("rocket") ||
+                        blockDescription.Contains("missile") || blockDescription.Contains("rocket"))
+                    {
+                        return BlockClusterType.Missile;
+                    }
+                    // Fallback on Ballistic weapon
+                    else
+                    {
+                        return BlockClusterType.LargeBallistic;
+                    }
                 }
-                // Check railgun and gauss next, because they might be called railgun CANNON or gauss CANNON and we want to filter these out first before checking for cannon.
-                else if (blockName.Contains("railgun") || blockName.Contains("rail gun") ||
-                    blockName.Contains("gauss") ||
-                    blockDescription.Contains("railgun") || blockDescription.Contains("rail gun") ||
-                    blockDescription.Contains("gauss"))
-                {
-                    return BlockClusterType.Railgun;
-                }
-                // Check autocannon or flak next, for medium ballistic or small grid anti-fighter type weapons
-                else if (blockName.Contains("autocannon") || blockName.Contains("flak") ||
-                    blockDescription.Contains("autocannon") || blockDescription.Contains("flak"))
-                {
-                    return BlockClusterType.MediumBallistic;
-                }
-                // Check energy weapon next, as it might be an "energy cannon" like a laser cannon or phase cannon, before we match on cannon itself.
-                else if (blockName.Contains("laser") || blockName.Contains("plasma") || blockName.Contains("particle") ||
-                    blockName.Contains("beam") || blockName.Contains("disruptor") ||
-                    blockName.Contains("ion") || blockName.Contains("tesla") ||
-                    blockName.Contains("quantum") || blockName.Contains("graviton") ||
-                    blockDescription.Contains("energy weapon") || blockDescription.Contains("laser") ||
-                    blockDescription.Contains("plasma") || blockDescription.Contains("particle") ||
-                    blockDescription.Contains("beam") || blockDescription.Contains("shock cannon") ||
-                    blockDescription.Contains("phase cannon") || blockDescription.Contains("disruptor") ||
-                    blockDescription.Contains("ion") || blockDescription.Contains("tesla") ||
-                    blockDescription.Contains("quantum") || blockDescription.Contains("graviton"))
-                {
-                    return BlockClusterType.EnergyWeapon;
-                }
-                // Check ballistic weapon
-                else if (blockName.Contains("cannon") || blockName.Contains("gun") ||
-                    blockName.Contains("artillery") || blockName.Contains("bombard") ||
-                    blockDescription.Contains("cannon") || blockDescription.Contains("gun") ||
-                    blockDescription.Contains("artillery") || blockDescription.Contains("bombard"))
-                {
-                    return BlockClusterType.LargeBallistic;
-                }
-                // Check Torpedo
-                else if (blockName.Contains("torpedo") || blockDescription.Contains("torpedo"))
-                {
-                    return BlockClusterType.Torpedo;
-                }
-                // Check Missile/Rocket
-                else if (blockName.Contains("missile") || blockName.Contains("rocket") ||
-                    blockDescription.Contains("missile") || blockDescription.Contains("rocket"))
-                {
-                    return BlockClusterType.Missile;
-                }
-                // Fallback on Ballistic weapon
                 else
                 {
-                    return BlockClusterType.LargeBallistic;
+                    // If not a weapon, is it another special block we want to draw separately on hologram?
+                    IMyGasTank tank = fatBlock as IMyGasTank;
+                    if (tank != null)
+                    {
+                        if (IsHydrogenTank(tank))
+                        {
+                            return BlockClusterType.HydrogenTank;
+                        }
+                        if (IsOxygenTank(tank))
+                        {
+                            return BlockClusterType.OxygenTank;
+                        }
+                    }
+
+                    IMyPowerProducer producer = fatBlock as IMyPowerProducer;
+                    IMyBatteryBlock battery = fatBlock as IMyBatteryBlock;
+                    if (producer != null)
+                    {
+                        IMyReactor reactor = fatBlock as IMyReactor;
+                        IMySolarPanel solar = fatBlock as IMySolarPanel;
+                        if (reactor != null)
+                        {
+                            return BlockClusterType.Reactor;
+                        }
+                        else if (solar != null)
+                        {
+                            return BlockClusterType.SolarPanel;
+                        }
+                        else
+                        {
+                            return BlockClusterType.PowerProducer; // Engine? Other?
+                        }
+                    }
+                    else if (battery != null)
+                    {
+                        return BlockClusterType.Battery;
+                    }
+
+                    IMyJumpDrive jumpDrive = fatBlock as IMyJumpDrive;
+                    if (jumpDrive != null)
+                    {
+                        return BlockClusterType.JumpDrive;
+                    }
+
+                    IMyRadioAntenna antenna = fatBlock as IMyRadioAntenna;
+                    if (antenna != null)
+                    {
+                        return BlockClusterType.Antenna;
+                    }
+
+                    IMyThrust thruster = fatBlock as IMyThrust;
+                    if (thruster != null)
+                    {
+                        if (blockName.Contains("hydrogen") || blockDescription.Contains("hydrogen"))
+                        {
+                            return BlockClusterType.HydrogenThruster;
+                        }
+                        else if (blockName.Contains("ion") || blockDescription.Contains("ion"))
+                        {
+                            return BlockClusterType.IonThruster;
+                        }
+                        else if (blockName.Contains("atmospheric") || blockDescription.Contains("atmospheric"))
+                        {
+                            return BlockClusterType.AtmosphericThruster;
+                        }
+                        else
+                        {
+                            return BlockClusterType.HydrogenThruster;
+                        }
+                    }
+                    IMyUpgradeModule upgradeModule = fatBlock as IMyUpgradeModule;
+                    if (upgradeModule != null)
+                    {
+                        if (blockDescription.Contains("fsd supercruise"))
+                        {
+                            return BlockClusterType.FrameShiftDrive;
+                        }
+                        if (blockDescription.Contains("defense shield"))
+                        {
+                            return BlockClusterType.DefenseShield;
+                        }
+                        if (blockDescription.Contains("midnight shield systems"))
+                        {
+                            return BlockClusterType.MidnightShield;
+                        }
+                    }
                 }
+                // Failsafe if nothing else matches
+                return BlockClusterType.Structure;
             }
-            else
+            catch (Exception e)
             {
-                // If not a weapon, is it another special block we want to draw separately on hologram?
-                IMyGasTank tank = fatBlock as IMyGasTank;
-                if (tank != null)
-                {
-                    if (IsHydrogenTank(tank))
-                    {
-                        return BlockClusterType.HydrogenTank;
-                    }
-                    if (IsOxygenTank(tank))
-                    {
-                        return BlockClusterType.OxygenTank;
-                    }
-                }
-
-                IMyPowerProducer producer = fatBlock as IMyPowerProducer;
-                IMyBatteryBlock battery = fatBlock as IMyBatteryBlock;
-                if (producer != null)
-                {
-                    IMyReactor reactor = fatBlock as IMyReactor;
-                    IMySolarPanel solar = fatBlock as IMySolarPanel;
-                    if (reactor != null)
-                    {
-                        return BlockClusterType.Reactor;
-                    }
-                    else if (solar != null)
-                    {
-                        return BlockClusterType.SolarPanel;
-                    }
-                    else
-                    {
-                        return BlockClusterType.PowerProducer; // Engine? Other?
-                    }
-                }
-                else if (battery != null)
-                {
-                    return BlockClusterType.Battery;
-                }
-
-                IMyJumpDrive jumpDrive = fatBlock as IMyJumpDrive;
-                if (jumpDrive != null)
-                {
-                    return BlockClusterType.JumpDrive;
-                }
-
-                IMyRadioAntenna antenna = fatBlock as IMyRadioAntenna;
-                if (antenna != null)
-                {
-                    return BlockClusterType.Antenna;
-                }
-
-                IMyThrust thruster = fatBlock as IMyThrust;
-                if (thruster != null)
-                {
-                    if (blockName.Contains("hydrogen") || blockDescription.Contains("hydrogen"))
-                    {
-                        return BlockClusterType.HydrogenThruster;
-                    }
-                    else if (blockName.Contains("ion") || blockDescription.Contains("ion"))
-                    {
-                        return BlockClusterType.IonThruster;
-                    }
-                    else if (blockName.Contains("atmospheric") || blockDescription.Contains("atmospheric"))
-                    {
-                        return BlockClusterType.AtmosphericThruster;
-                    }
-                    else
-                    {
-                        return BlockClusterType.HydrogenThruster;
-                    }
-                }
-                IMyUpgradeModule upgradeModule = fatBlock as IMyUpgradeModule;
-                if (upgradeModule != null)
-                {
-                    if (blockDescription.Contains("fsd supercruise")) 
-                    {
-                        return BlockClusterType.FrameShiftDrive;
-                    }
-                    if (blockDescription.Contains("defense shield"))
-                    {
-                        return BlockClusterType.DefenseShield;
-                    }
-                    if (blockDescription.Contains("midnight shield systems")) 
-                    {
-                        return BlockClusterType.MidnightShield;
-                    }
-                }
-
-                // TODO Add the Shield type from perhaps midnight systems?
+                return BlockClusterType.Structure; // If anything goes wrong just return structure.
             }
-            // Failsafe if nothing else matches
-            return BlockClusterType.Structure;
+            
         }
 
 
 
         /// <summary>
-        /// Even handler for when a block gets added to the localGrid, will add to relevant dictionaries and add eventHandlers for integrity changes.
+        /// Event handler for when a block gets added to the localGrid, will add to relevant dictionaries and add eventHandlers for integrity changes.
         /// </summary>
         /// <param name="block"></param>
         private void OnLocalBlockAdded(VRage.Game.ModAPI.IMySlimBlock block)
         {
             if (localGridBlocksInitialized && localGrid != null) // Safety check
             {
+                if (block == null) 
+                {
+                    return;
+                }
+
                 Vector3D delta = localGrid.WorldVolume.Center - localGridWorldVolumeCenterInit; // Calculate delta so all new blocks are added relative to where the initial blocks would be added.
 
                 // New logic, store the pre-computed worldCenter. This is because we want holograms to rotate around the grid's world volume center.
@@ -689,85 +714,83 @@ namespace EliDangHUD
 
                 localGridAllBlocksDict[block.Position] = gridBlock;
 
-
-                //localGridAllBlocksDict[block.Position] = block;
-                Dictionary<Vector3I, IMySlimBlock> blockDictForFloor;
-                if (!localGridAllBlocksDictByFloor.TryGetValue(block.Position.Y, out blockDictForFloor))
+                if (block.ComponentStack != null) 
                 {
-                    blockDictForFloor = new Dictionary<Vector3I, IMySlimBlock>();
-                    localGridAllBlocksDictByFloor[block.Position.Y] = blockDictForFloor;
+                    localGridBlockComponentStacks[block.ComponentStack] = block.Position;
+                    block.ComponentStack.IntegrityChanged += OnLocalBlockIntegrityChanged;
                 }
-                blockDictForFloor[block.Position] = block;
-                localGridBlockComponentStacks[block.ComponentStack] = block.Position;
-                block.ComponentStack.IntegrityChanged += OnLocalBlockIntegrityChanged;
 
-                IMyTerminalBlock terminal = block.FatBlock as IMyTerminalBlock;
-                if (terminal != null)
+                if (block.FatBlock != null && !block.FatBlock.MarkedForClose && !block.FatBlock.Closed) 
                 {
-                    IMyCockpit cockpit = terminal as IMyCockpit;
-                    IMyRadioAntenna antenna = terminal as IMyRadioAntenna;
-                    if (cockpit == null && antenna == null)
+                    IMyTerminalBlock terminal = block.FatBlock as IMyTerminalBlock;
+                    if (terminal != null)
                     {
-                        // Don't add cockpits or antennas
-                        localGridEligibleTerminals[block.Position] = terminal;
-                        terminal.CustomNameChanged += OnTerminalCustomNameChanged;
-                        terminal.CustomDataChanged += OnTerminalCustomDataChanged;
-                        // If for some reason already tagged (welding/merging existing block?) add them to appropriate Dict. 
-                        if (!string.IsNullOrEmpty(terminal.CustomName) && terminal.CustomName.Contains("[ELI_LOCAL]"))
+                        IMyCockpit cockpit = terminal as IMyCockpit;
+                        IMyRadioAntenna antenna = terminal as IMyRadioAntenna;
+                        if (cockpit == null && antenna == null)
                         {
-                            localGridHologramTerminals[block.Position] = terminal;
-                            HologramCustomData theData = InitializeCustomDataHologram(terminal);
-                            HologramCustomDataTerminalPair thePair = new HologramCustomDataTerminalPair();
-                            thePair.HologramCustomData = theData;
-                            thePair.HologramCustomDataString = terminal.CustomData;
-                            localGridHologramTerminalsData[block.Position] = thePair;
+                            // Don't add cockpits or antennas
+                            localGridEligibleTerminals[block.Position] = terminal;
+                            terminal.CustomNameChanged += OnTerminalCustomNameChanged;
+                            terminal.CustomDataChanged += OnTerminalCustomDataChanged;
+                            // If for some reason already tagged (welding/merging existing block?) add them to appropriate Dict. 
+                            if (!string.IsNullOrEmpty(terminal.CustomName) && terminal.CustomName.Contains("[ELI_LOCAL]"))
+                            {
+                                localGridHologramTerminals[block.Position] = terminal;
+                                HologramCustomData theData = InitializeCustomDataHologram(terminal);
+                                HologramCustomDataTerminalPair thePair = new HologramCustomDataTerminalPair();
+                                thePair.HologramCustomData = theData;
+                                thePair.HologramCustomDataString = terminal.CustomData;
+                                localGridHologramTerminalsData[block.Position] = thePair;
+                            }
+                            if (!string.IsNullOrEmpty(terminal.CustomName) && terminal.CustomName.Contains("[ELI_HOLO]"))
+                            {
+                                localGridRadarTerminals[block.Position] = terminal;
+                                HoloRadarCustomData theData = InitializeCustomDataHoloRadar(terminal);
+                                HoloRadarCustomDataTerminalPair thePair = new HoloRadarCustomDataTerminalPair();
+                                thePair.HoloRadarCustomData = theData;
+                                thePair.HoloRadarCustomDataString = terminal.CustomData;
+                                localGridRadarTerminalsData[block.Position] = thePair;
+                            }
                         }
-                        if (!string.IsNullOrEmpty(terminal.CustomName) && terminal.CustomName.Contains("[ELI_HOLO]"))
+                        if (antenna != null)
                         {
-                            localGridRadarTerminals[block.Position] = terminal;
-                            HoloRadarCustomData theData = InitializeCustomDataHoloRadar(terminal);
-                            HoloRadarCustomDataTerminalPair thePair = new HoloRadarCustomDataTerminalPair();
-                            thePair.HoloRadarCustomData = theData;
-                            thePair.HoloRadarCustomDataString = terminal.CustomData;
-                            localGridRadarTerminalsData[block.Position] = thePair;
+                            localGridAntennasDict[antenna.Position] = antenna;
                         }
                     }
-                    if (antenna != null) 
+
+                    IMyGasTank tank = block.FatBlock as IMyGasTank;
+                    if (tank != null)
                     {
-                        localGridAntennasDict[antenna.Position] = antenna;
+                        if (IsHydrogenTank(tank))
+                        {
+                            localGridHydrogenTanksDict[block.Position] = tank;
+                        }
+                        if (IsOxygenTank(tank))
+                        {
+                            localGridOxygenTanksDict[block.Position] = tank;
+                        }
+                    }
+
+                    IMyPowerProducer producer = block.FatBlock as IMyPowerProducer;
+                    IMyBatteryBlock battery = block.FatBlock as IMyBatteryBlock;
+                    // Have to do batteries first, because they are also producers!
+                    if (battery != null)
+                    {
+                        localGridBatteriesDict[block.Position] = battery;
+                    }
+                    else if (producer != null)
+                    {
+                        localGridPowerProducersDict[block.Position] = producer;
+                    }
+
+                    IMyJumpDrive jumpDrive = block.FatBlock as IMyJumpDrive;
+                    if (jumpDrive != null)
+                    {
+                        localGridJumpDrivesDict[block.Position] = jumpDrive;
                     }
                 }
-
-                IMyGasTank tank = block.FatBlock as IMyGasTank;
-                if (tank != null)
-                {
-                    if (IsHydrogenTank(tank))
-                    {
-                        localGridHydrogenTanksDict[block.Position] = tank;
-                    }
-                    if (IsOxygenTank(tank))
-                    {
-                        localGridOxygenTanksDict[block.Position] = tank;
-                    }
-                }
-
-                IMyPowerProducer producer = block.FatBlock as IMyPowerProducer;
-                IMyBatteryBlock battery = block.FatBlock as IMyBatteryBlock;
-                // Have to do batteries first, because they are also producers!
-                if (battery != null)
-                {
-                    localGridBatteriesDict[block.Position] = battery;
-                }
-                else if (producer != null)
-                {
-                    localGridPowerProducersDict[block.Position] = producer;
-                }
-
-                IMyJumpDrive jumpDrive = block.FatBlock as IMyJumpDrive;
-                if (jumpDrive != null)
-                {
-                    localGridJumpDrivesDict[block.Position] = jumpDrive;
-                }
+               
 
                 if (gridBlock.ClusterType != BlockClusterType.Structure) 
                 {
@@ -776,7 +799,6 @@ namespace EliDangHUD
                 
 
                 localGridIntegrityNeedsRefresh = true;
-
                 localHologramScaleNeedsRefresh = true;
                 
                 localGridClusterBuildState = null;
@@ -797,12 +819,6 @@ namespace EliDangHUD
                 {
                     block.ComponentStack.IntegrityChanged -= OnLocalBlockIntegrityChanged;
                     localGridBlockComponentStacks.Remove(block.ComponentStack);
-                }
-
-                Dictionary<Vector3I, IMySlimBlock> floorDict;
-                if (localGridAllBlocksDictByFloor.TryGetValue(block.Position.Y, out floorDict))
-                {
-                    floorDict.Remove(block.Position);
                 }
 
                 localGridAllBlocksDict.Remove(block.Position);
@@ -1067,6 +1083,11 @@ namespace EliDangHUD
         {
             if (targetGridBlocksInitialized && targetGrid != null) // Safety check
             {
+                if (block == null) 
+                {
+                    return;
+                }
+
                 Vector3D delta = localGrid.WorldVolume.Center - localGridWorldVolumeCenterInit; // Calculate delta so all new blocks are added relative to where the initial blocks would be added.
 
                 MatrixD inverseMatrix = MatrixD.Invert(GetRotationMatrix(targetGrid.WorldMatrix));
@@ -1079,39 +1100,41 @@ namespace EliDangHUD
                 gridBlock.Block = block;
                 gridBlock.DrawPosition = blockScaledInvertedPosition;
                 gridBlock.LastCurrentIntegrity = block.Integrity;
+                gridBlock.ClusterType = GetClusterType(block);
 
                 targetGridAllBlocksDict[block.Position] = gridBlock;
 
-                //targetGridAllBlocksDict[block.Position] = block;
-                Dictionary<Vector3I, IMySlimBlock> blockDictForFloor;
-                if (!targetGridAllBlocksDictByFloor.TryGetValue(block.Position.Y, out blockDictForFloor))
-                {
-                    blockDictForFloor = new Dictionary<Vector3I, IMySlimBlock>();
-                    targetGridAllBlocksDictByFloor[block.Position.Y] = blockDictForFloor;
-                }
-                blockDictForFloor[block.Position] = block;
-                targetGridBlockComponentStacks[block.ComponentStack] = block.Position;
-                block.ComponentStack.IntegrityChanged += OnTargetBlockIntegrityChanged;
 
-                IMyTerminalBlock terminal = block.FatBlock as IMyTerminalBlock;
-                if (terminal != null)
+                if (block.ComponentStack != null) 
                 {
-                    IMyRadioAntenna antenna = terminal as IMyRadioAntenna;
-                    if (antenna != null)
+                    targetGridBlockComponentStacks[block.ComponentStack] = block.Position;
+                    block.ComponentStack.IntegrityChanged += OnTargetBlockIntegrityChanged;
+                }
+
+                if (block.FatBlock != null && !block.FatBlock.MarkedForClose && !block.FatBlock.Closed) 
+                {
+                    IMyTerminalBlock terminal = block.FatBlock as IMyTerminalBlock;
+                    if (terminal != null)
                     {
-                        targetGridAntennasDict[antenna.Position] = antenna;
+                        IMyRadioAntenna antenna = terminal as IMyRadioAntenna;
+                        if (antenna != null)
+                        {
+                            targetGridAntennasDict[antenna.Position] = antenna;
+                        }
+                    }
+                    IMyJumpDrive jumpDrive = block.FatBlock as IMyJumpDrive;
+                    if (jumpDrive != null)
+                    {
+                        targetGridJumpDrivesDict[block.Position] = jumpDrive;
                     }
                 }
-                IMyJumpDrive jumpDrive = block.FatBlock as IMyJumpDrive;
-                if (jumpDrive != null)
+
+                if (gridBlock.ClusterType != BlockClusterType.Structure)
                 {
-                    targetGridJumpDrivesDict[block.Position] = jumpDrive;
+                    targetGridSpecialBlocks[block.Position] = gridBlock;
                 }
 
-                //targetGridCurrentIntegrity += block.Integrity;
-                //targetGridMaxIntegrity += block.MaxIntegrity;
                 targetGridIntegrityNeedsRefresh = true;
-
                 targetHologramScaleNeedsRefresh = true;
                 
                 targetGridClusterBuildState = null;
@@ -1132,12 +1155,6 @@ namespace EliDangHUD
                 {
                     block.ComponentStack.IntegrityChanged -= OnTargetBlockIntegrityChanged;
                     targetGridBlockComponentStacks.Remove(block.ComponentStack);
-                }
-
-                Dictionary<Vector3I, IMySlimBlock> floorDict;
-                if (targetGridAllBlocksDictByFloor.TryGetValue(block.Position.Y, out floorDict))
-                {
-                    floorDict.Remove(block.Position);
                 }
 
                 targetGridAllBlocksDict.Remove(block.Position);
@@ -1311,7 +1328,6 @@ namespace EliDangHUD
 
             // target grid blocks
             targetGridAllBlocksDict.Clear();
-            targetGridAllBlocksDictByFloor.Clear();
             targetGridBlockComponentStacks.Clear();
             targetGridAntennasDict.Clear();
             targetGridJumpDrivesDict.Clear();
@@ -1381,44 +1397,54 @@ namespace EliDangHUD
 
             foreach (VRage.Game.ModAPI.IMySlimBlock block in blocks)
             {
+                if (block == null) 
+                {
+                    continue;
+                }
                 
                 Vector3D blockWorldPosition;
                 Vector3D blockScaledInvertedPosition;
                 block.ComputeWorldCenter(out blockWorldPosition); // Gets world position for the center of the block
                 blockScaledInvertedPosition = Vector3D.Transform((blockWorldPosition - targetGrid.WorldVolume.Center), inverseMatrix) / targetGrid.GridSize; // set scaledPosition to be relative to the center of the grid, invert it, then scale it to block units.
                 blockScaledInvertedPosition.X = -blockScaledInvertedPosition.X;
+
                 GridBlock gridBlock = new GridBlock();
                 gridBlock.Block = block;
                 gridBlock.DrawPosition = blockScaledInvertedPosition;
                 gridBlock.LastCurrentIntegrity = block.Integrity;
-
+                gridBlock.ClusterType = GetClusterType(block);
                 targetGridAllBlocksDict[block.Position] = gridBlock;
 
-                //targetGridAllBlocksDict[block.Position] = block;
-                Dictionary<Vector3I, IMySlimBlock> blockDictForFloor;
-                if (!targetGridAllBlocksDictByFloor.TryGetValue(block.Position.Y, out blockDictForFloor))
-                {
-                    blockDictForFloor = new Dictionary<Vector3I, IMySlimBlock>();
-                    targetGridAllBlocksDictByFloor[block.Position.Y] = blockDictForFloor;
-                }
-                blockDictForFloor[block.Position] = block;
-                targetGridBlockComponentStacks[block.ComponentStack] = block.Position;
-                block.ComponentStack.IntegrityChanged += OnTargetBlockIntegrityChanged;
 
-                IMyTerminalBlock terminal = block.FatBlock as IMyTerminalBlock;
-                if (terminal != null)
+                if (block.ComponentStack != null) 
                 {
-                    IMyRadioAntenna antenna = terminal as IMyRadioAntenna;
-                    if (antenna != null)
+                    targetGridBlockComponentStacks[block.ComponentStack] = block.Position;
+                    block.ComponentStack.IntegrityChanged += OnTargetBlockIntegrityChanged;
+                }
+
+                if (block.FatBlock != null && !block.FatBlock.MarkedForClose && !block.FatBlock.Closed)
+                {
+                    IMyTerminalBlock terminal = block.FatBlock as IMyTerminalBlock;
+                    if (terminal != null)
                     {
-                        targetGridAntennasDict.Add(antenna.Position, antenna);
+                        IMyRadioAntenna antenna = terminal as IMyRadioAntenna;
+                        if (antenna != null)
+                        {
+                            targetGridAntennasDict.Add(antenna.Position, antenna);
+                        }
+                    }
+                    IMyJumpDrive jumpDrive = block.FatBlock as IMyJumpDrive;
+                    if (jumpDrive != null)
+                    {
+                        targetGridJumpDrivesDict[block.Position] = jumpDrive;
                     }
                 }
-                IMyJumpDrive jumpDrive = block.FatBlock as IMyJumpDrive;
-                if (jumpDrive != null)
+
+                if (gridBlock.ClusterType != BlockClusterType.Structure)
                 {
-                    targetGridJumpDrivesDict[block.Position] = jumpDrive;
+                    targetGridSpecialBlocks[block.Position] = gridBlock;
                 }
+
 
                 targetGridCurrentIntegrity += block.Integrity;
                 targetGridMaxIntegrity += block.MaxIntegrity;
@@ -1720,7 +1746,6 @@ namespace EliDangHUD
 
             // Local grid blocks
             localGridAllBlocksDict.Clear();
-            localGridAllBlocksDictByFloor.Clear();
             localGridBlockComponentStacks.Clear();
 
             // Local grid clusters
@@ -1894,8 +1919,14 @@ namespace EliDangHUD
             localGrid.GetBlocks(blocks);
             MatrixD inverseMatrix = MatrixD.Invert(GetRotationMatrix(localGrid.WorldMatrix));
             localGridWorldVolumeCenterInit = localGrid.WorldVolume.Center;
+
             foreach (VRage.Game.ModAPI.IMySlimBlock block in blocks)
             {
+                if (block == null) 
+                {
+                    continue;
+                }
+
                 // New logic, store the pre-computed worldCenter. This is because we want holograms to rotate around the grid's world volume center.
                 // I could apply an offset at Draw, but this is more computationally efficient. It also is required for building the block clusters at the appropriate position. 
                 
@@ -1912,82 +1943,81 @@ namespace EliDangHUD
 
                 localGridAllBlocksDict[block.Position] = gridBlock;
 
-                //localGridAllBlocksDict[block.Position] = block;
-                Dictionary<Vector3I, IMySlimBlock> blockDictForFloor;
-                if (!localGridAllBlocksDictByFloor.TryGetValue(block.Position.Y, out blockDictForFloor)) 
+                if (block.ComponentStack != null) 
                 {
-                    blockDictForFloor = new Dictionary<Vector3I, IMySlimBlock>();
-                    localGridAllBlocksDictByFloor[block.Position.Y] = blockDictForFloor;
+                    localGridBlockComponentStacks[block.ComponentStack] = block.Position;
+                    block.ComponentStack.IntegrityChanged += OnLocalBlockIntegrityChanged;
                 }
-                blockDictForFloor[block.Position] = block;
-                localGridBlockComponentStacks[block.ComponentStack] = block.Position;
-                block.ComponentStack.IntegrityChanged += OnLocalBlockIntegrityChanged;
-                IMyTerminalBlock terminal = block.FatBlock as IMyTerminalBlock;
-                if (terminal != null)
+
+                if (block.FatBlock != null && !block.FatBlock.MarkedForClose && !block.FatBlock.Closed)
                 {
-                    IMyCockpit cockpit = terminal as IMyCockpit;
-                    IMyRadioAntenna antenna = terminal as IMyRadioAntenna;
-                    if (cockpit == null && antenna == null) 
+                    IMyTerminalBlock terminal = block.FatBlock as IMyTerminalBlock;
+                    if (terminal != null)
                     {
-                        // don't add cockpits or antennas
-                        localGridEligibleTerminals[block.Position] = terminal;
-                        terminal.CustomNameChanged += OnTerminalCustomNameChanged;
-                        terminal.CustomDataChanged += OnTerminalCustomDataChanged;
-                        // If for some reason already tagged (welding/merging existing block?) add them to appropriate Dict. 
-                        if (terminal.CustomName.Contains("[ELI_LOCAL]"))
+                        IMyCockpit cockpit = terminal as IMyCockpit;
+                        IMyRadioAntenna antenna = terminal as IMyRadioAntenna;
+                        if (cockpit == null && antenna == null)
                         {
-                            localGridHologramTerminals[block.Position] = terminal;
-                            HologramCustomData theData = InitializeCustomDataHologram(terminal);
-                            HologramCustomDataTerminalPair thePair = new HologramCustomDataTerminalPair();
-                            thePair.HologramCustomData = theData;
-                            thePair.HologramCustomDataString = terminal.CustomData;
-                            localGridHologramTerminalsData[block.Position] = thePair;
+                            // don't add cockpits or antennas
+                            localGridEligibleTerminals[block.Position] = terminal;
+                            terminal.CustomNameChanged += OnTerminalCustomNameChanged;
+                            terminal.CustomDataChanged += OnTerminalCustomDataChanged;
+                            // If for some reason already tagged (welding/merging existing block?) add them to appropriate Dict. 
+                            if (terminal.CustomName.Contains("[ELI_LOCAL]"))
+                            {
+                                localGridHologramTerminals[block.Position] = terminal;
+                                HologramCustomData theData = InitializeCustomDataHologram(terminal);
+                                HologramCustomDataTerminalPair thePair = new HologramCustomDataTerminalPair();
+                                thePair.HologramCustomData = theData;
+                                thePair.HologramCustomDataString = terminal.CustomData;
+                                localGridHologramTerminalsData[block.Position] = thePair;
+                            }
+                            if (terminal.CustomName.Contains("[ELI_HOLO]"))
+                            {
+                                localGridRadarTerminals[block.Position] = terminal;
+                                HoloRadarCustomData theData = InitializeCustomDataHoloRadar(terminal);
+                                HoloRadarCustomDataTerminalPair thePair = new HoloRadarCustomDataTerminalPair();
+                                thePair.HoloRadarCustomData = theData;
+                                thePair.HoloRadarCustomDataString = terminal.CustomData;
+                                localGridRadarTerminalsData[block.Position] = thePair;
+                            }
                         }
-                        if (terminal.CustomName.Contains("[ELI_HOLO]"))
+                        if (antenna != null)
                         {
-                            localGridRadarTerminals[block.Position] = terminal;
-                            HoloRadarCustomData theData = InitializeCustomDataHoloRadar(terminal);
-                            HoloRadarCustomDataTerminalPair thePair = new HoloRadarCustomDataTerminalPair();
-                            thePair.HoloRadarCustomData = theData;
-                            thePair.HoloRadarCustomDataString = terminal.CustomData;
-                            localGridRadarTerminalsData[block.Position] = thePair;
+                            localGridAntennasDict.Add(antenna.Position, antenna);
                         }
                     }
-                    if (antenna != null)
-                    {
-                        localGridAntennasDict.Add(antenna.Position, antenna);
-                    }
-                }
 
-                IMyGasTank tank = block.FatBlock as IMyGasTank;
-                if (tank != null)
-                {
-                    if (IsHydrogenTank(tank))
+                    IMyGasTank tank = block.FatBlock as IMyGasTank;
+                    if (tank != null)
                     {
-                        localGridHydrogenTanksDict[block.Position] = tank;
+                        if (IsHydrogenTank(tank))
+                        {
+                            localGridHydrogenTanksDict[block.Position] = tank;
+                        }
+                        if (IsOxygenTank(tank))
+                        {
+                            localGridOxygenTanksDict[block.Position] = tank;
+                        }
                     }
-                    if (IsOxygenTank(tank))
+
+                    IMyPowerProducer producer = block.FatBlock as IMyPowerProducer;
+                    IMyBatteryBlock battery = block.FatBlock as IMyBatteryBlock;
+                    // Have to do batteries first, because they are also producers!
+                    if (battery != null)
                     {
-                        localGridOxygenTanksDict[block.Position] = tank;
+                        localGridBatteriesDict[block.Position] = battery;
                     }
-                }
+                    else if (producer != null)
+                    {
+                        localGridPowerProducersDict[block.Position] = producer;
+                    }
 
-                IMyPowerProducer producer = block.FatBlock as IMyPowerProducer;
-                IMyBatteryBlock battery = block.FatBlock as IMyBatteryBlock;
-                // Have to do batteries first, because they are also producers!
-                if (battery != null)
-                {
-                    localGridBatteriesDict[block.Position] = battery;
-                }
-                else if (producer != null)
-                {
-                    localGridPowerProducersDict[block.Position] = producer;
-                }
-
-                IMyJumpDrive jumpDrive = block.FatBlock as IMyJumpDrive;
-                if (jumpDrive != null)
-                {
-                    localGridJumpDrivesDict[block.Position] = jumpDrive;
+                    IMyJumpDrive jumpDrive = block.FatBlock as IMyJumpDrive;
+                    if (jumpDrive != null)
+                    {
+                        localGridJumpDrivesDict[block.Position] = jumpDrive;
+                    }
                 }
 
                 if (gridBlock.ClusterType != BlockClusterType.Structure)
@@ -2001,7 +2031,33 @@ namespace EliDangHUD
             localGridBlocksInitialized = true;
         }
 
-        
+        public List<VRage.Game.ModAPI.IMyCubeGrid> GetConnectedGrids(VRage.Game.ModAPI.IMyCubeGrid grid)
+        {
+            HashSet<VRage.Game.ModAPI.IMyCubeGrid> result = new HashSet<VRage.Game.ModAPI.IMyCubeGrid>();
+            List<VRage.Game.ModAPI.IMyCubeGrid> mech = new List<VRage.Game.ModAPI.IMyCubeGrid>();
+            List<VRage.Game.ModAPI.IMyCubeGrid> logical = new List<VRage.Game.ModAPI.IMyCubeGrid>();
+
+            // Get mechanically linked (rotors, pistons, etc.)
+            MyAPIGateway.GridGroups.GetGroup(grid, GridLinkTypeEnum.Mechanical, mech);
+
+            // Get logically linked (connectors + merges)
+            MyAPIGateway.GridGroups.GetGroup(grid, GridLinkTypeEnum.Logical, logical);
+
+            foreach (VRage.Game.ModAPI.IMyCubeGrid mechanicalGrid in mech)
+            {
+                result.Add(mechanicalGrid);
+            }
+
+            foreach (VRage.Game.ModAPI.IMyCubeGrid logicalGrid in logical)
+            {
+                result.Add(logicalGrid);
+            }
+
+            return result.ToList();
+        }
+
+
+
         /// <summary>
         /// To be called every tick and process all updates on the localGrid, including the targetGrid's block status if one is selected (defined and not null). 
         /// </summary>
@@ -2031,6 +2087,8 @@ namespace EliDangHUD
                 UpdateLocalGridJumpDrives();
                 UpdateLocalGridMaxSpeed();
 
+                //localGridConnectedGrids = GetConnectedGrids(localGrid);
+                 
 
                 // This is set to 0 on initialization, then increments each tick from there so long as a target is selected. Resets on loss of target, and is reset again on initialization. 
                 localGridHologramActivationTime += deltaTimeSinceLastTick * 0.667;
@@ -2046,6 +2104,7 @@ namespace EliDangHUD
                 UpdateLocalGridRadarCustomData();
                 UpdateLocalGridHologramCustomData();
                 UpdateLocalGridRotationMatrix();
+
 
                 if (localGridIntegrityNeedsRefresh)
                 {
@@ -2093,6 +2152,8 @@ namespace EliDangHUD
                     }
                     localGridClusterBlocksUpdateTicksCounter++;
                 }
+
+                
 
                 if (targetGrid != null) 
                 {

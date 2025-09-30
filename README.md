@@ -441,6 +441,11 @@ public enum MyKeys : byte
 }
 
 # Changelog
+## 2025-09-29 
+DONE: Harden the GetClusterType() function to check for null block definitions. Add failsafe. To prevent CTD during Block Added or Initialize Grid.
+
+DONE: Harden the InitializeLocalGridBlocks/TargetGridBlocks functions, as well as Add LocalBlock/TargetBlock to do more null checks on block and block.FatBlock to prevent CTD. 
+
 ## 2025-09-28
 DONE: Make it work in Third Person view, as well as for remote control, and turrets.
 
