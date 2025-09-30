@@ -653,6 +653,7 @@ namespace EliDangHUD
         public float planetOrbitSpeedThreshold = 10;
         public bool scannerShowVoxels = true;
         public bool scannerOnlyPoweredGrids = true;
+        public bool scannerShowRadarInfo = true;
     }
 
     /// <summary>
@@ -3137,10 +3138,16 @@ namespace EliDangHUD
                 {
                     continue; // Skip drawing yourself on the radar.
                 }
+                
 
                 VRage.Game.ModAPI.IMyCubeGrid entityGrid = entity as VRage.Game.ModAPI.IMyCubeGrid;
                 if (entityGrid != null)
                 {
+                    if (gHandler.localGridConnectedGrids.Contains(entity)) // Skip connected grids. 
+                    {
+                        radarPings[entity].PlayerCanDetect = false;
+                        continue;
+                    }
                     radarPings[entity].RadarPingHasPower = HasPowerProduction(entityGrid);
                     // Store whether radar ping is powered regardless of whether we only show powered or not, in case we want to do something like make the non powered
                     // grids darker and powered ones lighter. Then we check if _onlyPoweredGrids is true and we don't have power for current entity we skip it. 
@@ -3229,25 +3236,6 @@ namespace EliDangHUD
             VRage.Game.ModAPI.IMyCubeGrid playerGrid = gHandler.localGrid;
             Vector3D playerGridPos = playerGrid.GetPosition();
 
-            //// Check radar active/passive status and broadcast range for player grid.
-            //// playerGrid is set once earlier in the Draw() method when determining if cockpit is eligible, player controlled etc, and is used to get power draw among other things. Saved for re-use here and elsewhere.
-            ////EvaluateGridAntennaStatus(playerGrid, out _playerHasPassiveRadar, out _playerHasActiveRadar, out _playerMaxPassiveRange, out _playerMaxActiveRange);
-
-            //// Radar distance/scale should be based on our highest functional, powered antenna (regardless of mode).
-            //localGridRadarScaleRange = gHandler.localGridMaxPassiveRadarRange; // Already limited to global max. Uses passive only because in active mode active and passive will be equal. 
-
-            //radarScaleRange_Goal = GetRadarScaleBracket(localGridRadarScaleRange);
-            //squishValue_Goal = 0.75;
-            //squishValue = LerpD(squishValue, squishValue_Goal, 0.1);
-
-            //// Handle smooth animation when first starting up or sitting in seat, along with smooth animation for switching range bracket due to targetting. 
-            //radarScaleRange_Current = LerpD(radarScaleRange_Current, radarScaleRange_Goal, 0.1);
-            //localGridRadarScaleRange = radarScaleRange_Current;
-
-            // Check radar active/passive status and broadcast range for player grid.
-            // playerGrid is set once earlier in the Draw() method when determining if cockpit is eligible, player controlled etc, and is used to get power draw among other things. Saved for re-use here and elsewhere.
-            //EvaluateGridAntennaStatus(gHandler.localGrid, out _playerHasPassiveRadar, out _playerHasActiveRadar, out _playerMaxPassiveRange, out _playerMaxActiveRange);
-
             // Radar distance/scale should be based on our highest functional, powered antenna (regardless of mode).
             localGridRadarScaleRange = gHandler.localGridMaxPassiveRadarRange; // Already limited to global max. Uses passive only because in active mode active and passive will be equal. 
 
@@ -3332,6 +3320,12 @@ namespace EliDangHUD
                 VRage.Game.ModAPI.IMyCubeGrid entityGrid = entity as VRage.Game.ModAPI.IMyCubeGrid;
                 if (entityGrid != null)
                 {
+                    if (gHandler.localGridConnectedGrids.Contains(entity)) // Skip connected grids. 
+                    {
+                        radarPings[entity].PlayerCanDetect = false;
+                        continue;
+                    }
+
                     radarPings[entity].RadarPingHasPower = HasPowerProduction(entityGrid);
                     // Store whether radar ping is powered regardless of whether we only show powered or not, in case we want to do something like make the non powered
                     // grids darker and powered ones lighter. Then we check if _onlyPoweredGrids is true and we don't have power for current entity we skip it. 
@@ -5147,7 +5141,10 @@ namespace EliDangHUD
 			double passiveRangeDisp = Math.Round(gHandler.localGridMaxPassiveRadarRange/1000, 1);
 			double radarScaleDisp = Math.Round(localGridRadarScaleRange / 1000, 1);
             string rangeText = $"RDR{(gHandler.localGridHasActiveRadar ? $"[ACT]:{activeRangeDisp}" : gHandler.localGridHasPassiveRadar ? $"[PAS]:{passiveRangeDisp}" : "[OFF]:0")}KM [SCL]:{radarScaleDisp}KM {(gHandler.targetGrid != null ? "(T)" : "")}";
-            DrawText(rangeText, 0.0045, _radarCurrentRangeTextPosition, textDir, lineColor, radarBrightness, 1f, false);
+            if (gHandler.localGridControlledEntityCustomData.scannerShowRadarInfo) 
+            {
+                DrawText(rangeText, 0.0045, _radarCurrentRangeTextPosition, textDir, lineColor, radarBrightness, 1f, false);
+            }
 
 			Vector4 color_Current = color_VoxelBase; // Default to voxelbase color
 
@@ -8234,6 +8231,10 @@ namespace EliDangHUD
                     if (gHandler.targetGrid != null && cubeGrid.EntityId == gHandler.targetGrid.EntityId)
                     {
                         return false; // Don't select the same target twice. 
+                    }
+                    if (gHandler.localGridConnectedGrids.Contains(cubeGrid)) 
+                    {
+                        return false;
                     }
 					if (gHandler.localGridControlledEntityCustomData.scannerOnlyPoweredGrids && !HasPowerProduction(cubeGrid))
 					{

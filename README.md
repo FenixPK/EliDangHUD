@@ -446,6 +446,12 @@ DONE: Harden the GetClusterType() function to check for null block definitions. 
 
 DONE: Harden the InitializeLocalGridBlocks/TargetGridBlocks functions, as well as Add LocalBlock/TargetBlock to do more null checks on block and block.FatBlock to prevent CTD. 
 
+DONE: Make it so connected grids can't be selected as targets.
+
+DONE: Fix bug with Show Money toggle in console of eligible control seats not working correctly.
+
+DONE: Add toggle for Show Planet Orbits and Show Radar Info to the console for eligible control seats.
+
 ## 2025-09-28
 DONE: Make it work in Third Person view, as well as for remote control, and turrets.
 

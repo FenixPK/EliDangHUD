@@ -217,7 +217,7 @@ namespace EliDangHUD
         public bool isWeaponCore = false;
         public bool isAegisSystems = false;
 
-        List<IMyCubeGrid> localGridConnectedGrids = new List<IMyCubeGrid>();
+        public List<IMyCubeGrid> localGridConnectedGrids = new List<IMyCubeGrid>();
 
 
 
@@ -1771,6 +1771,7 @@ namespace EliDangHUD
             localGridRadarTerminals.Clear();
             localGridRadarTerminalsData.Clear();
             localGridAntennasDict.Clear();
+            localGridConnectedGrids.Clear();
             localGridBlocksInitialized = false;
 
             // Local Grid vars
@@ -2031,8 +2032,10 @@ namespace EliDangHUD
             localGridBlocksInitialized = true;
         }
 
-        public List<VRage.Game.ModAPI.IMyCubeGrid> GetConnectedGrids(VRage.Game.ModAPI.IMyCubeGrid grid)
+        public void UpdateLocalGridConectedGrids()
         {
+            VRage.Game.ModAPI.IMyCubeGrid grid = localGrid;
+
             HashSet<VRage.Game.ModAPI.IMyCubeGrid> result = new HashSet<VRage.Game.ModAPI.IMyCubeGrid>();
             List<VRage.Game.ModAPI.IMyCubeGrid> mech = new List<VRage.Game.ModAPI.IMyCubeGrid>();
             List<VRage.Game.ModAPI.IMyCubeGrid> logical = new List<VRage.Game.ModAPI.IMyCubeGrid>();
@@ -2053,7 +2056,7 @@ namespace EliDangHUD
                 result.Add(logicalGrid);
             }
 
-            return result.ToList();
+            localGridConnectedGrids = result.ToList();
         }
 
 
@@ -2087,7 +2090,7 @@ namespace EliDangHUD
                 UpdateLocalGridJumpDrives();
                 UpdateLocalGridMaxSpeed();
 
-                //localGridConnectedGrids = GetConnectedGrids(localGrid);
+                UpdateLocalGridConectedGrids();
                  
 
                 // This is set to 0 on initialization, then increments each tick from there so long as a target is selected. Resets on loss of target, and is reset again on initialization. 
@@ -4078,6 +4081,11 @@ namespace EliDangHUD
             // Powered only toggle
             theData.scannerOnlyPoweredGrids = ini.Get(mySection, "ScannerOnlyPoweredGrids").ToBoolean(true);
             ini.Set(mySection, "ScannerOnlyPoweredGrids", theData.scannerOnlyPoweredGrids.ToString());
+
+            // Radar scale/mode information toggle
+            theData.scannerShowRadarInfo = ini.Get(mySection, "ScannerShowRadarInfo").ToBoolean(true);
+            ini.Set(mySection, "ScannerShowRadarInfo", theData.scannerShowRadarInfo.ToString());
+
 
             // Save custom data back to block (preserves EndContent too, so text and other config sections don't get eliminated)
             block.CustomData = ini.ToString();

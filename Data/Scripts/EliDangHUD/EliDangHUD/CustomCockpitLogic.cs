@@ -478,7 +478,7 @@ public class CustomCockpitLogic : MyGameLogicComponent
 			MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(c);
 		}
 		{
-			var c = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlCheckbox, IMyCockpit>("DollaDolla");
+			var c = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlCheckbox, IMyCockpit>("Money");
 			c.Title = MyStringId.GetOrCompute("Space Credits");
 			c.Tooltip = MyStringId.GetOrCompute("Enable display of Space Credit balance in account");
 			c.SupportsMultipleBlocks = true;
@@ -488,18 +488,40 @@ public class CustomCockpitLogic : MyGameLogicComponent
 			c.Getter = block => {
 				bool result;
 				// Attempt to parse the string from CustomData. If it fails, return a default value.
-				if (bool.TryParse(GetParameter(block, "ScannerDolla"), out result))
+				if (bool.TryParse(GetParameter(block, "ScannerMoney"), out result))
 					return result;
 				return true;  // Default value if parsing fails or parameter does not exist
 			};
 
 			c.Setter = (block, value) => {
 				// Convert float to string and set it using SetParameter
-				SetParameter(block, "ScannerDolla", value.ToString());
+				SetParameter(block, "ScannerMoney", value.ToString());
 			};
 			MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(c);
 		}
-		{
+        {
+            var c = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlCheckbox, IMyCockpit>("RadarInfo");
+            c.Title = MyStringId.GetOrCompute("Radar Info");
+            c.Tooltip = MyStringId.GetOrCompute("Enable Radar Info like Range and Mode on HUD");
+            c.SupportsMultipleBlocks = true;
+            c.Visible = block => IsEligibleCockpit(block);
+            c.Enabled = block => true; // to see how the grayed out ones look
+
+            c.Getter = block => {
+                bool result;
+                // Attempt to parse the string from CustomData. If it fails, return a default value.
+                if (bool.TryParse(GetParameter(block, "ScannerShowRadarInfo"), out result))
+                    return result;
+                return true;  // Default value if parsing fails or parameter does not exist
+            };
+
+            c.Setter = (block, value) => {
+                // Convert float to string and set it using SetParameter
+                SetParameter(block, "ScannerShowRadarInfo", value.ToString());
+            };
+            MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(c);
+        }
+        {
 			var c = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlCheckbox, IMyCockpit>("SpeedLines");
 			c.Title = MyStringId.GetOrCompute("Velocity Lines");
 			c.Tooltip = MyStringId.GetOrCompute("Enable Velocity Lines on HUD");
@@ -521,34 +543,56 @@ public class CustomCockpitLogic : MyGameLogicComponent
 			};
 			MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(c);
 		}
-		//{
-		//	var c = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSlider, IMyCockpit>("OrbitLines");
-		//	c.Title = MyStringId.GetOrCompute("Map Speed Threshold");
-		//	c.SetLimits(0f, 50000f);
-		//	// Correctly handle string-to-float conversions for the Getter and Setter
-		//	c.Getter = block => {
-		//		float result;
-		//		// Attempt to parse the string from CustomData. If it fails, return a default value.
-		//		if (float.TryParse(GetParameter(block, "ScannerOrbits"), out result))
-		//			return result;
-		//		return 100f;  // Default value if parsing fails or parameter does not exist
-		//	};
+        {
+            var c = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlCheckbox, IMyCockpit>("PlanetOrbits");
+            c.Title = MyStringId.GetOrCompute("Planet Orbits");
+            c.Tooltip = MyStringId.GetOrCompute("Enable Planet Orbits on HUD");
+            c.SupportsMultipleBlocks = true;
+            c.Visible = block => IsEligibleCockpit(block);
+            c.Enabled = block => true; // to see how the grayed out ones look
 
-		//	c.Setter = (block, value) => {
-		//		// Convert float to string and set it using SetParameter
-		//		SetParameter(block, "ScannerOrbits", value.ToString());	
-		//	};
+            c.Getter = block => {
+                bool result;
+                // Attempt to parse the string from CustomData. If it fails, return a default value.
+                if (bool.TryParse(GetParameter(block, "ScannerPlanetOrbits"), out result))
+                    return result;
+                return true;  // Default value if parsing fails or parameter does not exist
+            };
 
-		//	c.Writer = (block, sb) => {
-		//		float currentValue = c.Getter(block)/1000f;
-		//		sb.AppendFormat("{0} km/s", currentValue.ToString("F2"));  // Formatting to two decimal places
+            c.Setter = (block, value) => {
+                // Convert float to string and set it using SetParameter
+                SetParameter(block, "ScannerPlanetOrbits", value.ToString());
+            };
+            MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(c);
+        }
+        //{
+        //	var c = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlSlider, IMyCockpit>("OrbitLines");
+        //	c.Title = MyStringId.GetOrCompute("Map Speed Threshold");
+        //	c.SetLimits(0f, 50000f);
+        //	// Correctly handle string-to-float conversions for the Getter and Setter
+        //	c.Getter = block => {
+        //		float result;
+        //		// Attempt to parse the string from CustomData. If it fails, return a default value.
+        //		if (float.TryParse(GetParameter(block, "ScannerOrbits"), out result))
+        //			return result;
+        //		return 100f;  // Default value if parsing fails or parameter does not exist
+        //	};
 
-		//	};
-		//	c.Enabled = block => true;
-		//	c.Visible = block => IsEligibleCockpit(block);
-		//	MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(c);
-		//}
-		{
+        //	c.Setter = (block, value) => {
+        //		// Convert float to string and set it using SetParameter
+        //		SetParameter(block, "ScannerOrbits", value.ToString());	
+        //	};
+
+        //	c.Writer = (block, sb) => {
+        //		float currentValue = c.Getter(block)/1000f;
+        //		sb.AppendFormat("{0} km/s", currentValue.ToString("F2"));  // Formatting to two decimal places
+
+        //	};
+        //	c.Enabled = block => true;
+        //	c.Visible = block => IsEligibleCockpit(block);
+        //	MyAPIGateway.TerminalControls.AddControl<IMyCockpit>(c);
+        //}
+        {
 			var c = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlCheckbox, IMyCockpit>("ShowVoxels");
 			c.Title = MyStringId.GetOrCompute("Show Non-Ships");
 			c.Tooltip = MyStringId.GetOrCompute("Disable to hide objects like Asteroids");
