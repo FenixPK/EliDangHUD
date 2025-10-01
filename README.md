@@ -17,6 +17,8 @@ Enabled on any control seat with either the tag [ELI_HUD] (default) or by settin
 - Holographic radar projection can be displayed above any terminal block (like a holo table, LCD, control panel etc.) using [ELI_HOLO] tag in the block custom name, then use CustomData to tweak position, scale, rotation, and what it detects.
 Can use keybinds for nearest/next/previous target to select a target on the closest holo radar table!
 
+- Seated HUD Missile Warning if WeaponCore is enabled. Shows count of inbound missiles. Radar and holotable radar will show blips for each missile. 
+
 - Holographic local grid projection can be displayed above any terminal block using [ELI_LOCAL] tag in the block custom name, then use CustomData to tweak position, scale, rotation, and color.
 Can change CustomData of block to show target hologram instead as well. 
 
@@ -441,6 +443,12 @@ public enum MyKeys : byte
 }
 
 # Changelog
+## 2025-09-30
+DONE: Add ability to warn player of incoming missiles if WeaponCore is loaded. Will flash a warning on bottom of hud, with missile count, and also draw them on the radar if radar is on. 
+
+DONE: Harden UpdateUIPositions to ensure Character isn't null before checking values. Also make entire Draw and Update calls check for null character first.
+Might help with respawn ships pre-loaded with the HUD. Also wrap in Try/Catch block to log errors gracefully if they occur.
+
 ## 2025-09-29 
 DONE: Harden the GetClusterType() function to check for null block definitions. Add failsafe. To prevent CTD during Block Added or Initialize Grid.
 

@@ -699,6 +699,9 @@ namespace EliDangHUD
         public int maxSpeedLargeGrid = 100;
         public string maxSpeedLargeGrid_DESCRIPTION = "The max speed in m/s for large grids. Default is 100. Set this manually to match any speed mods you may have, for RelativeTopSpeed I suggest the max with boost. (1+, set to your max speed if modded, 100 is SE default)";
 
+        public bool enableMissileWarning = true;
+        public string enableMissileWarning_DESCRIPTION = "Will warn the player of incoming missiles, and show their blips on the radar screen or holo radar. Requires WeaponCore or this does nothing. (True/False)";
+
     }
 
     /// <summary>
@@ -750,6 +753,7 @@ namespace EliDangHUD
         public bool scannerShowVoxels = true;
         public bool scannerOnlyPoweredGrids = true;
         public bool scannerShowRadarInfo = true;
+        public bool scannerShowMissiles = true;
     }
 
     /// <summary>
@@ -764,6 +768,7 @@ namespace EliDangHUD
         public float scannerRadius = 1;
         public bool scannerShowVoxels = true;
         public bool scannerOnlyPoweredGrids = true;
+        public bool scannerShowMissiles = true;
     }
 
     /// <summary>
@@ -1200,7 +1205,7 @@ namespace EliDangHUD
                 "rotateUpKey,  rotateDownKey,  rotatePosZKey,  rotateNegZKey,  resetKey,  orbitViewKey,  perspectiveViewKey,  largeGridSizeOneMaxBlocks,  largeGridSizeTwoMaxBlocks,  " +
                 "largeGridSizeThreeMaxBlocks,  largeGridSizeFourMaxBlocks,  largeGridSizeFiveMaxBlocks,  smallGridSizeOneMaxBlocks,  smallGridSizeTwoMaxBlocks,  smallGridSizeThreeMaxBlocks,  " +
                 "renderHoloRadarsInSeat, renderHoloHologramInSeat, blockCountClusterStep, blockClusterAddlMax, blockClusterAddlMin, clusterSplitThreshold, clusterRebuildClustersPerTick, " +
-                "ticksUntilClusterRebuildAfterChange,  maxSpeedSmallGrid,  maxSpeedLargeGrid";
+                "ticksUntilClusterRebuildAfterChange,  maxSpeedSmallGrid,  maxSpeedLargeGrid,  enableMissileWarning";
 
             // Only allow in SP or admins in MP
             if (MyAPIGateway.Multiplayer.MultiplayerActive)
@@ -2393,6 +2398,28 @@ namespace EliDangHUD
                         return;
                     }
                 }
+
+                if (setting.Equals("enablemissilewarning"))
+                {
+                    if (value.ToLowerInvariant().Equals("help"))
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"enableMissileWarning: {settingDescriptions.enableMissileWarning_DESCRIPTION}");
+                        return;
+                    }
+
+                    bool valueBool;
+                    if (bool.TryParse(value, out valueBool))
+                    {
+                        theSettings.enableMissileWarning = valueBool;
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"enableMissileWarning set to {valueBool}");
+                        return;
+                    }
+                    else
+                    {
+                        MyAPIGateway.Utilities.ShowMessage("EliDang", $"Invalid value: {value}, for help type /elidang {setting} help");
+                        return;
+                    }
+                }
             }
         }
 
@@ -3002,119 +3029,127 @@ namespace EliDangHUD
         /// </summary>
         public void UpdateUIPositions() 
 		{
-
-            //Head Location=================================================
-            // Get the player's character entity
-            _headPositionRelativeToSeat = Vector3D.Zero;
-            IMyCharacter character = MyAPIGateway.Session.Player.Character;
-            bool isPlayerFirstPerson = character.IsInFirstPersonView;
-            bool isFirstPerson = true;
-
-            Sandbox.ModAPI.IMyCockpit cockpit = gHandler.localGridControlledEntity as Sandbox.ModAPI.IMyCockpit;
-            Sandbox.ModAPI.IMyRemoteControl remote = gHandler.localGridControlledEntity as Sandbox.ModAPI.IMyRemoteControl;
-            Sandbox.ModAPI.IMyUserControllableGun controlledGun = gHandler.localGridControlledEntity as Sandbox.ModAPI.IMyUserControllableGun;
-
-            if (cockpit != null)
+            try
             {
-                isFirstPerson = cockpit.IsInFirstPersonView;
-            }
-            else if (remote != null)
-            {
-                isFirstPerson = false;
-            }
-            else if (controlledGun != null)
-            {
-                isFirstPerson = false;
-            }
+                //Head Location=================================================
+                // Get the player's character entity
+                _headPositionRelativeToSeat = Vector3D.Zero;
 
-            // TODO check for third person and draw in front of camera instead of head if so.
-            if (character != null)
-            {
-                // Extract the head matrix
-                _headMatrix = character.GetHeadMatrix(true);
+                bool isPlayerFirstPerson = true;
+                bool isFirstPerson = true;
 
-                // Get the head position from the head matrix
-                _headPositionWorld = _headMatrix.Translation;
-                _headPositionRelativeToSeat = _headMatrix.Translation;
-                _headPositionRelativeToSeat -= gHandler.localGridControlledEntity.GetPosition();
+                Sandbox.ModAPI.IMyCockpit cockpit = gHandler.localGridControlledEntity as Sandbox.ModAPI.IMyCockpit;
+                Sandbox.ModAPI.IMyRemoteControl remote = gHandler.localGridControlledEntity as Sandbox.ModAPI.IMyRemoteControl;
+                Sandbox.ModAPI.IMyUserControllableGun controlledGun = gHandler.localGridControlledEntity as Sandbox.ModAPI.IMyUserControllableGun;
 
-            }
-            //==============================================================
-
-
-            // COCKPIT RADAR SCREEN POSITION AND OFFSET //
-            // Apply the radar offset to the ship's position
-            if (!isFirstPerson && theSettings.enableHudInThirdPerson && gHandler.localGridControlledEntityCustomData.enableHudInThirdPerson)
-            {
-                radarMatrix = _cameraMatrix;
-                worldRadarPos = Vector3D.Transform(gHandler.localGridControlledEntityCustomData.radarOffset, radarMatrix);
-            }
-            else 
-            {
-                if (isPlayerFirstPerson)
+                if (cockpit != null)
                 {
-                    radarMatrix = gHandler.localGridControlledEntity.WorldMatrix; // Set the radar matrix = the localGrid controlled entity matrix, ie. the cockpit or control seat.
-                    worldRadarPos = Vector3D.Transform(gHandler.localGridControlledEntityCustomData.radarOffset, radarMatrix) + _headPositionRelativeToSeat;
+                    isFirstPerson = cockpit.IsInFirstPersonView;
                 }
-                else
+                else if (remote != null)
+                {
+                    isFirstPerson = false;
+                }
+                else if (controlledGun != null)
+                {
+                    isFirstPerson = false;
+                }
+
+                IMyCharacter character = MyAPIGateway.Session.Player.Character;
+
+                if (character != null)
+                {
+                    isPlayerFirstPerson = character.IsInFirstPersonView;
+                    // Extract the head matrix
+                    _headMatrix = character.GetHeadMatrix(true);
+
+                    // Get the head position from the head matrix
+                    _headPositionWorld = _headMatrix.Translation;
+                    _headPositionRelativeToSeat = _headMatrix.Translation;
+                    _headPositionRelativeToSeat -= gHandler.localGridControlledEntity.GetPosition();
+
+                }
+                //==============================================================
+
+
+                // COCKPIT RADAR SCREEN POSITION AND OFFSET //
+                // Apply the radar offset to the ship's position
+                if (!isFirstPerson && theSettings.enableHudInThirdPerson && gHandler.localGridControlledEntityCustomData.enableHudInThirdPerson)
                 {
                     radarMatrix = _cameraMatrix;
                     worldRadarPos = Vector3D.Transform(gHandler.localGridControlledEntityCustomData.radarOffset, radarMatrix);
                 }
-               
+                else
+                {
+                    if (isPlayerFirstPerson)
+                    {
+                        radarMatrix = gHandler.localGridControlledEntity.WorldMatrix; // Set the radar matrix = the localGrid controlled entity matrix, ie. the cockpit or control seat.
+                        worldRadarPos = Vector3D.Transform(gHandler.localGridControlledEntityCustomData.radarOffset, radarMatrix) + _headPositionRelativeToSeat;
+                    }
+                    else
+                    {
+                        radarMatrix = _cameraMatrix;
+                        worldRadarPos = Vector3D.Transform(gHandler.localGridControlledEntityCustomData.radarOffset, radarMatrix);
+                    }
+
+                }
+
+
+                // Positions
+                // Power Load / Power Remaining
+                _powerLoadCurrentPercentPosition = worldRadarPos + (radarMatrix.Forward * gHandler.localGridControlledEntityCustomData.radarRadius * 0.4) + (radarMatrix.Left * gHandler.localGridControlledEntityCustomData.radarRadius * 1.3) + (radarMatrix.Up * 0.0085);
+                _powerLoadCurrentPercentDirection = Vector3D.Normalize(_powerLoadCurrentPercentPosition - worldRadarPos);
+                _powerLoadCurrentPercentDirection = Vector3D.Normalize((_powerLoadCurrentPercentDirection + radarMatrix.Forward) / 2);
+                _powerSecondsRemainingPosition = worldRadarPos + radarMatrix.Left * gHandler.localGridControlledEntityCustomData.radarRadius * 0.88 + radarMatrix.Backward * gHandler.localGridControlledEntityCustomData.radarRadius * 1.1 + radarMatrix.Down * _powerSecondsRemainingSizeModifier * 2;
+
+
+                // Speed / Hydrogen Remaining
+                double speedSize = 0.0070;
+                _speedPosition = worldRadarPos + (radarMatrix.Forward * gHandler.localGridControlledEntityCustomData.radarRadius * 0.4) + (radarMatrix.Right * gHandler.localGridControlledEntityCustomData.radarRadius * 1.3) + (radarMatrix.Up * 0.0085);
+                _speedDirection = Vector3D.Normalize(_speedPosition - worldRadarPos);
+                _speedDirection = Vector3D.Normalize((_speedDirection + radarMatrix.Forward) / 2);
+                Vector3D left = Vector3D.Cross(radarMatrix.Up, _speedDirection);
+                _speedPosition = (left * speedSize * 7) + _speedPosition;
+                _hydrogenSecondsRemainingPosition = worldRadarPos + radarMatrix.Right * gHandler.localGridControlledEntityCustomData.radarRadius * 0.88 + radarMatrix.Backward * gHandler.localGridControlledEntityCustomData.radarRadius * 1.1 + radarMatrix.Down * _hydrogenSecondsRemainingSizeModifier * 2;
+
+                // Radar scale/range
+                _radarCurrentRangeTextPosition = _powerSecondsRemainingPosition + (radarMatrix.Down * gHandler.localGridControlledEntityCustomData.radarRadius * 0.1);
+
+                // Holograms
+                _hologramPositionRight = worldRadarPos + radarMatrix.Left * -gHandler.localGridControlledEntityCustomData.radarRadius + radarMatrix.Left * _hologramRightOffset_HardCode.X + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
+                _hologramPositionLeft = worldRadarPos + radarMatrix.Left * -gHandler.localGridControlledEntityCustomData.radarRadius * -1 + radarMatrix.Left * _hologramRightOffset_HardCode.X * -1 + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
+                // Could add further user customization of the offset here.
+
+
+                // COCKPIT TARGET HOLOGRAM SCREEN POSITION AND OFFSET //
+                // These might be removed, or at least replaced with a logic where we use the radarPos first and then offset the holograms from there. 
+                cockpitMatrix = gHandler.localGridControlledEntity.WorldMatrix;
+                // Now we want to discard yaw and keep pitch and roll. The holograms should not rotate as the ship rotates, they'll be displayed in a fixed space in front of you in your cockpit. But as the ship rolls
+                // around the forward axis or pitches nose up or down the position needs to stay relative to the forward of the ship (block) essentially. 
+                // As I typed that I already foresee an issue with ops stations that face left/right on your ship, will that affect things if we use the cockpit forward instead of grid forward? No... maybe?
+                cockpitForward = Vector3D.Normalize(new Vector3D(0, cockpitMatrix.Forward.Y, cockpitMatrix.Forward.Z)); // Remove X which is yaw.... I think? But we still need pitch right.
+                cockpitUp = cockpitMatrix.Up; // This preserves roll, up will orient based on the cockpits orientation. 
+                cockpitRight = Vector3D.Normalize(Vector3D.Cross(cockpitUp, cockpitForward));
+                cockpitUp = Vector3D.Normalize(Vector3D.Cross(cockpitForward, cockpitRight)); // re-orthagonalize up vector.
+
+                // Set the hologram matrix so it has roll and pitch but NOT yaw. Holograms don't need to spin around as your ship spins around, but do need to stay stable in front of you. 
+                targetHologramMatrix = MatrixD.CreateWorld(Vector3D.Zero, cockpitForward, cockpitUp);
+                localHologramMatrix = MatrixD.CreateWorld(Vector3D.Zero, cockpitForward, cockpitUp);
+
+                // Offsets for the local worldspace to set where these UI controls appear, should be configurable. 
+                targetHologramOffset = new Vector3D(-0.5, -0.2, -1.5);
+                localHologramOffset = new Vector3D(0.5, -0.2, -1.5);
+
+                // Set these offsets using the ORIGINAL cockpit matrix, so offset stays relative to cockpit.
+                targetHologramWorldPos = Vector3D.Transform(targetHologramOffset, cockpitMatrix);
+                localHologramWorldPos = Vector3D.Transform(localHologramOffset, cockpitMatrix);
+                targetHologramMatrix.Translation = targetHologramWorldPos;
+                localHologramMatrix.Translation = localHologramWorldPos;
             }
-
-
-            // Positions
-            // Power Load / Power Remaining
-            _powerLoadCurrentPercentPosition = worldRadarPos + (radarMatrix.Forward * gHandler.localGridControlledEntityCustomData.radarRadius * 0.4) + (radarMatrix.Left * gHandler.localGridControlledEntityCustomData.radarRadius * 1.3) + (radarMatrix.Up * 0.0085);
-            _powerLoadCurrentPercentDirection = Vector3D.Normalize(_powerLoadCurrentPercentPosition - worldRadarPos);
-            _powerLoadCurrentPercentDirection = Vector3D.Normalize((_powerLoadCurrentPercentDirection + radarMatrix.Forward) / 2);
-            _powerSecondsRemainingPosition = worldRadarPos + radarMatrix.Left * gHandler.localGridControlledEntityCustomData.radarRadius * 0.88 + radarMatrix.Backward * gHandler.localGridControlledEntityCustomData.radarRadius * 1.1 + radarMatrix.Down * _powerSecondsRemainingSizeModifier * 2;
-
-
-			// Speed / Hydrogen Remaining
-            double speedSize = 0.0070;
-            _speedPosition = worldRadarPos + (radarMatrix.Forward * gHandler.localGridControlledEntityCustomData.radarRadius * 0.4) + (radarMatrix.Right * gHandler.localGridControlledEntityCustomData.radarRadius * 1.3) + (radarMatrix.Up * 0.0085);
-            _speedDirection = Vector3D.Normalize(_speedPosition - worldRadarPos);
-            _speedDirection = Vector3D.Normalize((_speedDirection + radarMatrix.Forward) / 2);
-            Vector3D left = Vector3D.Cross(radarMatrix.Up, _speedDirection);
-            _speedPosition = (left * speedSize * 7) + _speedPosition;
-			_hydrogenSecondsRemainingPosition = worldRadarPos + radarMatrix.Right * gHandler.localGridControlledEntityCustomData.radarRadius * 0.88 + radarMatrix.Backward * gHandler.localGridControlledEntityCustomData.radarRadius * 1.1 + radarMatrix.Down * _hydrogenSecondsRemainingSizeModifier * 2;
-
-            // Radar scale/range
-            _radarCurrentRangeTextPosition = _powerSecondsRemainingPosition + (radarMatrix.Down * gHandler.localGridControlledEntityCustomData.radarRadius * 0.1);
-
-            // Holograms
-            _hologramPositionRight = worldRadarPos + radarMatrix.Left * -gHandler.localGridControlledEntityCustomData.radarRadius + radarMatrix.Left * _hologramRightOffset_HardCode.X + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
-            _hologramPositionLeft = worldRadarPos + radarMatrix.Left * -gHandler.localGridControlledEntityCustomData.radarRadius * -1 + radarMatrix.Left * _hologramRightOffset_HardCode.X * -1 + radarMatrix.Forward * _hologramRightOffset_HardCode.Z;
-			// Could add further user customization of the offset here.
-
-
-            // COCKPIT TARGET HOLOGRAM SCREEN POSITION AND OFFSET //
-            // These might be removed, or at least replaced with a logic where we use the radarPos first and then offset the holograms from there. 
-            cockpitMatrix = gHandler.localGridControlledEntity.WorldMatrix;
-            // Now we want to discard yaw and keep pitch and roll. The holograms should not rotate as the ship rotates, they'll be displayed in a fixed space in front of you in your cockpit. But as the ship rolls
-            // around the forward axis or pitches nose up or down the position needs to stay relative to the forward of the ship (block) essentially. 
-            // As I typed that I already foresee an issue with ops stations that face left/right on your ship, will that affect things if we use the cockpit forward instead of grid forward? No... maybe?
-            cockpitForward = Vector3D.Normalize(new Vector3D(0, cockpitMatrix.Forward.Y, cockpitMatrix.Forward.Z)); // Remove X which is yaw.... I think? But we still need pitch right.
-            cockpitUp = cockpitMatrix.Up; // This preserves roll, up will orient based on the cockpits orientation. 
-            cockpitRight = Vector3D.Normalize(Vector3D.Cross(cockpitUp, cockpitForward));
-            cockpitUp = Vector3D.Normalize(Vector3D.Cross(cockpitForward, cockpitRight)); // re-orthagonalize up vector.
-
-            // Set the hologram matrix so it has roll and pitch but NOT yaw. Holograms don't need to spin around as your ship spins around, but do need to stay stable in front of you. 
-            targetHologramMatrix = MatrixD.CreateWorld(Vector3D.Zero, cockpitForward, cockpitUp);
-            localHologramMatrix = MatrixD.CreateWorld(Vector3D.Zero, cockpitForward, cockpitUp);
-
-            // Offsets for the local worldspace to set where these UI controls appear, should be configurable. 
-            targetHologramOffset = new Vector3D(-0.5, -0.2, -1.5);
-            localHologramOffset = new Vector3D(0.5, -0.2, -1.5);
-
-            // Set these offsets using the ORIGINAL cockpit matrix, so offset stays relative to cockpit.
-            targetHologramWorldPos = Vector3D.Transform(targetHologramOffset, cockpitMatrix);
-            localHologramWorldPos = Vector3D.Transform(localHologramOffset, cockpitMatrix);
-            targetHologramMatrix.Translation = targetHologramWorldPos;
-            localHologramMatrix.Translation = localHologramWorldPos;
+            catch (Exception ex) 
+            {
+                MyLog.Default.WriteLine($"EliDang HUD - Error in UpdateUIPositions: {ex.Message}");
+            }
         }
 
 		/// <summary>
@@ -3515,7 +3550,7 @@ namespace EliDangHUD
         public void CheckIncomingMissiles() 
         {
             // Check for incoming missiles
-            if (_isWeaponCore)
+            if (_isWeaponCore && theSettings.enableMissileWarning)
             {
                 missilePings.Clear();
                 List<Vector3D> missiles;
@@ -3640,6 +3675,11 @@ namespace EliDangHUD
                 // This is only null for dedicated servers, prevents execution on dedicated servers
                 return;
             }
+            IMyCharacter character = MyAPIGateway.Session.Player.Character;
+            if (character == null)
+            {
+                return; // Don't update the hud if the player doesn't exist. 
+            }
 
             // Delta timer is used to track the number of seconds between game ticks by storing the elapsed seconds and then re-starting the timer back to 0 each call of AfterUpdateSimulation. 
             if (timerGameTickDelta != null)
@@ -3699,8 +3739,8 @@ namespace EliDangHUD
             if (gHandler.localGrid != null && gHandler.localGridInitialized && gHandler.localGridHasPower) 
             {
 
-                if ((gHandler.localGridControlledEntity != null && gHandler.localGridControlledEntityInitialized 
-                    && gHandler.localGridControlledEntityCustomData.masterEnabled) || gHandler.localGridRadarTerminals.Count > 0)
+                if ((gHandler.localGridControlledEntity != null && gHandler.localGridControlledEntityInitialized && gHandler.localGridControlledEntityCustomData.masterEnabled) 
+                    || gHandler.localGridRadarTerminals.Count > 0)
                 {
                     // Only update radar detections if there is a valid Radar (either seated hud or holo table radar)
                     if (gHandler.localGridControlledEntity == null || !gHandler.localGridControlledEntityInitialized)
@@ -3711,7 +3751,11 @@ namespace EliDangHUD
                     else 
                     {
                         UpdateRadarDetections();
-                    }    
+                    }
+                    if (_isWeaponCore)
+                    {
+                        CheckIncomingMissiles();
+                    }
                 }
 
                 CheckPlayerInput();
@@ -3724,11 +3768,6 @@ namespace EliDangHUD
                     {
                         //Seated Event!
                         OnSitDown();
-                    }
-
-                    if (_isWeaponCore) 
-                    {
-                        CheckIncomingMissiles();
                     }
 
                     if (theSettings.enableVelocityLines && gHandler.localGridControlledEntityCustomData.enableVelocityLines && (float)gHandler.localGridSpeed > gHandler.localGridControlledEntityCustomData.velocityLineSpeedThreshold)
@@ -3773,6 +3812,11 @@ namespace EliDangHUD
             {
                 // This is only null for dedicated servers, prevents execution on dedicated servers
                 return;
+            }
+            IMyCharacter character = MyAPIGateway.Session.Player.Character;
+            if (character == null)
+            {
+                return; // Don't draw the hud if the player doesn't exist. 
             }
 
             // Debug log writes every 360 frames to reduce log spam
@@ -5303,7 +5347,7 @@ namespace EliDangHUD
                 DrawText(rangeText, 0.0045, _radarCurrentRangeTextPosition, textDir, lineColor, radarBrightness, 1f, false);
             }
 
-            if (missilePings.Count > 0) 
+            if (theSettings.enableMissileWarning && gHandler.localGridControlledEntityCustomData.scannerShowMissiles && missilePings.Count > 0) 
             {
                 int missileCount = missilePings.Count;
                 float warnPulse = (float)((Math.Sin(timerRadarElapsedTimeTotal.Elapsed.TotalSeconds * (6 * Math.PI)) + 1.0) * 0.5); // 0 -> 1 -> 0 smoothly. Should give 2 second pulses. Could do (2*Math.PI) for 1 second pulses
@@ -5536,92 +5580,96 @@ namespace EliDangHUD
                 }
             }
 
-            foreach (KeyValuePair<Vector3D, RadarPing> missileKeyValuePair in missilePings)
+            if (theSettings.enableMissileWarning && gHandler.localGridControlledEntityCustomData.scannerShowMissiles && missilePings.Count > 0) 
             {
-
-                Vector3D missilePos = missileKeyValuePair.Key;
-
-                if (!missilePings[missilePos].PlayerCanDetect || missilePings[missilePos].RadarPingDistanceSqr > _radarShownRangeSqr) // If can't detect it, or the radar scale prevents showing it move on.
+                foreach (KeyValuePair<Vector3D, RadarPing> missileKeyValuePair in missilePings)
                 {
-                    continue;
-                }
 
-                // Handle fade for edge
-                float fadeDimmer = 1f;
-                // Have to invert old logic, original author made this extend radar range past configured limit. 
-                // I am having the limit as a hard limit be it global config or antenna broadcast range, so we instead make a small range before that "fuzzy" instead. 
-                // If it was outside max range it wouldn't have been detected by the player actively or passively, so we skipped it already. Meaning all we have to do is check if it is in the fade region and fade it or draw it regularly. 
-                if (missilePings[missilePos].RadarPingDistanceSqr >= _fadeDistanceSqr)
-                {
-                    fadeDimmer = 1 - Clamped(1 - (float)((_fadeDistanceSqr - missilePings[missilePos].RadarPingDistanceSqr) / (_fadeDistanceSqr - _radarShownRangeSqr)), 0, 1);
-                }
-                Vector3D scaledPos = ApplyLogarithmicScaling(missilePos, playerGridControlledEntityPosition, gHandler.localGridControlledEntityCustomData.radarRadius); // Apply radar scaling
+                    Vector3D missilePos = missileKeyValuePair.Key;
 
-                // Position on the radar
-                Vector3D radarEntityPos = radarPos + scaledPos;
+                    if (!missilePings[missilePos].PlayerCanDetect || missilePings[missilePos].RadarPingDistanceSqr > _radarShownRangeSqr) // If can't detect it, or the radar scale prevents showing it move on.
+                    {
+                        continue;
+                    }
 
-                // If there are any problems that would make displaying the entity fail or do something ridiculous that tanks FPS just skip to the next one.
-                if (double.IsNaN(radarEntityPos.X) || double.IsInfinity(radarEntityPos.X))
-                {
-                    continue;
-                }
-                if (!radarEntityPos.IsValid())
-                {
-                    continue;
-                }
+                    // Handle fade for edge
+                    float fadeDimmer = 1f;
+                    // Have to invert old logic, original author made this extend radar range past configured limit. 
+                    // I am having the limit as a hard limit be it global config or antenna broadcast range, so we instead make a small range before that "fuzzy" instead. 
+                    // If it was outside max range it wouldn't have been detected by the player actively or passively, so we skipped it already. Meaning all we have to do is check if it is in the fade region and fade it or draw it regularly. 
+                    if (missilePings[missilePos].RadarPingDistanceSqr >= _fadeDistanceSqr)
+                    {
+                        fadeDimmer = 1 - Clamped(1 - (float)((_fadeDistanceSqr - missilePings[missilePos].RadarPingDistanceSqr) / (_fadeDistanceSqr - _radarShownRangeSqr)), 0, 1);
+                    }
+                    Vector3D scaledPos = ApplyLogarithmicScaling(missilePos, playerGridControlledEntityPosition, gHandler.localGridControlledEntityCustomData.radarRadius); // Apply radar scaling
 
-                Vector3D v = radarEntityPos - radarPos;
-                Vector3D uNorm = Vector3D.Normalize(radarUp);
-                float vertDistance = (float)Vector3D.Dot(v, uNorm);
+                    // Position on the radar
+                    Vector3D radarEntityPos = radarPos + scaledPos;
 
-                float upDownDimmer = 1f;
-                if (vertDistance < 0)
-                {
-                    upDownDimmer = 0.8f;
-                }
+                    // If there are any problems that would make displaying the entity fail or do something ridiculous that tanks FPS just skip to the next one.
+                    if (double.IsNaN(radarEntityPos.X) || double.IsInfinity(radarEntityPos.X))
+                    {
+                        continue;
+                    }
+                    if (!radarEntityPos.IsValid())
+                    {
+                        continue;
+                    }
 
-                float lineLength = (float)Vector3D.Distance(radarEntityPos, radarPos);
-                Vector3D lineDir = radarDown;
+                    Vector3D v = radarEntityPos - radarPos;
+                    Vector3D uNorm = Vector3D.Normalize(radarUp);
+                    float vertDistance = (float)Vector3D.Dot(v, uNorm);
 
-                // If invalid, skip now.
-                if (!lineDir.IsValid())
-                {
-                    continue;
-                }
-                // If gridWidth is something ridiculous like 0.0f then fall back on min scale. 
-                if (missilePings[missilePos].Width <= 0.000001 || double.IsNaN(missilePings[missilePos].Width)) // Compare to EPS rather than 0. If invalid skip now.
-                {
-                    continue;
-                }
+                    float upDownDimmer = 1f;
+                    if (vertDistance < 0)
+                    {
+                        upDownDimmer = 0.8f;
+                    }
 
-                // Do color of blip based on relationship to player
-                color_Current = missilePings[missilePos].Color;
+                    float lineLength = (float)Vector3D.Distance(radarEntityPos, radarPos);
+                    Vector3D lineDir = radarDown;
 
-                // Pulse timers for animation
-                Vector3D pulsePos = radarEntityPos + (lineDir * vertDistance);
-                double pulseDistance = Vector3D.Distance(pulsePos, radarPos);
-                float pulseTimer = (float)(ClampedD(radarPulseTime, 0, 1) + 0.5 + Math.Min(pulseDistance, gHandler.localGridControlledEntityCustomData.radarRadius) / gHandler.localGridControlledEntityCustomData.radarRadius);
-                if (pulseTimer > 1)
-                {
-                    pulseTimer = pulseTimer - 1;//(float)Math.Truncate (pulseTimer);
+                    // If invalid, skip now.
+                    if (!lineDir.IsValid())
+                    {
+                        continue;
+                    }
+                    // If gridWidth is something ridiculous like 0.0f then fall back on min scale. 
+                    if (missilePings[missilePos].Width <= 0.000001 || double.IsNaN(missilePings[missilePos].Width)) // Compare to EPS rather than 0. If invalid skip now.
+                    {
+                        continue;
+                    }
+
+                    // Do color of blip based on relationship to player
+                    color_Current = missilePings[missilePos].Color;
+
+                    // Pulse timers for animation
+                    Vector3D pulsePos = radarEntityPos + (lineDir * vertDistance);
+                    double pulseDistance = Vector3D.Distance(pulsePos, radarPos);
+                    float pulseTimer = (float)(ClampedD(radarPulseTime, 0, 1) + 0.5 + Math.Min(pulseDistance, gHandler.localGridControlledEntityCustomData.radarRadius) / gHandler.localGridControlledEntityCustomData.radarRadius);
                     if (pulseTimer > 1)
                     {
-                        pulseTimer = pulseTimer - 1;
+                        pulseTimer = pulseTimer - 1;//(float)Math.Truncate (pulseTimer);
+                        if (pulseTimer > 1)
+                        {
+                            pulseTimer = pulseTimer - 1;
+                        }
                     }
+                    pulseTimer = Math.Max(pulseTimer * 2, 1);
+
+                    // Set drawMaterial based on type of entity/relationship.
+                    MyStringId drawMat = missilePings[missilePos].Material;
+
+                    // Draw each entity as a billboard on the radar
+                    float blipSize = 0.004f * fadeDimmer * missilePings[missilePos].Width * gHandler.localGridControlledEntityCustomData.radarScannerScale; // Scale blip size based on radar scale
+                    Vector3D blipPos = radarEntityPos + (lineDir * vertDistance);
+                    // Draw the blip with vertical elevation +/- relative to radar plane, with line connecting it to the radar plane.
+                    DrawLineBillboard(MaterialSquare, color_Current * 0.15f * fadeDimmer * pulseTimer, radarEntityPos, lineDir, vertDistance, 0.0005f * fadeDimmer);
+                    DrawQuad(blipPos, radarUp, blipSize * 0.50f, MaterialCircle, color_Current * upDownDimmer * 0.5f * pulseTimer * 0.5f); // Add blip "shadow" on radar plane
+                    MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * 0.5f * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize);
                 }
-                pulseTimer = Math.Max(pulseTimer * 2, 1);
-
-                // Set drawMaterial based on type of entity/relationship.
-                MyStringId drawMat = missilePings[missilePos].Material;
-
-                // Draw each entity as a billboard on the radar
-                float blipSize = 0.004f * fadeDimmer * missilePings[missilePos].Width * gHandler.localGridControlledEntityCustomData.radarScannerScale; // Scale blip size based on radar scale
-                Vector3D blipPos = radarEntityPos + (lineDir * vertDistance);
-                // Draw the blip with vertical elevation +/- relative to radar plane, with line connecting it to the radar plane.
-                DrawLineBillboard(MaterialSquare, color_Current * 0.25f * fadeDimmer * pulseTimer, radarEntityPos, lineDir, vertDistance, 0.001f * fadeDimmer);
-                DrawQuad(blipPos, radarUp, blipSize * 0.75f, MaterialCircle, color_Current * upDownDimmer * 0.5f * pulseTimer * 0.5f); // Add blip "shadow" on radar plane
-                MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize);
             }
+            
 
 
             // Targeting CrossHair
@@ -5967,104 +6015,108 @@ namespace EliDangHUD
                     }
                 }
 
-                foreach (KeyValuePair<Vector3D, RadarPing> entityPingPair in missilePings)
+                if (theSettings.enableMissileWarning && theData.scannerShowMissiles && missilePings.Count > 0) 
                 {
-                    Vector3D missilePos = entityPingPair.Key;
-
-                    if (!missilePings[missilePos].PlayerCanDetect || missilePings[missilePos].RadarPingDistanceSqr > _radarShownRangeSqr) // If can't detect it, or the radar scale prevents showing it move on.
+                    foreach (KeyValuePair<Vector3D, RadarPing> entityPingPair in missilePings)
                     {
-                        continue;
-                    }
+                        Vector3D missilePos = entityPingPair.Key;
 
-                    // Handle fade for edge
-                    float fadeDimmer = 1f;
-                    // Have to invert old logic, original author made this extend radar range past configured limit. 
-                    // I am having the limit as a hard limit be it global config or antenna broadcast range, so we instead make a small range before that "fuzzy" instead. 
-                    // If it was outside max range it wouldn't have been detected by the player actively or passively, so we skipped it already. Meaning all we have to do is check if it is in the fade region and fade it or draw it regularly. 
-                    if (missilePings[missilePos].RadarPingDistanceSqr >= _fadeDistanceSqr)
-                    {
-                        fadeDimmer = 1 - Clamped(1 - (float)((_fadeDistanceSqr - missilePings[missilePos].RadarPingDistanceSqr) / (_fadeDistanceSqr - _radarShownRangeSqr)), 0, 1);
-                    }
-                    Vector3D scaledPos = ApplyLogarithmicScaling(missilePings[missilePos].RadarPingPosition, playerGridPos, holoRadarRadius); // Apply radar scaling
-
-                    // Position on the radar
-                    Vector3D radarEntityPos = holoTablePos + scaledPos;
-
-                    // If there are any problems that would make displaying the entity fail or do something ridiculous that tanks FPS just skip to the next one.
-                    if (double.IsNaN(radarEntityPos.X) || double.IsInfinity(radarEntityPos.X))
-                    {
-                        continue;
-                    }
-                    if (!radarEntityPos.IsValid())
-                    {
-                        continue;
-                    }
-
-                    Vector3D v = radarEntityPos - holoTablePos;
-                    Vector3D uNorm = Vector3D.Normalize(holoUp);
-                    float vertDistance = (float)Vector3D.Dot(v, uNorm);
-
-                    float upDownDimmer = 1f;
-                    if (vertDistance < 0)
-                    {
-                        upDownDimmer = 0.8f;
-                    }
-
-                    float lineLength = (float)Vector3D.Distance(radarEntityPos, holoTablePos);
-                    Vector3D lineDir = holoDown;
-
-                    // If invalid, skip now.
-                    if (!lineDir.IsValid())
-                    {
-                        continue;
-                    }
-
-                    if (missilePings[missilePos].Width <= 0.000001 || double.IsNaN(missilePings[missilePos].Width)) // Compare to EPS rather than 0. If invalid skip now.
-                    {
-                        continue;
-                    }
-
-                    // Do color of blip based on relationship to player
-                    color_Current = missilePings[missilePos].Color;
-
-                    // Detect being targeted (under attack) and modify color based on flipper so the blip flashes
-                    if (missilePings[missilePos].Status == RelationshipStatus.Hostile && IsEntityTargetingPlayerHolo(missilePings[missilePos].Entity))
-                    {
-                        if (!targetingFlipper)
+                        if (!missilePings[missilePos].PlayerCanDetect || missilePings[missilePos].RadarPingDistanceSqr > _radarShownRangeSqr) // If can't detect it, or the radar scale prevents showing it move on.
                         {
-                            color_Current = color_GridEnemyAttack;
+                            continue;
                         }
-                    }
 
-                    // Pulse timers for animation
-                    Vector3D pulsePos = radarEntityPos + (lineDir * vertDistance);
-                    double pulseDistance = Vector3D.Distance(pulsePos, holoTablePos);
-                    float pulseTimer = (float)(ClampedD(radarPulseTime, 0, 1) + 0.5 + Math.Min(pulseDistance, holoRadarRadius) / holoRadarRadius);
-                    if (pulseTimer > 1)
-                    {
-                        pulseTimer = pulseTimer - 1;//(float)Math.Truncate (pulseTimer);
+                        // Handle fade for edge
+                        float fadeDimmer = 1f;
+                        // Have to invert old logic, original author made this extend radar range past configured limit. 
+                        // I am having the limit as a hard limit be it global config or antenna broadcast range, so we instead make a small range before that "fuzzy" instead. 
+                        // If it was outside max range it wouldn't have been detected by the player actively or passively, so we skipped it already. Meaning all we have to do is check if it is in the fade region and fade it or draw it regularly. 
+                        if (missilePings[missilePos].RadarPingDistanceSqr >= _fadeDistanceSqr)
+                        {
+                            fadeDimmer = 1 - Clamped(1 - (float)((_fadeDistanceSqr - missilePings[missilePos].RadarPingDistanceSqr) / (_fadeDistanceSqr - _radarShownRangeSqr)), 0, 1);
+                        }
+                        Vector3D scaledPos = ApplyLogarithmicScaling(missilePings[missilePos].RadarPingPosition, playerGridPos, holoRadarRadius); // Apply radar scaling
+
+                        // Position on the radar
+                        Vector3D radarEntityPos = holoTablePos + scaledPos;
+
+                        // If there are any problems that would make displaying the entity fail or do something ridiculous that tanks FPS just skip to the next one.
+                        if (double.IsNaN(radarEntityPos.X) || double.IsInfinity(radarEntityPos.X))
+                        {
+                            continue;
+                        }
+                        if (!radarEntityPos.IsValid())
+                        {
+                            continue;
+                        }
+
+                        Vector3D v = radarEntityPos - holoTablePos;
+                        Vector3D uNorm = Vector3D.Normalize(holoUp);
+                        float vertDistance = (float)Vector3D.Dot(v, uNorm);
+
+                        float upDownDimmer = 1f;
+                        if (vertDistance < 0)
+                        {
+                            upDownDimmer = 0.8f;
+                        }
+
+                        float lineLength = (float)Vector3D.Distance(radarEntityPos, holoTablePos);
+                        Vector3D lineDir = holoDown;
+
+                        // If invalid, skip now.
+                        if (!lineDir.IsValid())
+                        {
+                            continue;
+                        }
+
+                        if (missilePings[missilePos].Width <= 0.000001 || double.IsNaN(missilePings[missilePos].Width)) // Compare to EPS rather than 0. If invalid skip now.
+                        {
+                            continue;
+                        }
+
+                        // Do color of blip based on relationship to player
+                        color_Current = missilePings[missilePos].Color;
+
+                        // Detect being targeted (under attack) and modify color based on flipper so the blip flashes
+                        if (missilePings[missilePos].Status == RelationshipStatus.Hostile && IsEntityTargetingPlayerHolo(missilePings[missilePos].Entity))
+                        {
+                            if (!targetingFlipper)
+                            {
+                                color_Current = color_GridEnemyAttack;
+                            }
+                        }
+
+                        // Pulse timers for animation
+                        Vector3D pulsePos = radarEntityPos + (lineDir * vertDistance);
+                        double pulseDistance = Vector3D.Distance(pulsePos, holoTablePos);
+                        float pulseTimer = (float)(ClampedD(radarPulseTime, 0, 1) + 0.5 + Math.Min(pulseDistance, holoRadarRadius) / holoRadarRadius);
                         if (pulseTimer > 1)
                         {
-                            pulseTimer = pulseTimer - 1;
+                            pulseTimer = pulseTimer - 1;//(float)Math.Truncate (pulseTimer);
+                            if (pulseTimer > 1)
+                            {
+                                pulseTimer = pulseTimer - 1;
+                            }
                         }
+                        pulseTimer = Math.Max(pulseTimer * 2, 1);
+
+                        // Set drawMaterial based on type of entity/relationship.
+                        MyStringId drawMat = missilePings[missilePos].Material;
+
+                        // Draw each entity as a billboard on the radar
+                        float blipSize = 0.015f * fadeDimmer * missilePings[missilePos].Width * holoRadarRadius; // was 0.005f
+                        Vector3D blipPos = radarEntityPos + (lineDir * vertDistance);
+                        // Draw the blip with vertical elevation +/- relative to radar plane, with line connecting it to the radar plane.
+
+
+                        DrawLineBillboard(MaterialSquare, color_Current * 0.15f * fadeDimmer * pulseTimer, radarEntityPos, lineDir, vertDistance, 0.002f * fadeDimmer);
+                        DrawQuad(blipPos, holoUp, blipSize * 0.5f, MaterialCircle, color_Current * upDownDimmer * 0.5f * pulseTimer * 0.5f);
+                        // Add blip "shadow" on radar plane
+                        MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * 0.5f * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize);
+
                     }
-                    pulseTimer = Math.Max(pulseTimer * 2, 1);
-
-                    // Set drawMaterial based on type of entity/relationship.
-                    MyStringId drawMat = missilePings[missilePos].Material;
-
-                    // Draw each entity as a billboard on the radar
-                    float blipSize = 0.015f * fadeDimmer * missilePings[missilePos].Width * holoRadarRadius; // was 0.005f
-                    Vector3D blipPos = radarEntityPos + (lineDir * vertDistance);
-                    // Draw the blip with vertical elevation +/- relative to radar plane, with line connecting it to the radar plane.
-
-                    
-                    DrawLineBillboard(MaterialSquare, color_Current * 0.25f * fadeDimmer * pulseTimer, radarEntityPos, lineDir, vertDistance, 0.004f * fadeDimmer);
-                    DrawQuad(blipPos, holoUp, blipSize * 0.75f, MaterialCircle, color_Current * upDownDimmer * 0.5f * pulseTimer * 0.5f);
-                    // Add blip "shadow" on radar plane
-                    MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize);
-                    
                 }
+                
             }
         }
 

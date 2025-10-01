@@ -43,9 +43,9 @@ Adjusting this value can affect the precision of radar zoom levels.</rangeBracke
   </lineColorDefault>
   <lineColorDefault_DESCRIPTION>Default color of the HUD lines, used for rendering circles and other shapes.</lineColorDefault_DESCRIPTION>
   <starPos>
-    <X>11832963.046332523</X>
-    <Y>68888110.0184581</Y>
-    <Z>-71515103.308922082</Z>
+    <X>93849194.149387211</X>
+    <Y>22286933.794193685</Y>
+    <Z>26374658.359255854</Z>
   </starPos>
   <starPos_DESCRIPTION>Position of the star. No idea if we need to change this for "RealStars" mod or not.</starPos_DESCRIPTION>
   <starFollowSky>true</starFollowSky>
@@ -109,7 +109,7 @@ Others prefer a more realistic environment with this off so you can hide in the 
   <smallGridSizeTwoMaxBlocks>1200</smallGridSizeTwoMaxBlocks>
   <smallGridSizeThreeMaxBlocks>1800</smallGridSizeThreeMaxBlocks>
   <smallGridSizeTiers_DESCRIPTION>Set the various size in blocks for the tiers that determine blip icons used. There are four (4) small grid icons.</smallGridSizeTiers_DESCRIPTION>
-  <renderHoloRadarsInSeat>false</renderHoloRadarsInSeat>
+  <renderHoloRadarsInSeat>true</renderHoloRadarsInSeat>
   <renderHoloRadarsInSeat_DESCRIPTION>Whether holo table radars should still render if you are in a cockpit that has active hud.</renderHoloRadarsInSeat_DESCRIPTION>
   <renderHoloHologramInSeat>false</renderHoloHologramInSeat>
   <renderHoloHologramsInSeat_DESCRIPTION>Whether holo table holograms should still render if you are in a cockpit that has active hud.</renderHoloHologramsInSeat_DESCRIPTION>

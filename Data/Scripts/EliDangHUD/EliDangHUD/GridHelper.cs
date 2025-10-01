@@ -2048,12 +2048,18 @@ namespace EliDangHUD
 
             foreach (VRage.Game.ModAPI.IMyCubeGrid mechanicalGrid in mech)
             {
-                result.Add(mechanicalGrid);
+                if (mechanicalGrid != localGrid) 
+                {
+                    result.Add(mechanicalGrid);
+                }
             }
 
             foreach (VRage.Game.ModAPI.IMyCubeGrid logicalGrid in logical)
             {
-                result.Add(logicalGrid);
+                if (logicalGrid != localGrid) 
+                {
+                    result.Add(logicalGrid);
+                }
             }
 
             localGridConnectedGrids = result.ToList();
@@ -4086,6 +4092,10 @@ namespace EliDangHUD
             theData.scannerShowRadarInfo = ini.Get(mySection, "ScannerShowRadarInfo").ToBoolean(true);
             ini.Set(mySection, "ScannerShowRadarInfo", theData.scannerShowRadarInfo.ToString());
 
+            // Show missiles toggle
+            theData.scannerShowMissiles = ini.Get(mySection, "ScannerShowMissiles").ToBoolean(true);
+            ini.Set(mySection, "ScannerShowMissiles", theData.scannerShowMissiles.ToString());
+
 
             // Save custom data back to block (preserves EndContent too, so text and other config sections don't get eliminated)
             block.CustomData = ini.ToString();
@@ -4127,6 +4137,10 @@ namespace EliDangHUD
             // Powered only toggle
             theData.scannerOnlyPoweredGrids = ini.Get(mySection, "ScannerOnlyPoweredGrids").ToBoolean(true);
             ini.Set(mySection, "ScannerOnlyPoweredGrids", theData.scannerOnlyPoweredGrids.ToString());
+
+            // Show missiles toggle
+            theData.scannerShowMissiles = ini.Get(mySection, "ScannerShowMissiles").ToBoolean(true);
+            ini.Set(mySection, "ScannerShowMissiles", theData.scannerShowMissiles.ToString());
 
             // Save custom data back to block (preserves EndContent too, so text and other config sections don't get eliminated)
             block.CustomData = ini.ToString();
