@@ -14,6 +14,7 @@ using System.Linq;
 using VRage;
 using VRage.Game;
 using VRage.Game.Components;
+using VRage.Game.Entity;
 using VRage.Game.ModAPI;
 using VRage.Game.ModAPI.Ingame;
 using VRage.Input;
@@ -93,6 +94,99 @@ hjmiiiiiiiiooooooooooooooooooooooo88888888888888888888888888888888...;//////////
 
 namespace EliDangHUD
 {
+    public class WcApiClient
+    {
+        private const long Channel = 67549756549;
+
+        private Dictionary<string, Delegate> _api;
+        private bool _isRegistered;
+
+        private Func<MyEntity, MyTuple<bool, int, int>> _getProjectilesLockedOnBase;
+        private Action<MyEntity, ICollection<Vector3D>> _getProjectilesLockedOnPos;
+
+        public bool Ready => _api != null && _getProjectilesLockedOnBase != null && _getProjectilesLockedOnPos != null;
+
+        public void Load()
+        {
+            if (_isRegistered) return;
+
+            _isRegistered = true;
+            MyAPIGateway.Utilities.RegisterMessageHandler(Channel, ApiCallback);
+
+            // Request endpoints – safe, WC might not be ready yet
+            MyAPIGateway.Utilities.SendModMessage(Channel, "ApiEndpointRequest");
+        }
+
+        public void Unload()
+        {
+            if (_isRegistered)
+            {
+                _isRegistered = false;
+                MyAPIGateway.Utilities.UnregisterMessageHandler(Channel, ApiCallback);
+            }
+
+            _api = null;
+            _getProjectilesLockedOnBase = null;
+            _getProjectilesLockedOnPos = null;
+        }
+
+        private void ApiCallback(object obj)
+        {
+            Dictionary<string, Delegate> dict = obj as Dictionary<string, Delegate>;
+            if (dict == null) 
+            { 
+                return; 
+            }
+
+            _api = dict;
+
+            Delegate del;
+            if (_api.TryGetValue("GetProjectilesLockedOnBase", out del))
+            { 
+                _getProjectilesLockedOnBase = del as Func<MyEntity, MyTuple<bool, int, int>>; 
+            }
+
+            if (_api.TryGetValue("GetProjectilesLockedOnPos", out del))
+            { 
+                _getProjectilesLockedOnPos = del as Action<MyEntity, ICollection<Vector3D>>; 
+            }
+        }
+
+        public bool IsTargeted(VRage.Game.ModAPI.IMyCubeGrid grid, out List<Vector3D> positions)
+        {
+            positions = new List<Vector3D>();
+
+            if (!Ready || grid == null)
+            { 
+                return false; 
+            }
+
+            MyEntity entity = grid as MyEntity;
+            if (entity == null)
+            { 
+                return false; 
+            }
+
+            try
+            {
+                MyTuple<bool, int, int> result = _getProjectilesLockedOnBase(entity);
+                if (!result.Item1) 
+                { 
+                    return false; 
+                }
+
+                _getProjectilesLockedOnPos(entity, positions);
+                return positions.Count > 0;
+            }
+            catch
+            {
+                // Failsafe to avoid CTD. 
+                return false;
+            }
+        }
+    }
+
+
     // Define a class to hold planet information
     public class PlanetInfo
 	{
@@ -780,6 +874,7 @@ namespace EliDangHUD
         private readonly MyStringId MaterialLG_4 = MyStringId.GetOrCompute("ED_GRID_LG_4");
         private readonly MyStringId MaterialLG_5 = MyStringId.GetOrCompute("ED_GRID_LG_5");
         private readonly MyStringId MaterialLG_6 = MyStringId.GetOrCompute("ED_GRID_LG_6");
+        private readonly MyStringId MaterialMissileWarn = MyStringId.GetOrCompute("ED_MISSILE_WARN");
         private List<string> MaterialFont = new List<string> ();
 
 
@@ -844,6 +939,7 @@ namespace EliDangHUD
         private float min_blip_scale = 0.05f;
 
         Dictionary<VRage.ModAPI.IMyEntity, RadarPing> radarPings = new Dictionary<VRage.ModAPI.IMyEntity, RadarPing>();
+        Dictionary<Vector3D, RadarPing> missilePings = new Dictionary<Vector3D, RadarPing>();
 
         /// <summary>
         /// Radar pings sorted by distance from player, nearest first. 
@@ -862,10 +958,11 @@ namespace EliDangHUD
 
         private Vector3D _hologramRightOffset_HardCode = new Vector3D(-0.2, 0.075, 0);
         //private Vector3D _hologramOffsetLeft_HardCode = new Vector3D(0.2, 0.075, 0);
-		
 
-		//================= WEAPON CORE ===============================================================================================
-		private bool _isWeaponCore = false;
+
+        //================= WEAPON CORE ===============================================================================================
+        WcApiClient wcApi;
+        private bool _isWeaponCore = false;
 		public bool IsWeaponCoreLoaded()
 		{
 			bool isWeaponCorePresent = MyAPIGateway.Session.Mods.Any(mod => mod.PublishedFileId == 3154371364); // Replace with actual WeaponCore ID (as of 2025-07-17 this is accurate)
@@ -2396,17 +2493,19 @@ namespace EliDangHUD
 			double PL = Math.Round(gHandler.localGridSpeed);
 			double size = 0.0070;
 			string units = "m";
-			if (PL > 1000) {
+			if (PL > 1000) 
+            {
 				PL = Math.Round(PL / 100);
 				PL = PL / 10;
 				units = "k";
 			}
 
-			string PLS = PL.ToString ();
+			string PLS = PL.ToString();
 			PLS += units;
 
 			int dif = 5 - PLS.Length;
-			for (int j = 0 ; j < dif ; j++){
+			for (int j = 0 ; j < dif ; j++)
+            {
 				PLS = " " + PLS;
 			}
 
@@ -2433,7 +2532,8 @@ namespace EliDangHUD
         /// <summary>
         /// Populates the MaterialFont list with the names of the materials used for rendering text in the HUD. These come from the transparent materials file TransparentMaterials_ED.sbc.
         /// </summary>
-        private void PopulateFonts(){
+        private void PopulateFonts()
+        {
 			int num = 51;
 
 			for (int y = 0; y < num; y++) {
@@ -3517,10 +3617,12 @@ namespace EliDangHUD
                     _audioInitialized = true;
                 }
                 IsWeaponCoreLoaded(); // Check if weapon core is loaded and set a boolean true if so (WIP)
-				if (_isWeaponCore) 
+				if (_isWeaponCore && !_weaponCoreInitialized) 
 				{
-					InitWeaponCore();
-				}
+                    wcApi = new WcApiClient();
+                    wcApi.Load();
+                    _weaponCoreInitialized = true;
+                }
                 IsAegisSystemsLoaded(); // For the Aegis Systems shield provider that EliDang was originally compatible with. 
 
                 _modInitialized = true;
@@ -3571,7 +3673,22 @@ namespace EliDangHUD
                         OnSitDown();
                     }
 
-                    
+
+                    if (_isWeaponCore) 
+                    {
+                        missilePings.Clear();
+                        List<Vector3D> missiles;
+                        if (wcApi.IsTargeted(gHandler.localGrid, out missiles))
+                        {
+                            
+                            foreach (Vector3D missilePos in missiles) 
+                            {
+                                RadarPing newMissile = new RadarPing();
+                                missilePings[missilePos] = newMissile;
+                            }
+                            //MyAPIGateway.Utilities.ShowNotification($"Incoming missiles: {missiles.Count}", 2000);
+                        }
+                    }
 
                     if (theSettings.enableVelocityLines && gHandler.localGridControlledEntityCustomData.enableVelocityLines && (float)gHandler.localGridSpeed > gHandler.localGridControlledEntityCustomData.velocityLineSpeedThreshold)
                     {
@@ -5075,7 +5192,6 @@ namespace EliDangHUD
             Vector3 viewLeft = cameraMatrix.Left;
             Vector3 viewForward = cameraMatrix.Forward;
             Vector3 viewBackward = cameraMatrix.Backward;
-            Vector3D viewBackwardD = cameraMatrix.Backward;
 			Vector3D cameraPos = _cameraPosition;
 
             Vector3D radarPos = worldRadarPos;
@@ -5146,7 +5262,29 @@ namespace EliDangHUD
                 DrawText(rangeText, 0.0045, _radarCurrentRangeTextPosition, textDir, lineColor, radarBrightness, 1f, false);
             }
 
-			Vector4 color_Current = color_VoxelBase; // Default to voxelbase color
+            if (missilePings.Count > 0) 
+            {
+                int missileCount = missilePings.Count;
+                float warnPulse = (float)((Math.Sin(timerRadarElapsedTimeTotal.Elapsed.TotalSeconds * (6 * Math.PI)) + 1.0) * 0.5); // 0 -> 1 -> 0 smoothly. Should give 2 second pulses. Could do (2*Math.PI) for 1 second pulses
+
+                Vector4 whiteColor = Color.White.ToVector4();
+                float warnAlpha = MathHelper.Clamp(1.0f * (1.0f - warnPulse), 0.15f, 0.85f);
+                Vector3D seatForward = gHandler.localGridControlledEntity.WorldMatrix.Forward;
+                Vector3D seatRight = gHandler.localGridControlledEntity.WorldMatrix.Right;
+                Vector3D seatLeft = gHandler.localGridControlledEntity.WorldMatrix.Left;
+                Vector3D seatUp = gHandler.localGridControlledEntity.WorldMatrix.Up;
+
+                Vector3D warnPos = _radarCurrentRangeTextPosition + (seatForward * 0.0) + (seatRight * -0.02) + (seatUp * 0.006);
+
+                float quadSize = 0.015f;
+                string countText = $"x{missileCount}";
+                MyTransparentGeometry.AddBillboardOriented(MaterialMissileWarn, whiteColor * warnAlpha, warnPos, seatLeft, seatUp, quadSize);
+                DrawText(countText, 0.0040, warnPos + (seatRight * -0.035), textDir, lineColor, radarBrightness, 1f, false);
+
+            }
+
+
+            Vector4 color_Current = color_VoxelBase; // Default to voxelbase color
 
 			// Radar Pulse Timer for the pulse animation
             double radarPulseTime = timerRadarElapsedTimeTotal.Elapsed.TotalSeconds / 3;
@@ -5356,6 +5494,115 @@ namespace EliDangHUD
                     );
                 }
             }
+
+            foreach (KeyValuePair<Vector3D, RadarPing> entityPingPair in missilePings)
+            {
+                Vector3D missilePos = entityPingPair.Key;
+                RadarPing missilePing = entityPingPair.Value;
+
+                if (!missilePing.PlayerCanDetect || missilePing.RadarPingDistanceSqr > _radarShownRangeSqr) // If can't detect it, or the radar scale prevents showing it move on.
+                {
+                    continue;
+                }
+
+                // Handle fade for edge
+                float fadeDimmer = 1f;
+                // Have to invert old logic, original author made this extend radar range past configured limit. 
+                // I am having the limit as a hard limit be it global config or antenna broadcast range, so we instead make a small range before that "fuzzy" instead. 
+                // If it was outside max range it wouldn't have been detected by the player actively or passively, so we skipped it already. Meaning all we have to do is check if it is in the fade region and fade it or draw it regularly. 
+                if (missilePing.RadarPingDistanceSqr >= _fadeDistanceSqr)
+                {
+                    fadeDimmer = 1 - Clamped(1 - (float)((_fadeDistanceSqr - missilePing.RadarPingDistanceSqr) / (_fadeDistanceSqr - _radarShownRangeSqr)), 0, 1);
+                }
+                Vector3D scaledPos = ApplyLogarithmicScaling(missilePing.RadarPingPosition, playerGridControlledEntityPosition, gHandler.localGridControlledEntityCustomData.radarRadius); // Apply radar scaling
+
+                // Position on the radar
+                Vector3D radarEntityPos = radarPos + scaledPos;
+
+                // If there are any problems that would make displaying the entity fail or do something ridiculous that tanks FPS just skip to the next one.
+                if (double.IsNaN(radarEntityPos.X) || double.IsInfinity(radarEntityPos.X))
+                {
+                    continue;
+                }
+                if (!radarEntityPos.IsValid())
+                {
+                    continue;
+                }
+
+                Vector3D v = radarEntityPos - radarPos;
+                Vector3D uNorm = Vector3D.Normalize(radarUp);
+                float vertDistance = (float)Vector3D.Dot(v, uNorm);
+
+                float upDownDimmer = 1f;
+                if (vertDistance < 0)
+                {
+                    upDownDimmer = 0.8f;
+                }
+
+                float lineLength = (float)Vector3D.Distance(radarEntityPos, radarPos);
+                Vector3D lineDir = radarDown;
+
+                // If invalid, skip now.
+                if (!lineDir.IsValid())
+                {
+                    continue;
+                }
+                // If gridWidth is something ridiculous like 0.0f then fall back on min scale. 
+                if (missilePing.Width <= 0.000001 || double.IsNaN(missilePing.Width)) // Compare to EPS rather than 0. If invalid skip now.
+                {
+                    continue;
+                }
+
+                // Do color of blip based on relationship to player
+                color_Current = missilePing.Color;
+
+                // Detect being targeted (under attack) and modify color based on flipper so the blip flashes
+                if (missilePing.Status == RelationshipStatus.Hostile && IsEntityTargetingPlayer(missilePing.Entity))
+                {
+                    if (!targetingFlipper)
+                    {
+                        color_Current = color_GridEnemyAttack;
+                    }
+                }
+
+                // Pulse timers for animation
+                Vector3D pulsePos = radarEntityPos + (lineDir * vertDistance);
+                double pulseDistance = Vector3D.Distance(pulsePos, radarPos);
+                float pulseTimer = (float)(ClampedD(radarPulseTime, 0, 1) + 0.5 + Math.Min(pulseDistance, gHandler.localGridControlledEntityCustomData.radarRadius) / gHandler.localGridControlledEntityCustomData.radarRadius);
+                if (pulseTimer > 1)
+                {
+                    pulseTimer = pulseTimer - 1;//(float)Math.Truncate (pulseTimer);
+                    if (pulseTimer > 1)
+                    {
+                        pulseTimer = pulseTimer - 1;
+                    }
+                }
+                pulseTimer = Math.Max(pulseTimer * 2, 1);
+
+                // Set drawMaterial based on type of entity/relationship.
+                MyStringId drawMat = missilePing.Material;
+                float powerDimmer = !missilePing.RadarPingHasPower ? 0.5f : 1.0f;
+                // Draw each entity as a billboard on the radar
+                float blipSize = 0.004f * fadeDimmer * missilePing.Width * gHandler.localGridControlledEntityCustomData.radarScannerScale; // Scale blip size based on radar scale
+                Vector3D blipPos = radarEntityPos + (lineDir * vertDistance);
+                // Draw the blip with vertical elevation +/- relative to radar plane, with line connecting it to the radar plane.
+                DrawLineBillboard(MaterialSquare, color_Current * 0.25f * fadeDimmer * pulseTimer, radarEntityPos, lineDir, vertDistance, 0.001f * fadeDimmer);
+                DrawQuad(blipPos, radarUp, blipSize * 0.75f, MaterialCircle, color_Current * upDownDimmer * 0.5f * pulseTimer * 0.5f); // Add blip "shadow" on radar plane
+                MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * powerDimmer * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize);
+
+                // DONE UNTESTED: need to check that they have it AND it can reach us, if we aren't being painted by it don't show it. For situations where our active radar is set far enough to pickup grids
+                // that also have active radar and thus the bool would be true but it's range is low enough they can't reach us (see us). As in only show grids that can see us. 
+                if (missilePing.RadarPingHasActiveRadar && missilePing.RadarPingDistanceSqr <= (missilePing.RadarPingMaxActiveRange * missilePing.RadarPingMaxActiveRange))
+                {
+                    float pulseScale = 1.0f + (haloPulse * 0.20f); // Scale the halo by 15% at max pulse
+                    float pulseAlpha = 1.0f * (1.0f - haloPulse); // Alpha goes from 0.25 to 0 at max pulse, so it fades out as pulse increases.
+                    float ringSize = blipSize * pulseScale; // Scale the ring size based on the pulse
+                    Vector4 haloColor = color_Current * 0.25f * (float)haloPulse; // subtle, fading
+                    // Use the same position and orientation as the blip
+                    DrawCircle(radarEntityPos, ringSize, radarUp, Color.WhiteSmoke, radarBrightness, false, false, 1.0f * pulseAlpha, 0.00035f * gHandler.localGridControlledEntityCustomData.radarScannerScale); //0.5f * haloPulse
+                }
+            }
+
 
             // Targeting CrossHair
             double crossSize = 0.30;
@@ -5698,6 +5945,113 @@ namespace EliDangHUD
                             outlineSize
                         );
                     }
+                }
+
+                foreach (KeyValuePair<Vector3D, RadarPing> entityPingPair in missilePings)
+                {
+                    maxPingCheck++;
+                    if (maxPingCheck > theSettings.maxPings)
+                    {
+                        break;
+                    }
+
+                    Vector3D missilePos = entityPingPair.Key;
+                    RadarPing missilePing = entityPingPair.Value;
+
+                    if (!missilePing.PlayerCanDetect || missilePing.RadarPingDistanceSqr > _radarShownRangeSqr) // If can't detect it, or the radar scale prevents showing it move on.
+                    {
+                        continue;
+                    }
+
+                    // Handle fade for edge
+                    float fadeDimmer = 1f;
+                    // Have to invert old logic, original author made this extend radar range past configured limit. 
+                    // I am having the limit as a hard limit be it global config or antenna broadcast range, so we instead make a small range before that "fuzzy" instead. 
+                    // If it was outside max range it wouldn't have been detected by the player actively or passively, so we skipped it already. Meaning all we have to do is check if it is in the fade region and fade it or draw it regularly. 
+                    if (missilePing.RadarPingDistanceSqr >= _fadeDistanceSqr)
+                    {
+                        fadeDimmer = 1 - Clamped(1 - (float)((_fadeDistanceSqr - missilePing.RadarPingDistanceSqr) / (_fadeDistanceSqr - _radarShownRangeSqr)), 0, 1);
+                    }
+                    Vector3D scaledPos = ApplyLogarithmicScaling(missilePing.RadarPingPosition, playerGridPos, holoRadarRadius); // Apply radar scaling
+
+                    // Position on the radar
+                    Vector3D radarEntityPos = holoTablePos + scaledPos;
+
+                    // If there are any problems that would make displaying the entity fail or do something ridiculous that tanks FPS just skip to the next one.
+                    if (double.IsNaN(radarEntityPos.X) || double.IsInfinity(radarEntityPos.X))
+                    {
+                        continue;
+                    }
+                    if (!radarEntityPos.IsValid())
+                    {
+                        continue;
+                    }
+
+                    Vector3D v = radarEntityPos - holoTablePos;
+                    Vector3D uNorm = Vector3D.Normalize(holoUp);
+                    float vertDistance = (float)Vector3D.Dot(v, uNorm);
+
+                    float upDownDimmer = 1f;
+                    if (vertDistance < 0)
+                    {
+                        upDownDimmer = 0.8f;
+                    }
+
+                    float lineLength = (float)Vector3D.Distance(radarEntityPos, holoTablePos);
+                    Vector3D lineDir = holoDown;
+
+                    // If invalid, skip now.
+                    if (!lineDir.IsValid())
+                    {
+                        continue;
+                    }
+
+                    if (missilePing.Width <= 0.000001 || double.IsNaN(missilePing.Width)) // Compare to EPS rather than 0. If invalid skip now.
+                    {
+                        continue;
+                    }
+
+                    // Do color of blip based on relationship to player
+                    color_Current = missilePing.Color;
+
+                    // Detect being targeted (under attack) and modify color based on flipper so the blip flashes
+                    if (missilePing.Status == RelationshipStatus.Hostile && IsEntityTargetingPlayerHolo(missilePing.Entity))
+                    {
+                        if (!targetingFlipper)
+                        {
+                            color_Current = color_GridEnemyAttack;
+                        }
+                    }
+
+                    // Pulse timers for animation
+                    Vector3D pulsePos = radarEntityPos + (lineDir * vertDistance);
+                    double pulseDistance = Vector3D.Distance(pulsePos, holoTablePos);
+                    float pulseTimer = (float)(ClampedD(radarPulseTime, 0, 1) + 0.5 + Math.Min(pulseDistance, holoRadarRadius) / holoRadarRadius);
+                    if (pulseTimer > 1)
+                    {
+                        pulseTimer = pulseTimer - 1;//(float)Math.Truncate (pulseTimer);
+                        if (pulseTimer > 1)
+                        {
+                            pulseTimer = pulseTimer - 1;
+                        }
+                    }
+                    pulseTimer = Math.Max(pulseTimer * 2, 1);
+
+                    // Set drawMaterial based on type of entity/relationship.
+                    MyStringId drawMat = missilePing.Material;
+                    float powerDimmer = !missilePing.RadarPingHasPower ? 0.5f : 1.0f;
+
+                    // Draw each entity as a billboard on the radar
+                    float blipSize = 0.015f * fadeDimmer * missilePing.Width * holoRadarRadius; // was 0.005f
+                    Vector3D blipPos = radarEntityPos + (lineDir * vertDistance);
+                    // Draw the blip with vertical elevation +/- relative to radar plane, with line connecting it to the radar plane.
+
+                    
+                    DrawLineBillboard(MaterialSquare, color_Current * 0.25f * fadeDimmer * pulseTimer, radarEntityPos, lineDir, vertDistance, 0.004f * fadeDimmer);
+                    DrawQuad(blipPos, holoUp, blipSize * 0.75f, MaterialCircle, color_Current * upDownDimmer * 0.5f * pulseTimer * 0.5f);
+                    // Add blip "shadow" on radar plane
+                    MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * powerDimmer * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize);
+                    
                 }
             }
         }
@@ -8076,138 +8430,12 @@ namespace EliDangHUD
                 NewBlipAnim(newTarget);
                 PlayCustomSound(SP_ZOOMOUT, _headPositionWorld);
 
-                if (_isWeaponCore && _weaponCoreInitialized && _weaponCoreWeaponsInitialized)
+                if (_isWeaponCore && _weaponCoreInitialized)
                 {
-                    LockTargetWeaponCore(newTarget);
+                    // Lock weaponcore target
                 }
             }
         }
-
-        private Dictionary<string, Delegate> weaponCoreApi = null;
-        private Action<Sandbox.ModAPI.IMyTerminalBlock, VRage.ModAPI.IMyEntity> setTarget;
-        Action<Sandbox.ModAPI.IMyTerminalBlock, VRage.ModAPI.IMyEntity, bool, bool> setTargetFocus;
-        Func<Sandbox.ModAPI.IMyTerminalBlock, bool> hasCoreWeapon;
-        private const long WEAPONCORE_MOD_ID = 5649865810; // WC's Mod Communication ID (check your version if this changes)
-
-        /// <summary>
-        /// Initialize weapon core, WIP.
-        /// </summary>
-        private void InitWeaponCore()
-        {
-			if (weaponCoreApi != null || _weaponCoreInitialized)
-			{ 
-				return; // Already initialized
-            }
-
-            weaponCoreApi = new Dictionary<string, Delegate>();
-
-            MyAPIGateway.Utilities.SendModMessage(WEAPONCORE_MOD_ID, weaponCoreApi);
-
-            if (weaponCoreApi.Count == 0)
-            {
-                MyLog.Default.WriteLine("[MyMod] WeaponCore API not available.");
-                return;
-            }
-
-            Delegate setTargetDelegate = null;
-            if (weaponCoreApi.TryGetValue("SetTarget", out setTargetDelegate))
-                setTarget = (Action<Sandbox.ModAPI.IMyTerminalBlock, VRage.ModAPI.IMyEntity>)setTargetDelegate;
-            Delegate focusDelegate = null;
-            if (weaponCoreApi.TryGetValue("SetTargetFocus", out focusDelegate))
-                setTargetFocus = (Action<Sandbox.ModAPI.IMyTerminalBlock, VRage.ModAPI.IMyEntity, bool, bool>)focusDelegate;
-            Delegate hasCoreWeaponDelegate = null;
-            if (weaponCoreApi.TryGetValue("HasCoreWeapon", out hasCoreWeaponDelegate))
-                hasCoreWeapon = (Func<Sandbox.ModAPI.IMyTerminalBlock, bool>)hasCoreWeaponDelegate;
-
-            _weaponCoreInitialized = true;
-
-            MyAPIGateway.Utilities.ShowMessage("WC", "WeaponCore API initialized");  
-        }
-
-        /// <summary>
-        /// Initialize weapon core weapons, WIP.
-        /// </summary>
-        public void InitializeWeaponCoreWeapons()
-        {
-			if (!_weaponCoreWeaponsInitialized && _weaponCoreInitialized) 
-			{
-                List<VRage.Game.ModAPI.IMySlimBlock> blocks = new List<VRage.Game.ModAPI.IMySlimBlock>();
-                gHandler.localGrid.GetBlocks(blocks);
-
-                foreach (VRage.Game.ModAPI.IMySlimBlock block in blocks)
-                {
-					Sandbox.ModAPI.IMyTerminalBlock terminalBlock = block.FatBlock as Sandbox.ModAPI.IMyTerminalBlock;
-                    if (terminalBlock != null && terminalBlock.IsFunctional)
-                    {
-                        if (IsWeaponCoreWeapon(terminalBlock))
-                        {
-                            //if (!_localGridWCWeapons.Contains(terminalBlock))
-                            //{
-                            //    _localGridWCWeapons.Add(terminalBlock);
-                            //}
-
-                        }
-                    }
-                }
-                _weaponCoreWeaponsInitialized = true;
-            }
-        }
-
-        /// <summary>
-        /// Locks target using WeaponCore API, WIP. Broken, does not work. 
-        /// </summary>
-        /// <param name="newTarget"></param>
-        private void LockTargetWeaponCore(VRage.ModAPI.IMyEntity newTarget)
-        {
-            InitWeaponCore(); // Ensure API is ready
-
-			if (setTarget == null || newTarget == null)
-			{
-                return;
-            }
-               
-
-			//List<Sandbox.ModAPI.IMyTerminalBlock> weaponCoreTurrets = new List<Sandbox.ModAPI.IMyTerminalBlock>();
-			//var grid = (gHandler?.localGridControlledEntity as VRage.Game.ModAPI.IMyCubeGrid);
-			//if (grid == null)
-			//    return;
-
-			//MyAPIGateway.TerminalActionsHelper.GetTerminalSystemForGrid(grid)
-			//    .GetBlocksOfType<Sandbox.ModAPI.IMyTerminalBlock>(weaponCoreTurrets, b =>
-			//        b.DefinitionDisplayNameText != null && b.DefinitionDisplayNameText.Contains("WeaponCore")); // Or better filtering
-
-			//foreach (var turret in weaponCoreTurrets)
-			//{
-			//    setTarget(turret, newTarget);
-			//}
-
-			// Parameters:
-			// - Weapon block (any WC weapon on the grid)
-			// - Target entity
-			// - Focus: true to lock it, false to clear
-			// - Subsystem: false = full grid, true = subsystem targeting
-			//setTargetFocus(_localGridWCWeapons.First<Sandbox.ModAPI.IMyTerminalBlock>(), newTarget, true, false);
-        }
-
-        /// <summary>
-        /// Is a weaponcore weapon? How can we even tell this?
-        /// </summary>
-        /// <param name="block"></param>
-        /// <returns></returns>
-        bool IsWeaponCoreWeapon(Sandbox.ModAPI.IMyTerminalBlock block)
-        {
-			if (hasCoreWeapon != null && hasCoreWeapon(block))
-			{
-				return true;
-			}
-			else 
-			{
-                return block.DefinitionDisplayNameText.Contains("Weapon") ||
-                           block.BlockDefinition.SubtypeName.Contains("WC") ||
-                           block.CustomName.Contains("WC");
-            }	
-        }
-
 
         /// <summary>
         /// Uses camera position to calculate the closest entity, uses GetTopMostParent to return main grid not subgrids like wheels etc. Also uses a min block count to help prevent debris being picked up.
