@@ -11,6 +11,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net.NetworkInformation;
 using VRage;
 using VRage.Game;
 using VRage.Game.Components;
@@ -26,6 +27,7 @@ using VRage.Utils;
 //using VRage.Input;
 using VRageMath;
 using VRageRender;
+using static VRage.Game.Entity.MyEntity;
 using BlendTypeEnum = VRageRender.MyBillboard.BlendTypeEnum;
 
 //---
@@ -3321,6 +3323,8 @@ namespace EliDangHUD
             sortedHostileRadarPings = radarPings.Where(kv => kv.Value.Status == RelationshipStatus.Hostile && kv.Value.PlayerCanDetect == true && kv.Key.GetTopMostParent()
             != gHandler.localGrid.GetTopMostParent() && (!onlyPowered || kv.Value.RadarPingHasPower))
                 .OrderBy(kv => kv.Value.RadarPingDistanceSqr).Select(kv => kv.Key).OfType<VRage.Game.ModAPI.IMyCubeGrid>().Cast<VRage.ModAPI.IMyEntity>().ToList();
+
+            
         }
 
         /// <summary>
@@ -3505,6 +3509,55 @@ namespace EliDangHUD
             sortedHostileRadarPings = radarPings.Where(kv => kv.Value.Status == RelationshipStatus.Hostile && kv.Value.PlayerCanDetect == true && kv.Key.GetTopMostParent()
             != gHandler.localGrid.GetTopMostParent() && (!onlyPowered || kv.Value.RadarPingHasPower))
                 .OrderBy(kv => kv.Value.RadarPingDistanceSqr).Select(kv => kv.Key).OfType<VRage.Game.ModAPI.IMyCubeGrid>().Cast<VRage.ModAPI.IMyEntity>().ToList();
+
+        }
+
+        public void CheckIncomingMissiles() 
+        {
+            // Check for incoming missiles
+            if (_isWeaponCore)
+            {
+                missilePings.Clear();
+                List<Vector3D> missiles;
+                if (wcApi.IsTargeted(gHandler.localGrid, out missiles))
+                {
+
+                    foreach (Vector3D missilePos in missiles)
+                    {
+                        RadarPing newMissile = new RadarPing();
+
+                        newMissile.RadarPingPosition = missilePos;
+
+                        // If we have no active or passive radar we can't detect, but otherwise we can because missiles are treated as having active radar. 
+                        if (gHandler.localGridHasPassiveRadar || gHandler.localGridHasActiveRadar)
+                        {
+                            Vector3D relativePos = missilePos - gHandler.localGrid.GetPosition(); // Position of entity relative to grid
+                            double relativeDistanceSqr = relativePos.LengthSquared();
+                            newMissile.RadarPingDistanceSqr = relativeDistanceSqr;
+                            if (IsWithinRadarRadius(relativeDistanceSqr, gHandler.localGridMaxPassiveRadarRange * gHandler.localGridMaxPassiveRadarRange))
+                            {
+                                newMissile.PlayerCanDetect = true;
+                            }
+                            else
+                            {
+                                newMissile.PlayerCanDetect = false;
+                            }
+                        }
+                        else
+                        {
+                            newMissile.PlayerCanDetect = false;
+                        }
+
+                        newMissile.Color = color_GridEnemy;
+                        newMissile.Status = RelationshipStatus.Hostile;
+                        newMissile.Width = 0.25f;
+                        newMissile.Material = MaterialDiamond;
+
+
+                        missilePings[missilePos] = newMissile;
+                    }
+                }
+            }
         }
 
 
@@ -3673,21 +3726,9 @@ namespace EliDangHUD
                         OnSitDown();
                     }
 
-
                     if (_isWeaponCore) 
                     {
-                        missilePings.Clear();
-                        List<Vector3D> missiles;
-                        if (wcApi.IsTargeted(gHandler.localGrid, out missiles))
-                        {
-                            
-                            foreach (Vector3D missilePos in missiles) 
-                            {
-                                RadarPing newMissile = new RadarPing();
-                                missilePings[missilePos] = newMissile;
-                            }
-                            //MyAPIGateway.Utilities.ShowNotification($"Incoming missiles: {missiles.Count}", 2000);
-                        }
+                        CheckIncomingMissiles();
                     }
 
                     if (theSettings.enableVelocityLines && gHandler.localGridControlledEntityCustomData.enableVelocityLines && (float)gHandler.localGridSpeed > gHandler.localGridControlledEntityCustomData.velocityLineSpeedThreshold)
@@ -5495,12 +5536,12 @@ namespace EliDangHUD
                 }
             }
 
-            foreach (KeyValuePair<Vector3D, RadarPing> entityPingPair in missilePings)
+            foreach (KeyValuePair<Vector3D, RadarPing> missileKeyValuePair in missilePings)
             {
-                Vector3D missilePos = entityPingPair.Key;
-                RadarPing missilePing = entityPingPair.Value;
 
-                if (!missilePing.PlayerCanDetect || missilePing.RadarPingDistanceSqr > _radarShownRangeSqr) // If can't detect it, or the radar scale prevents showing it move on.
+                Vector3D missilePos = missileKeyValuePair.Key;
+
+                if (!missilePings[missilePos].PlayerCanDetect || missilePings[missilePos].RadarPingDistanceSqr > _radarShownRangeSqr) // If can't detect it, or the radar scale prevents showing it move on.
                 {
                     continue;
                 }
@@ -5510,11 +5551,11 @@ namespace EliDangHUD
                 // Have to invert old logic, original author made this extend radar range past configured limit. 
                 // I am having the limit as a hard limit be it global config or antenna broadcast range, so we instead make a small range before that "fuzzy" instead. 
                 // If it was outside max range it wouldn't have been detected by the player actively or passively, so we skipped it already. Meaning all we have to do is check if it is in the fade region and fade it or draw it regularly. 
-                if (missilePing.RadarPingDistanceSqr >= _fadeDistanceSqr)
+                if (missilePings[missilePos].RadarPingDistanceSqr >= _fadeDistanceSqr)
                 {
-                    fadeDimmer = 1 - Clamped(1 - (float)((_fadeDistanceSqr - missilePing.RadarPingDistanceSqr) / (_fadeDistanceSqr - _radarShownRangeSqr)), 0, 1);
+                    fadeDimmer = 1 - Clamped(1 - (float)((_fadeDistanceSqr - missilePings[missilePos].RadarPingDistanceSqr) / (_fadeDistanceSqr - _radarShownRangeSqr)), 0, 1);
                 }
-                Vector3D scaledPos = ApplyLogarithmicScaling(missilePing.RadarPingPosition, playerGridControlledEntityPosition, gHandler.localGridControlledEntityCustomData.radarRadius); // Apply radar scaling
+                Vector3D scaledPos = ApplyLogarithmicScaling(missilePos, playerGridControlledEntityPosition, gHandler.localGridControlledEntityCustomData.radarRadius); // Apply radar scaling
 
                 // Position on the radar
                 Vector3D radarEntityPos = radarPos + scaledPos;
@@ -5548,22 +5589,13 @@ namespace EliDangHUD
                     continue;
                 }
                 // If gridWidth is something ridiculous like 0.0f then fall back on min scale. 
-                if (missilePing.Width <= 0.000001 || double.IsNaN(missilePing.Width)) // Compare to EPS rather than 0. If invalid skip now.
+                if (missilePings[missilePos].Width <= 0.000001 || double.IsNaN(missilePings[missilePos].Width)) // Compare to EPS rather than 0. If invalid skip now.
                 {
                     continue;
                 }
 
                 // Do color of blip based on relationship to player
-                color_Current = missilePing.Color;
-
-                // Detect being targeted (under attack) and modify color based on flipper so the blip flashes
-                if (missilePing.Status == RelationshipStatus.Hostile && IsEntityTargetingPlayer(missilePing.Entity))
-                {
-                    if (!targetingFlipper)
-                    {
-                        color_Current = color_GridEnemyAttack;
-                    }
-                }
+                color_Current = missilePings[missilePos].Color;
 
                 // Pulse timers for animation
                 Vector3D pulsePos = radarEntityPos + (lineDir * vertDistance);
@@ -5580,27 +5612,15 @@ namespace EliDangHUD
                 pulseTimer = Math.Max(pulseTimer * 2, 1);
 
                 // Set drawMaterial based on type of entity/relationship.
-                MyStringId drawMat = missilePing.Material;
-                float powerDimmer = !missilePing.RadarPingHasPower ? 0.5f : 1.0f;
+                MyStringId drawMat = missilePings[missilePos].Material;
+
                 // Draw each entity as a billboard on the radar
-                float blipSize = 0.004f * fadeDimmer * missilePing.Width * gHandler.localGridControlledEntityCustomData.radarScannerScale; // Scale blip size based on radar scale
+                float blipSize = 0.004f * fadeDimmer * missilePings[missilePos].Width * gHandler.localGridControlledEntityCustomData.radarScannerScale; // Scale blip size based on radar scale
                 Vector3D blipPos = radarEntityPos + (lineDir * vertDistance);
                 // Draw the blip with vertical elevation +/- relative to radar plane, with line connecting it to the radar plane.
                 DrawLineBillboard(MaterialSquare, color_Current * 0.25f * fadeDimmer * pulseTimer, radarEntityPos, lineDir, vertDistance, 0.001f * fadeDimmer);
                 DrawQuad(blipPos, radarUp, blipSize * 0.75f, MaterialCircle, color_Current * upDownDimmer * 0.5f * pulseTimer * 0.5f); // Add blip "shadow" on radar plane
-                MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * powerDimmer * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize);
-
-                // DONE UNTESTED: need to check that they have it AND it can reach us, if we aren't being painted by it don't show it. For situations where our active radar is set far enough to pickup grids
-                // that also have active radar and thus the bool would be true but it's range is low enough they can't reach us (see us). As in only show grids that can see us. 
-                if (missilePing.RadarPingHasActiveRadar && missilePing.RadarPingDistanceSqr <= (missilePing.RadarPingMaxActiveRange * missilePing.RadarPingMaxActiveRange))
-                {
-                    float pulseScale = 1.0f + (haloPulse * 0.20f); // Scale the halo by 15% at max pulse
-                    float pulseAlpha = 1.0f * (1.0f - haloPulse); // Alpha goes from 0.25 to 0 at max pulse, so it fades out as pulse increases.
-                    float ringSize = blipSize * pulseScale; // Scale the ring size based on the pulse
-                    Vector4 haloColor = color_Current * 0.25f * (float)haloPulse; // subtle, fading
-                    // Use the same position and orientation as the blip
-                    DrawCircle(radarEntityPos, ringSize, radarUp, Color.WhiteSmoke, radarBrightness, false, false, 1.0f * pulseAlpha, 0.00035f * gHandler.localGridControlledEntityCustomData.radarScannerScale); //0.5f * haloPulse
-                }
+                MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize);
             }
 
 
@@ -5949,16 +5969,9 @@ namespace EliDangHUD
 
                 foreach (KeyValuePair<Vector3D, RadarPing> entityPingPair in missilePings)
                 {
-                    maxPingCheck++;
-                    if (maxPingCheck > theSettings.maxPings)
-                    {
-                        break;
-                    }
-
                     Vector3D missilePos = entityPingPair.Key;
-                    RadarPing missilePing = entityPingPair.Value;
 
-                    if (!missilePing.PlayerCanDetect || missilePing.RadarPingDistanceSqr > _radarShownRangeSqr) // If can't detect it, or the radar scale prevents showing it move on.
+                    if (!missilePings[missilePos].PlayerCanDetect || missilePings[missilePos].RadarPingDistanceSqr > _radarShownRangeSqr) // If can't detect it, or the radar scale prevents showing it move on.
                     {
                         continue;
                     }
@@ -5968,11 +5981,11 @@ namespace EliDangHUD
                     // Have to invert old logic, original author made this extend radar range past configured limit. 
                     // I am having the limit as a hard limit be it global config or antenna broadcast range, so we instead make a small range before that "fuzzy" instead. 
                     // If it was outside max range it wouldn't have been detected by the player actively or passively, so we skipped it already. Meaning all we have to do is check if it is in the fade region and fade it or draw it regularly. 
-                    if (missilePing.RadarPingDistanceSqr >= _fadeDistanceSqr)
+                    if (missilePings[missilePos].RadarPingDistanceSqr >= _fadeDistanceSqr)
                     {
-                        fadeDimmer = 1 - Clamped(1 - (float)((_fadeDistanceSqr - missilePing.RadarPingDistanceSqr) / (_fadeDistanceSqr - _radarShownRangeSqr)), 0, 1);
+                        fadeDimmer = 1 - Clamped(1 - (float)((_fadeDistanceSqr - missilePings[missilePos].RadarPingDistanceSqr) / (_fadeDistanceSqr - _radarShownRangeSqr)), 0, 1);
                     }
-                    Vector3D scaledPos = ApplyLogarithmicScaling(missilePing.RadarPingPosition, playerGridPos, holoRadarRadius); // Apply radar scaling
+                    Vector3D scaledPos = ApplyLogarithmicScaling(missilePings[missilePos].RadarPingPosition, playerGridPos, holoRadarRadius); // Apply radar scaling
 
                     // Position on the radar
                     Vector3D radarEntityPos = holoTablePos + scaledPos;
@@ -6006,16 +6019,16 @@ namespace EliDangHUD
                         continue;
                     }
 
-                    if (missilePing.Width <= 0.000001 || double.IsNaN(missilePing.Width)) // Compare to EPS rather than 0. If invalid skip now.
+                    if (missilePings[missilePos].Width <= 0.000001 || double.IsNaN(missilePings[missilePos].Width)) // Compare to EPS rather than 0. If invalid skip now.
                     {
                         continue;
                     }
 
                     // Do color of blip based on relationship to player
-                    color_Current = missilePing.Color;
+                    color_Current = missilePings[missilePos].Color;
 
                     // Detect being targeted (under attack) and modify color based on flipper so the blip flashes
-                    if (missilePing.Status == RelationshipStatus.Hostile && IsEntityTargetingPlayerHolo(missilePing.Entity))
+                    if (missilePings[missilePos].Status == RelationshipStatus.Hostile && IsEntityTargetingPlayerHolo(missilePings[missilePos].Entity))
                     {
                         if (!targetingFlipper)
                         {
@@ -6038,11 +6051,10 @@ namespace EliDangHUD
                     pulseTimer = Math.Max(pulseTimer * 2, 1);
 
                     // Set drawMaterial based on type of entity/relationship.
-                    MyStringId drawMat = missilePing.Material;
-                    float powerDimmer = !missilePing.RadarPingHasPower ? 0.5f : 1.0f;
+                    MyStringId drawMat = missilePings[missilePos].Material;
 
                     // Draw each entity as a billboard on the radar
-                    float blipSize = 0.015f * fadeDimmer * missilePing.Width * holoRadarRadius; // was 0.005f
+                    float blipSize = 0.015f * fadeDimmer * missilePings[missilePos].Width * holoRadarRadius; // was 0.005f
                     Vector3D blipPos = radarEntityPos + (lineDir * vertDistance);
                     // Draw the blip with vertical elevation +/- relative to radar plane, with line connecting it to the radar plane.
 
@@ -6050,7 +6062,7 @@ namespace EliDangHUD
                     DrawLineBillboard(MaterialSquare, color_Current * 0.25f * fadeDimmer * pulseTimer, radarEntityPos, lineDir, vertDistance, 0.004f * fadeDimmer);
                     DrawQuad(blipPos, holoUp, blipSize * 0.75f, MaterialCircle, color_Current * upDownDimmer * 0.5f * pulseTimer * 0.5f);
                     // Add blip "shadow" on radar plane
-                    MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * powerDimmer * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize);
+                    MyTransparentGeometry.AddBillboardOriented(drawMat, color_Current * upDownDimmer * pulseTimer, radarEntityPos, viewLeft, viewUp, blipSize);
                     
                 }
             }
