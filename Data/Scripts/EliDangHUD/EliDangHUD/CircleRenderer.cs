@@ -85,6 +85,37 @@ and it re-processes the slices it does one reprocess of the slices then per holo
 
 TODO and CHANGES moved to README.md
 
+
+["SetWeaponTargetBase"] = new Action<MyEntity, MyEntity, int>(SetWeaponTarget),
+
+  /// <summary>
+        /// Sets the WeaponAi target of <paramref name="weaponId"/> on <paramref name="weapon"/> to EntityID <paramref name="target"/>.
+        /// </summary>
+        /// <param name="weapon"></param>
+        /// <param name="target"></param>
+        /// <param name="weaponId"></param>
+        public void SetWeaponTarget(Sandbox.ModAPI.Ingame.IMyTerminalBlock weapon, long target, int weaponId = 0) =>
+            _setWeaponTarget?.Invoke(weapon, target, weaponId);
+
+
+["SetFocusTarget"] = new Func<MyEntity, MyEntity, int, bool>(SetPhantomFocusTarget),
+  private bool SetPhantomFocusTarget(MyEntity phantom, MyEntity target, int focusId)
+        {
+            Ai ai;
+            if (target != null && !target.MarkedForClose && Session.I.EntityToMasterAi.TryGetValue(phantom, out ai))
+            {
+                if (!Session.I.IsServer)
+                    return false;
+
+                ai.Construct.Focus.ServerChangeFocus(target, ai, 0, Focus.ChangeMode.Add, true);
+                return true;
+            }
+
+            return false;
+        }
+
+
+
 Wise words from baby:
 hjmiiiiiiiiooooooooooooooooooooooo88888888888888888888888888888888...;////////////////////////////////////////////////
 
@@ -9217,7 +9248,7 @@ namespace EliDangHUD
 				balance = balance.Substring(0, balance.Length - 3);
 			}
 
-			// Replace all commas with periods
+			// Replace all commas with spaces
 			balance = balance.Replace(",", "");
 
 			return balance;
@@ -9230,11 +9261,21 @@ namespace EliDangHUD
         /// <returns></returns>
 		private double Convert2Credits(string cr)
 		{
-			double cr_d = Convert.ToDouble(cr);
-
-			return cr_d;
+            if (string.IsNullOrEmpty(cr))
+            { 
+                return 0; 
+            }
+            double credits;
+            if (Double.TryParse(cr, out credits))
+            {
+                return credits;
+            }
+            else 
+            {
+                return 0;
+            }
 		}
-
+         
         /// <summary>
         /// Update the credit balance difference for smooth counting effect.
         /// </summary>

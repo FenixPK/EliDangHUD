@@ -443,6 +443,9 @@ public enum MyKeys : byte
 }
 
 # Changelog
+## 2025-10-09
+DONE: Fix bug with the Credit Update logic when the string returned cannot be parsed to a double by using TryParse instead. 
+
 ## 2025-09-30
 DONE: Add ability to warn player of incoming missiles if WeaponCore is loaded. Will flash a warning on bottom of hud, with missile count, and also draw them on the radar if radar is on. 
 
@@ -588,6 +591,10 @@ DONE: Removed arbitrary DisplayName == "Stone" || DisplayName == null filter fro
 I'd like to do further settings to allow users to more specifically choose to filter our floating items of name 'Stone' for eg, or only voxels (asteroids and deposits) of certain types or sizes even. 
 
 # TODO
+TODO: Add the new icons for block type counts so we can see info about our target below/around the hologram projection seated or holo table. 
+
+TODO: Add an API interface modders can use to change variables like the speed arc color, or other settings?
+
 TODO: Consider a personal on foot hologram, might help with making repairs?  Only select nearest with R, and only with welder selected? Maybe... Not sure how to do this since there isn't a customdata to be able to write size, offset etc.
 
 TODO: CIC table with [ELI_CIC]. Works just like any other holo radar regarding selecting target etc. But can use Alt+Numpad1-9 to pin the currently selected target, 
